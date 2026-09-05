@@ -25,8 +25,10 @@ jobs:
         include:
           - os: windows-latest
             name: Windows
-            tasks: packageMsi
-            artifacts: composeApp/build/compose/binaries/main/msi/*.msi
+            # Свой установщик на WiX, а не jpackage: только он умеет закрывать
+            # работающее приложение при обновлении. См. composeApp/wix/Product.wxs.
+            tasks: packageWixMsi
+            artifacts: composeApp/build/distributions/*.msi
           - os: ubuntu-latest
             name: Linux
             tasks: packageDeb packageRpm
@@ -84,8 +86,8 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           gh release view "$tag" >/dev/null 2>&1 || \
             gh release create "$tag" --title "OpenDisk $tag" --prerelease --notes "Сборка $tag"
-          files=$(find composeApp/build/compose/binaries/main -type f \
-            \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \))
+          files=$(find composeApp/build/distributions composeApp/build/compose/binaries/main \
+            -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \) 2>/dev/null)
           echo "Выкладываю:"; echo "$files"
           gh release upload "$tag" $files --clobber
           # Релиз может оказаться черновиком: если тег когда-то удаляли,

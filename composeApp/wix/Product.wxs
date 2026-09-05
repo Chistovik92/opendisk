@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Установщик OpenDisk для Windows.
+
+  Собственная сборка на WiX вместо установщика, который делает jpackage.
+  Причина одна и важная: jpackage не умеет закрывать работающее приложение.
+  Обновление поверх запущенной копии упиралось в занятые файлы, Windows
+  Installer откладывал их замену, сам перезагружал компьютер — и установка
+  оставалась повреждённой, приложение переставало запускаться.
+
+  Файлы приложения сюда не перечисляются: их собирает heat.exe из готового
+  образа (задача createDistributable) в группу компонентов AppFiles.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+
+  <Product Id="*"
+           Name="OpenDisk"
+           Language="1049"
+           Codepage="1251"
+           Version="$(var.Version)"
+           Manufacturer="OpenDisk contributors"
+           UpgradeCode="017F57A7-5FBD-3E70-A0A0-07906627B269">
+
+    <!--
+      InstallerVersion 500 — Windows Installer 5.0, он есть везде начиная
+      с Windows 7 и нужен для perMachine-установки в 64-битный Program Files.
+    -->
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="OpenDisk — открытый клиент облачных дисков"
+             Manufacturer="OpenDisk contributors"
+             Languages="1049"
+             SummaryCodepage="1251" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!--
+      UpgradeCode совпадает с тем, что использовал jpackage, — иначе новая
+      версия встала бы рядом со старой вместо обновления.
+
+      Момент удаления старой версии здесь принципиален, и обе привычные
+      настройки не подошли:
+
+      - afterInstallInitialize теряло 18 файлов, включая jvm.dll: пути у старой
+        и новой версии совпадают, установщик решал не перезаписывать «такие же»
+        файлы, а последующее удаление старого продукта их сносило. Приложение
+        после обновления не запускалось;
+      - afterInstallValidate снимает старую версию раньше, чем успевает
+        отработать закрытие приложения, — файлы оказывались заняты, и установка
+        требовала перезагрузки (код 3010).
+
+      Корень оказался не в расписании, а в GUID-ах компонентов: heat выдавал
+      их заново при каждой сборке, и installer не мог сопоставить одинаковые
+      файлы двух версий. Со стабильными GUID-ами (heat -ag) обычного
+      afterInstallInitialize достаточно: общие файлы пересчитываются по
+      ссылкам, а приложение к этому моменту уже закрыто.
+    -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="Уже установлена более новая версия OpenDisk." />
+
+    <!-- Чтобы в «Программах и компонентах» был виден путь установки. -->
+    <Property Id="ARPINSTALLLOCATION" Secure="yes" />
+    <CustomAction Id="SetArpInstallLocation" Property="ARPINSTALLLOCATION" Value="[INSTALLDIR]" />
+    <InstallExecuteSequence>
+      <Custom Action="SetArpInstallLocation" After="InstallValidate">NOT Installed</Custom>
+    </InstallExecuteSequence>
+
+    <!--
+      Ради этого всё и затевалось. Установщик находит работающий OpenDisk
+      и закрывает его до того, как трогать файлы.
+
+      TerminateProcess нужен, потому что окно приложения по крестику не
+      закрывается, а прячется в трей: одного WM_CLOSE недостаточно.
+      RebootPrompt="no" — перезагрузку не предлагаем: файлы уже свободны.
+    -->
+    <util:CloseApplication Id="CloseOpenDisk"
+                           Target="OpenDisk.exe"
+                           Description="OpenDisk запущен. Установщик закроет его, чтобы продолжить."
+                           CloseMessage="yes"
+                           TerminateProcess="0"
+                           RebootPrompt="no" />
+
+    <!-- Перезагрузка не должна происходить сама по себе ни при каких условиях. -->
+    <Property Id="REBOOT" Value="ReallySuppress" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="OpenDisk" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="AppMenuFolder" Name="OpenDisk" />
+      </Directory>
+      <Directory Id="DesktopFolder" />
+    </Directory>
+
+    <DirectoryRef Id="AppMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="*">
+        <Shortcut Id="StartMenuLink"
+                  Name="OpenDisk"
+                  Description="Открытый клиент облачных дисков"
+                  Target="[INSTALLDIR]OpenDisk.exe"
+                  WorkingDirectory="INSTALLDIR" />
+        <RemoveFolder Id="RemoveAppMenuFolder" Directory="AppMenuFolder" On="uninstall" />
+        <!-- Ярлыку нужен keypath; для машинной установки берём HKLM. -->
+        <RegistryValue Root="HKLM" Key="Software\OpenDisk"
+                       Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="*">
+        <Shortcut Id="DesktopLink"
+                  Name="OpenDisk"
+                  Description="Открытый клиент облачных дисков"
+                  Target="[INSTALLDIR]OpenDisk.exe"
+                  WorkingDirectory="INSTALLDIR" />
+        <RegistryValue Root="HKLM" Key="Software\OpenDisk"
+                       Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Main" Title="OpenDisk" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+    <UIRef Id="WixUI_InstallDir" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+  </Product>
+</Wix>

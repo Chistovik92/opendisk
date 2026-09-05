@@ -232,6 +232,136 @@ val downloadWinFsp by tasks.registering {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Собственный установщик на WiX (только Windows)
+//
+// jpackage не умеет закрывать работающее приложение: обновление поверх
+// запущенной копии упиралось в занятые файлы, Windows Installer откладывал их
+// замену, сам перезагружал компьютер — и установка оставалась повреждённой.
+// Своё описание установщика позволяет добавить util:CloseApplication, который
+// закрывает приложение до того, как трогать файлы.
+//
+// Инструменты WiX не скачиваются отдельно: их уже приносит плагин Compose
+// задачей unzipWix ради своего packageMsi.
+// ---------------------------------------------------------------------------
+
+val wixDir = rootProject.layout.buildDirectory.dir("wix311")
+val wixWorkDir = layout.buildDirectory.dir("wixBuild")
+val wixOutputDir = layout.buildDirectory.dir("distributions")
+
+val packageWixMsi by tasks.registering {
+    group = "compose desktop"
+    description = "Собирает MSI на WiX — с закрытием работающего приложения при обновлении"
+
+    dependsOn("createDistributable", ":unzipWix")
+
+    val appImage = layout.buildDirectory.dir("compose/binaries/main/app/OpenDisk")
+    val productWxs = layout.projectDirectory.file("wix/Product.wxs")
+    val licenseRtf = layout.projectDirectory.file("wix/License.rtf")
+    val version = project.version.toString()
+    val tools = wixDir
+    val work = wixWorkDir
+    val output = wixOutputDir
+
+    inputs.file(productWxs)
+    inputs.file(licenseRtf)
+    inputs.property("version", version)
+    outputs.file(output.map { it.file("OpenDisk-$version.msi") })
+
+    doLast {
+        val toolsDir = tools.get().asFile
+        val heat = File(toolsDir, "heat.exe")
+        check(heat.isFile) {
+            "Инструменты WiX не найдены в $toolsDir. Их распаковывает задача unzipWix плагина Compose."
+        }
+
+        val workDir = work.get().asFile
+        workDir.deleteRecursively()
+        workDir.mkdirs()
+
+        val imageDir = appImage.get().asFile
+        check(File(imageDir, "OpenDisk.exe").isFile) {
+            "Образ приложения не собран: ${File(imageDir, "OpenDisk.exe")}"
+        }
+
+        val harvested = File(workDir, "AppFiles.wxs")
+
+        // heat перечисляет все файлы образа в группу компонентов AppFiles.
+        //
+        // -ag, а не -gg: -gg выдаёт случайные GUID-ы при каждой сборке, и тогда
+        // Windows Installer не видит, что файлы старой и новой версии — одни
+        // и те же. Ссылки не пересчитываются, и удаление старой версии сносит
+        // только что скопированные файлы: при одном порядке действий пропадали
+        // библиотеки JVM, при другом — почти весь образ целиком.
+        // -ag оставляет Guid="*", а его light считает от пути и keypath —
+        // одинаковые файлы получают одинаковый GUID в любой сборке.
+        runWixTool(
+            heat.absolutePath, "dir", imageDir.absolutePath,
+            "-nologo", "-ag", "-sfrag", "-srd", "-sreg", "-scom",
+            "-cg", "AppFiles",
+            "-dr", "INSTALLDIR",
+            "-var", "var.AppDir",
+            "-out", harvested.absolutePath,
+        )
+
+        // -arch x64 делает компоненты 64-битными и кладёт приложение
+        // в Program Files, а не в Program Files (x86).
+        runWixTool(
+            File(toolsDir, "candle.exe").absolutePath,
+            "-nologo", "-arch", "x64",
+            "-dAppDir=${imageDir.absolutePath}",
+            "-dVersion=$version",
+            "-dLicenseRtf=${licenseRtf.asFile.absolutePath}",
+            "-ext", "WixUtilExtension",
+            "-ext", "WixUIExtension",
+            "-out", workDir.absolutePath + File.separator,
+            productWxs.asFile.absolutePath,
+            harvested.absolutePath,
+        )
+
+        val msi = File(output.get().asFile, "OpenDisk-$version.msi")
+        msi.parentFile.mkdirs()
+
+        // ICE60 ругается на файлы без версии в компонентах — для образа JVM
+        // это норма и чинить нечего.
+        runWixTool(
+            File(toolsDir, "light.exe").absolutePath,
+            "-nologo",
+            // ICE60 — про файлы без версии внутри образа JVM, это норма.
+            // ICE38/43/57 считают компоненты с ярлыками пользовательскими и
+            // требуют ключ в HKCU. Установка машинная, ProgramMenuFolder и
+            // DesktopFolder здесь общие для всех — претензия не по адресу.
+            // Что ярлыки ставятся и снимаются как надо, проверено установкой.
+            "-sice:ICE60", "-sice:ICE38", "-sice:ICE43", "-sice:ICE57",
+            // Без явной культуры light собирает базу в кодовой странице 1252
+            // и падает с LGHT0311 на любой кириллице в строках установщика.
+            "-cultures:ru-ru",
+            "-ext", "WixUtilExtension",
+            "-ext", "WixUIExtension",
+            "-b", imageDir.absolutePath,
+            "-out", msi.absolutePath,
+            File(workDir, "Product.wixobj").absolutePath,
+            File(workDir, "AppFiles.wixobj").absolutePath,
+        )
+
+        logger.lifecycle("Установщик собран: ${msi.absolutePath}")
+    }
+}
+
+/**
+ * Запускает инструмент WiX и падает с его собственным выводом.
+ * candle и light пишут причину в stdout, и без неё разбираться в ошибке
+ * сборки установщика бессмысленно.
+ */
+fun runWixTool(vararg command: String) {
+    val process = ProcessBuilder(*command).redirectErrorStream(true).start()
+    val output = process.inputStream.bufferedReader().readText()
+    val exit = process.waitFor()
+    check(exit == 0) {
+        File(command.first()).name + " завершился с кодом " + exit + ":\n" + output
+    }
+}
+
 fun sha256(file: File): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { input ->
@@ -265,7 +395,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.1.10"
+            packageVersion = "0.1.11"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -306,7 +436,7 @@ compose.desktop {
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.0.10"
+                packageVersion = "1.0.11"
             }
         }
     }
