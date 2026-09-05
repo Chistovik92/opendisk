@@ -34,9 +34,15 @@ tasks.test {
 
     // Как и в :rclone-bridge — с указанным бинарником включается прогон
     // контроллера против настоящего rcd, без него тест пропускается.
-    val rclonePath = providers.systemProperty("opendisk.rclone.path").orNull
-    if (rclonePath != null) {
-        systemProperty("opendisk.rclone.path", rclonePath)
+    // Пробрасываем то, что нужно тестам против настоящей системы: путь к rclone,
+    // каталог ресурсов (в нём лежит встроенный установщик WinFsp) и явное
+    // разрешение ставить драйвер — см. MountDriverInstallTest.
+    listOf(
+        "opendisk.rclone.path",
+        "compose.application.resources.dir",
+        "opendisk.test.driverInstall",
+    ).forEach { name ->
+        providers.systemProperty(name).orNull?.let { systemProperty(name, it) }
     }
 }
 
@@ -107,7 +113,10 @@ val downloadRclone by tasks.registering {
     inputs.property("target", target)
     inputs.property("sha256", expectedSha)
     inputs.file(licenseFile)
-    outputs.dir(outputDir)
+    // Конкретные файлы, а не каталог: рядом в тот же appResources пишет
+    // downloadWinFsp, а перекрывающиеся выходы Gradle отслеживать не умеет.
+    outputs.file(outputDir.map { it.file(binaryName) })
+    outputs.file(outputDir.map { it.file("rclone-LICENSE.txt") })
 
     doLast {
         val out = outputDir.get().asFile
@@ -154,6 +163,75 @@ val downloadRclone by tasks.registering {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Встроенный WinFsp (только Windows)
+//
+// Без WinFsp rclone не может смонтировать облако в букву диска, а ставить
+// драйвер руками пользователь не должен. Официальный подписанный установщик
+// (2 МБ) кладём в дистрибутив, приложение предлагает запустить его, когда
+// обнаруживает, что WinFsp нет. Сам драйвер ставится отдельным MSI: вложенные
+// установки MSI не поддерживаются, а бутстрапер jpackage делать не умеет.
+// ---------------------------------------------------------------------------
+
+val winFspVersion = "2.1.25156"
+val winFspSha256 = "073a70e00f77423e34bed98b86e600def93393ba5822204fac57a29324db9f7a"
+
+val downloadWinFsp by tasks.registering {
+    group = "build"
+    description = "Скачивает официальный установщик WinFsp $winFspVersion в ресурсы приложения"
+
+    val version = winFspVersion
+    val expectedSha = winFspSha256
+    val archiveFile = layout.buildDirectory.file("winfsp/winfsp-$version.msi")
+    val outputDir = bundledRcloneDir
+    val licenseFile = layout.projectDirectory.file("../licenses/winfsp-LICENSE.txt")
+    val skip = providers.gradleProperty("opendisk.skipRcloneDownload").orNull == "true"
+    val isWindowsBuild = rcloneTarget.startsWith("windows")
+
+    inputs.property("version", version)
+    inputs.property("sha256", expectedSha)
+    inputs.property("windows", isWindowsBuild)
+    inputs.file(licenseFile)
+    outputs.file(outputDir.map { it.file("winfsp.msi") })
+    outputs.file(outputDir.map { it.file("winfsp-LICENSE.txt") })
+
+    doLast {
+        val out = outputDir.get().asFile
+        out.mkdirs()
+
+        if (!isWindowsBuild) {
+            logger.lifecycle("Сборка не под Windows — WinFsp не нужен, пропускаю")
+            return@doLast
+        }
+        if (skip) {
+            logger.lifecycle("opendisk.skipRcloneDownload=true — WinFsp пропущен")
+            return@doLast
+        }
+
+        val installer = archiveFile.get().asFile
+        installer.parentFile.mkdirs()
+
+        if (!installer.exists() || sha256(installer) != expectedSha) {
+            val url = "https://github.com/winfsp/winfsp/releases/download/v${version.substringBefore('.')}." +
+                "${version.split('.')[1]}/winfsp-$version.msi"
+            logger.lifecycle("Скачиваю WinFsp: $url")
+            URI(url).toURL().openStream().use { input ->
+                installer.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+
+        val actualSha = sha256(installer)
+        check(actualSha == expectedSha) {
+            "SHA-256 установщика WinFsp не совпала.\n  ожидалась: $expectedSha\n  получена:  $actualSha"
+        }
+
+        installer.copyTo(File(out, "winfsp.msi"), overwrite = true)
+        // WinFsp под GPLv3 — его лицензия обязана ехать рядом.
+        licenseFile.asFile.copyTo(File(out, "winfsp-LICENSE.txt"), overwrite = true)
+        logger.lifecycle("WinFsp $version готов: ${File(out, "winfsp.msi")}")
+    }
+}
+
 fun sha256(file: File): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { input ->
@@ -172,7 +250,12 @@ fun sha256(file: File): String {
 // Задача prepareAppResources регистрируется плагином Compose позже, поэтому
 // подписываемся на неё лениво, а не через tasks.named.
 tasks.matching { it.name == "prepareAppResources" }.configureEach {
-    dependsOn(downloadRclone)
+    dependsOn(downloadRclone, downloadWinFsp)
+
+    // Compose не считает содержимое каталога ресурсов своим входом: после
+    // появления там winfsp.msi задача осталась UP-TO-DATE, и установщик собрался
+    // без него — при зелёной сборке. Объявляем вход явно.
+    inputs.dir(bundledRcloneDir)
 }
 
 compose.desktop {
@@ -182,7 +265,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.1.6"
+            packageVersion = "0.1.7"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -208,7 +291,7 @@ compose.desktop {
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.0.6"
+                packageVersion = "1.0.7"
             }
         }
     }

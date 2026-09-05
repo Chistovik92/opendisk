@@ -3,6 +3,7 @@ package com.opendisk.bridge
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.io.path.createTempDirectory
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -58,7 +59,7 @@ class RcloneIntegrationTest {
 
     @Test
     fun `talks to a real rclone rcd`() {
-        if (RcloneProcess.locate() == null) return // rclone недоступен — пропускаем
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
 
         val (process, client) = startRcd(plainConfig())
         client.use {
@@ -85,7 +86,7 @@ class RcloneIntegrationTest {
 
     @Test
     fun `rclone error reaches caller as RcloneRcException`() {
-        if (RcloneProcess.locate() == null) return
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
 
         val (_, client) = startRcd(plainConfig())
         client.use {
@@ -99,7 +100,7 @@ class RcloneIntegrationTest {
 
     @Test
     fun `encrypted config without password reports itself as locked`() {
-        if (RcloneProcess.locate() == null) return
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
 
         val config = RcloneConfigFile(RcloneConfigFileTest.encryptedFixture())
         assertTrue(config.isEncrypted())
@@ -119,7 +120,7 @@ class RcloneIntegrationTest {
 
     @Test
     fun `encrypted config is readable with the right password`() {
-        if (RcloneProcess.locate() == null) return
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
 
         val config = RcloneConfigFile(RcloneConfigFileTest.encryptedFixture())
         val (_, client) = startRcd(config, password = RcloneConfigFileTest.FIXTURE_PASSWORD)
@@ -134,7 +135,7 @@ class RcloneIntegrationTest {
 
     @Test
     fun `wrong password is reported as locked too`() {
-        if (RcloneProcess.locate() == null) return
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
 
         val config = RcloneConfigFile(RcloneConfigFileTest.encryptedFixture())
         val (_, client) = startRcd(config, password = "definitely-not-the-password")

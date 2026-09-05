@@ -1,5 +1,6 @@
 package com.opendisk.app
 
+import com.opendisk.bridge.MountSupport
 import com.opendisk.bridge.RcloneClient
 import com.opendisk.bridge.RcloneConfigFile
 import com.opendisk.bridge.RcloneConfigLockedException
@@ -14,7 +15,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Вся работа с rclone на стороне приложения: держит процесс rcd, клиент RC API
@@ -36,6 +39,17 @@ class RcloneController(
 
     private var process: RcloneProcess? = null
     private var client: RcloneClient? = null
+
+    /**
+     * Точки монтирования, созданные этим приложением: облако → точка.
+     *
+     * Определять по полю `Fs` из `mount/listmounts` нельзя — его формат зависит
+     * от бэкенда: для `local` приходит "имя://?/C:/путь", а для `alias` вообще
+     * разрешённый путь без имени облака. А вот точку монтирования задаём мы сами,
+     * и она в ответе всегда та же. rcd — наш дочерний процесс и умирает вместе
+     * с приложением, поэтому все живые маунты созданы в этой же сессии.
+     */
+    private val ourMounts = ConcurrentHashMap<String, String>()
 
     fun start() {
         scope.launch {
@@ -121,14 +135,34 @@ class RcloneController(
         }
     }
 
-    private suspend fun loadMountSupport() {
-        val api = client ?: return
-        val types = runCatching { api.mountTypes() }.getOrDefault(emptyList())
-        _state.update {
-            it.copy(
-                mountAvailable = types.isNotEmpty(),
-                mountUnavailableHint = if (types.isEmpty()) mountHintForCurrentOs() else null,
-            )
+    /**
+     * Проверяет систему напрямую, а не через RC-эндпоинт `mount/types`: тот на
+     * Windows отвечает `["cmount"]` даже без установленного WinFsp, и кнопка
+     * «Подключить» оказывалась активной, а монтирование падало с невнятной ошибкой.
+     */
+    private fun loadMountSupport() {
+        _state.update { it.copy(mount = MountSupport.check()) }
+    }
+
+    /**
+     * Ставит недостающий драйвер встроенным установщиком. Пользователю не нужно
+     * ничего искать и скачивать самому — установщик едет внутри дистрибутива.
+     */
+    fun installMountDriver() {
+        val missing = state.value.mount as? MountSupport.Status.Missing ?: return
+        val installer = missing.bundledInstaller ?: return
+
+        scope.launch {
+            _state.update { it.copy(installingMountDriver = true) }
+            val installed = withContext(Dispatchers.IO) { MountSupport.installBundled(installer) }
+            _state.update {
+                it.copy(
+                    installingMountDriver = false,
+                    mount = MountSupport.check(),
+                    globalError = if (installed) null else "Установка ${missing.what} не завершилась. " +
+                        "Возможно, запрос администратора был отклонён.",
+                )
+            }
         }
     }
 
@@ -158,6 +192,11 @@ class RcloneController(
             val names = api.listRemotes()
             val mounts = runCatching { api.listMounts() }.getOrDefault(emptyList())
 
+            // Маунт мог отвалиться сам (rclone его снял, диск отключили) —
+            // тогда запись о нём больше не отражает реальность.
+            val alive = mounts.map { it.MountPoint }.toSet()
+            ourMounts.entries.removeIf { it.value !in alive }
+
             _state.update { current ->
                 current.copy(
                     globalError = null,
@@ -165,7 +204,9 @@ class RcloneController(
                         val previous = current.clouds.firstOrNull { it.name == name }
                         CloudUi(
                             name = name,
-                            mountPoint = mounts.firstOrNull { it.Fs == "$name:" }?.MountPoint,
+                            mountPoint = ourMounts[name]?.takeIf { point ->
+                                mounts.any { it.MountPoint == point }
+                            },
                             about = previous?.about,
                             error = previous?.error,
                         )
@@ -219,6 +260,7 @@ class RcloneController(
                 // маунт, указывающий на удалённую конфигурацию.
                 state.value.clouds.firstOrNull { it.name == name }?.mountPoint?.let {
                     runCatching { api.unmount(it) }
+                    ourMounts.remove(name)
                 }
                 api.deleteRemote(name)
                 reloadClouds()
@@ -234,6 +276,7 @@ class RcloneController(
             updateCloud(name) { it.copy(busy = true, error = null) }
             try {
                 api.mount(name, mountPoint)
+                ourMounts[name] = mountPoint
                 reloadClouds()
             } catch (e: RcloneRcException) {
                 updateCloud(name) { it.copy(busy = false, error = e.rcloneError) }
@@ -248,6 +291,7 @@ class RcloneController(
             updateCloud(name) { it.copy(busy = true, error = null) }
             try {
                 api.unmount(mountPoint)
+                ourMounts.remove(name)
                 reloadClouds()
             } catch (e: RcloneRcException) {
                 updateCloud(name) { it.copy(busy = false, error = e.rcloneError) }
@@ -296,22 +340,6 @@ class RcloneController(
             val taken = File.listRoots().map { it.path.first().uppercaseChar() }.toSet()
             val free = ('D'..'Z').firstOrNull { it !in taken } ?: 'Z'
             return "$free:"
-        }
-
-        private fun mountHintForCurrentOs(): String {
-            val os = System.getProperty("os.name").lowercase()
-            return when {
-                os.contains("win") ->
-                    "Монтирование недоступно: не установлен WinFsp. " +
-                        "Скачать: https://winfsp.dev/rel/"
-
-                os.contains("mac") ->
-                    "Монтирование недоступно: не установлен macFUSE. " +
-                        "Скачать: https://macfuse.github.io/"
-
-                else ->
-                    "Монтирование недоступно: не установлен FUSE (пакет fuse3)."
-            }
         }
     }
 }

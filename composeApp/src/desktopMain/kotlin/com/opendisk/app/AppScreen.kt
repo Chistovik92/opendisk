@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.opendisk.bridge.MountSupport
 
 @Composable
 fun AppScreen(state: UiState, controller: RcloneController) {
@@ -117,7 +118,13 @@ private fun ReadyContent(
         OutlinedButton(onClick = controller::refresh) { Text("Обновить") }
     }
 
-    state.mountUnavailableHint?.let { Banner(it) }
+    (state.mount as? MountSupport.Status.Missing)?.let { missing ->
+        MountDriverBanner(
+            missing = missing,
+            installing = state.installingMountDriver,
+            onInstall = controller::installMountDriver,
+        )
+    }
     state.globalError?.let { Banner("Ошибка: $it") }
 
     Divider()
@@ -195,6 +202,47 @@ private fun cloudStatusLine(cloud: CloudUi): String {
     val status = if (cloud.isMounted) "подключено к ${cloud.mountPoint}" else "не подключено"
     val space = cloud.about?.describe()
     return listOfNotNull(status, space).joinToString("  ·  ")
+}
+
+/**
+ * Не установлен драйвер монтирования. Если установщик едет внутри дистрибутива,
+ * предлагаем поставить его прямо отсюда — искать и качать что-то руками
+ * пользователь не должен.
+ */
+@Composable
+private fun MountDriverBanner(
+    missing: MountSupport.Status.Missing,
+    installing: Boolean,
+    onInstall: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Подключение дисков недоступно", style = MaterialTheme.typography.titleSmall)
+            Text(missing.explanation, style = MaterialTheme.typography.bodySmall)
+
+            when {
+                installing -> Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.width(20.dp))
+                    Text("Устанавливаю ${missing.what}...", style = MaterialTheme.typography.bodySmall)
+                }
+
+                missing.bundledInstaller != null ->
+                    Button(onClick = onInstall) { Text("Установить ${missing.what}") }
+
+                missing.downloadUrl != null -> Text(
+                    "Скачать: ${missing.downloadUrl}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 @Composable

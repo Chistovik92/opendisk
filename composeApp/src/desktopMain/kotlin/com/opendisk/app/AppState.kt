@@ -1,5 +1,6 @@
 package com.opendisk.app
 
+import com.opendisk.bridge.MountSupport
 import com.opendisk.bridge.RcloneClient
 
 /**
@@ -46,11 +47,12 @@ data class UiState(
     val session: SessionState = SessionState.Starting,
     val clouds: List<CloudUi> = emptyList(),
     /**
-     * Есть ли чем монтировать. Пусто — значит на Windows не установлен WinFsp,
-     * на Linux нет FUSE: облака добавлять можно, подключать как диск — нет.
+     * Есть ли чем монтировать: WinFsp на Windows, FUSE на Linux, macFUSE на macOS.
+     * Пока его нет, облака добавлять можно, а подключать как диск — нет.
      */
-    val mountAvailable: Boolean = true,
-    val mountUnavailableHint: String? = null,
+    val mount: MountSupport.Status = MountSupport.Status.Available,
+    /** Идёт установка недостающего драйвера встроенным установщиком. */
+    val installingMountDriver: Boolean = false,
     val rcloneDescription: String = "",
     val configDescription: String = "",
     /** Ошибка, не привязанная к конкретному облаку. */
@@ -60,7 +62,9 @@ data class UiState(
      * а не зашивается в код: набор и набор опций зависят от версии rclone.
      */
     val providers: List<RcloneClient.Provider> = emptyList(),
-)
+) {
+    val mountAvailable: Boolean get() = mount is MountSupport.Status.Available
+}
 
 /**
  * Провайдеры, вынесенные в начало списка: с них начинают почти все, а искать их
