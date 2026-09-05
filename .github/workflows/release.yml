@@ -88,3 +88,8 @@ jobs:
             \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \))
           echo "Выкладываю:"; echo "$files"
           gh release upload "$tag" $files --clobber
+          # Релиз может оказаться черновиком: если тег когда-то удаляли,
+          # GitHub переводит связанный с ним релиз в черновики, а
+          # `gh release view` черновики видит — то есть проверка выше его
+          # находит и релиз молча остаётся невидимым для пользователей.
+          gh release edit "$tag" --draft=false
