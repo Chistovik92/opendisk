@@ -37,6 +37,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
     var cloudToRename by remember { mutableStateOf<String?>(null) }
     var cloudToConfigure by remember { mutableStateOf<String?>(null) }
+    var cloudToEdit by remember { mutableStateOf<String?>(null) }
     var showingAppSettings by remember { mutableStateOf(false) }
     var showingAbout by remember { mutableStateOf(false) }
 
@@ -111,6 +112,22 @@ fun AppScreen(state: UiState, controller: RcloneController) {
                 controller.updateCloudSettings(name, updated)
                 cloudToConfigure = null
             },
+            onEditConnection = {
+                cloudToConfigure = null
+                cloudToEdit = name
+            },
+        )
+    }
+
+    cloudToEdit?.let { name ->
+        EditCloudDialog(
+            cloudName = name,
+            providers = state.providers,
+            loadConfig = controller::loadCloudConfig,
+            onSave = { parameters, secrets, onResult ->
+                controller.editCloud(name, parameters, secrets, onResult)
+            },
+            onDismiss = { cloudToEdit = null },
         )
     }
 

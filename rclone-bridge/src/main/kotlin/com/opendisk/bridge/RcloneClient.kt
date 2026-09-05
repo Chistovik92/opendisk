@@ -105,6 +105,29 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
     suspend fun getRemote(name: String): JsonObject =
         call("config/get", buildJsonObject { put("name", name) })
 
+    /**
+     * Меняет настройки существующего облака.
+     *
+     * Меняются только переданные ключи, остальные остаются как были — проверено
+     * на живом rcd. Это и есть причина не пересоздавать облако: у OAuth-сервисов
+     * токен лежит в тех же параметрах, и пересоздание означало бы повторное
+     * подтверждение доступа в браузере ради смены, скажем, адреса сервера.
+     *
+     * Пароли передавать уже «затемнёнными» ([obscure]). Повторно rclone их не
+     * обрабатывает — тоже проверено: затемнённое значение записывается как есть.
+     */
+    suspend fun updateRemote(name: String, parameters: Map<String, String>) {
+        call<JsonObject>(
+            "config/update",
+            buildJsonObject {
+                put("name", name)
+                putJsonObject("parameters") {
+                    parameters.forEach { (key, value) -> put(key, value) }
+                }
+            },
+        )
+    }
+
     suspend fun deleteRemote(name: String) {
         call<JsonObject>("config/delete", buildJsonObject { put("name", name) })
     }

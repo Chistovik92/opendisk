@@ -23,7 +23,7 @@ plugins {
 // ---------------------------------------------------------------------------
 
 val librcloneVersion = "1.75.1"
-val librcloneSha256 = "5237875e90554f15adf31fea0e18825a7a2d5d73b1e26af34bd068fb14810b0e"
+val librcloneSha256 = "785cd5f684886bb876fd1567c39bc3aaaad94887ab866dbeaa16d4aadc5da581"
 
 // Библиотека кладётся в локальный репозиторий и подключается как обычная
 // зависимость `org.rclone:librclone`, а не файлом.

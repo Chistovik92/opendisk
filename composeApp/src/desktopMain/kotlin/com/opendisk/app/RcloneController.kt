@@ -388,6 +388,58 @@ class RcloneController(
         }
     }
 
+    /**
+     * Читает текущие настройки облака — чтобы показать их в форме редактирования.
+     *
+     * Секреты сюда приходят «затемнёнными» и в форму не подставляются: показать
+     * их всё равно нечем, а подставить затемнённое значение в поле пароля значило
+     * бы сохранить его обратно уже как открытый текст.
+     */
+    fun loadCloudConfig(name: String, onDone: (Map<String, String>?, String?) -> Unit) {
+        val api = client ?: return
+        scope.launch {
+            try {
+                val config = api.getRemote(name)
+                onDone(config.mapValues { (_, value) -> value.toString().trim('"') }, null)
+            } catch (e: Exception) {
+                onDone(null, (e as? RcloneRcException)?.rcloneError ?: e.message)
+            }
+        }
+    }
+
+    /**
+     * Меняет настройки облака, не пересоздавая его.
+     *
+     * Пересоздание стоило бы пользователю повторной авторизации в браузере:
+     * токен OAuth лежит в тех же параметрах. `config/update` меняет только
+     * переданные ключи, поэтому пустые поля сюда попадать не должны — иначе
+     * они затрут настоящие значения.
+     */
+    fun editCloud(
+        name: String,
+        parameters: Map<String, String>,
+        secretKeys: Set<String>,
+        onDone: (String?) -> Unit,
+    ) {
+        val api = client ?: return
+        scope.launch {
+            try {
+                val prepared = parameters
+                    .filterValues { it.isNotEmpty() }
+                    .mapValues { (key, value) ->
+                        if (key in secretKeys) api.obscure(value) else value
+                    }
+                if (prepared.isNotEmpty()) {
+                    api.updateRemote(name, prepared)
+                }
+                reloadClouds()
+                onDone(null)
+            } catch (e: Exception) {
+                onDone((e as? RcloneRcException)?.rcloneError ?: e.message ?: strings.saveFailed)
+            }
+        }
+    }
+
     /** Ищет в выводе rcd ссылку подтверждения доступа, пока идёт создание облака. */
     private suspend fun watchForOauthLink() {
         while (currentCoroutineContext().isActive) {

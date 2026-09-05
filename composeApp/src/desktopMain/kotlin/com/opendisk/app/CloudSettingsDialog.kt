@@ -41,6 +41,13 @@ fun CloudSettingsDialog(
     isMounted: Boolean,
     onDismiss: () -> Unit,
     onSave: (CloudSettings) -> Unit,
+    /**
+     * Переход к параметрам самого подключения — адресу сервера, логину, паролю.
+     * Здесь только то, что касается диска на этой машине; настройки связи
+     * с сервисом живут отдельно, потому что меняются они через rclone,
+     * а не через файл настроек приложения.
+     */
+    onEditConnection: () -> Unit,
 ) {
     val strings = LocalStrings.current
     var cacheMode by remember { mutableStateOf(current.cacheMode) }
@@ -92,6 +99,13 @@ fun CloudSettingsDialog(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+
+                TextButton(
+                    onClick = onEditConnection,
+                    modifier = Modifier.align(Alignment.Start),
+                ) {
+                    Text(strings.editConnection)
                 }
             }
         },

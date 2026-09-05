@@ -14,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -82,6 +83,21 @@ class RcloneClientTest {
         assertContains(body, "\"type\":\"drive\"")
         assertContains(body, "\"scope\":\"drive\"")
         assertEquals("$BASE_URL/config/create", requests.last().url.toString())
+    }
+
+    @Test
+    fun `updateRemote sends only what was changed`() = runBlocking {
+        val client = clientRespondingWith("{}")
+
+        client.updateRemote("disk", mapOf("url" to "https://other.example"))
+
+        val body = lastRequestBody()
+        assertContains(body, "\"name\":\"disk\"")
+        assertContains(body, "\"url\":\"https://other.example\"")
+        // Ключей, которых не передавали, в запросе быть не должно: rclone меняет
+        // ровно присланное, и лишний пустой ключ затёр бы настоящее значение.
+        assertFalse(body.contains("\"pass\""), "в запрос попал ключ, который не меняли")
+        assertEquals("$BASE_URL/config/update", requests.last().url.toString())
     }
 
     @Test

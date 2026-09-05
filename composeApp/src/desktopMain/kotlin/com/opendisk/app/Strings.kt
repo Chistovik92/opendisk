@@ -120,6 +120,25 @@ class Strings(private val russian: Boolean) {
     )
     val createFailed = t("не удалось создать облако", "failed to create the cloud")
     val renameFailed = t("не удалось переименовать", "failed to rename")
+    val saveFailed = t("не удалось сохранить", "failed to save")
+
+    // --- Изменение подключения ------------------------------------------------
+
+    val editConnection = t("Изменить подключение", "Edit connection")
+    fun connectionOf(name: String) = t("Подключение «$name»", "Connection «$name»")
+    val loadingCurrentSettings = t("Читаю текущие настройки…", "Reading current settings…")
+    val leaveEmptyToKeep = t(
+        "Пустое поле — оставить как есть",
+        "Leave empty to keep the current value",
+    )
+    val editKeepsAuthorization = t(
+        "Подтверждение доступа в браузере заново не потребуется: меняются только " +
+            "перечисленные параметры, авторизация остаётся.",
+        "No need to confirm access in the browser again: only the listed parameters " +
+            "change, the authorization stays.",
+    )
+    val nothingToChange = t("Менять нечего", "Nothing to change")
+    val saving = t("Сохраняю...", "Saving...")
 
     fun mountFailed(name: String) =
         t("Не удалось подключить «$name»", "Could not connect «$name»")
