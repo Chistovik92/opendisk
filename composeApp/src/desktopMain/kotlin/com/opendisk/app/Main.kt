@@ -21,9 +21,8 @@ import com.opendisk.bridge.RcloneProcess
 /**
  * Точка входа десктоп-приложения.
  *
- * На текущем этапе (см. ROADMAP.md, Этап 1-2) окно только проверяет,
- * найден ли rclone в системе, — это первый практический шаг перед
- * экраном "Список облаков".
+ * На текущем этапе (см. ROADMAP.md, Этап 1-2) окно показывает, какой rclone
+ * будет использован, — это первый практический шаг перед экраном "Список облаков".
  */
 fun main() = application {
     Window(onCloseRequest = ::exitApplication, title = "OpenDisk") {
@@ -38,9 +37,22 @@ fun AppRoot() {
     var rcloneStatus by remember { mutableStateOf("Проверка...") }
 
     remember {
-        val binary = RcloneProcess.findRcloneBinary()
-        rcloneStatus = "Ожидаемый путь к rclone: $binary\n" +
-            "(проверка существования файла будет добавлена вместе с экраном настроек)"
+        val located = RcloneProcess.locate()
+        rcloneStatus = when (located?.source) {
+            RcloneProcess.Source.BUNDLED ->
+                "rclone: встроенный в OpenDisk\n${located.file}"
+
+            RcloneProcess.Source.OVERRIDE ->
+                "rclone: задан вручную через ${RcloneProcess.OVERRIDE_PROPERTY} / ${RcloneProcess.OVERRIDE_ENV}\n${located.file}"
+
+            RcloneProcess.Source.SYSTEM_PATH ->
+                "rclone: системный, найден в PATH\n${located.file}"
+
+            null ->
+                "rclone не найден.\nВ собранном дистрибутиве он идёт в комплекте; " +
+                    "при запуске из исходников выполните ./gradlew :composeApp:run, " +
+                    "чтобы сборка положила его в ресурсы приложения."
+        }
         true
     }
 

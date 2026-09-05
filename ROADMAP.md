@@ -73,6 +73,8 @@ Dropbox на телефонах). Внешне для пользователя �
 
 ## Этап 1 — Ядро: обёртка над rclone RC API (2-3 недели)
 
+- [x] Встроенный rclone: бинарник едет внутри дистрибутива (скачивается на этапе сборки
+      с проверкой SHA-256), пользователю ставить его отдельно не нужно — см. docs/ARCHITECTURE.md
 - [ ] Модуль `rclone-bridge`: запуск/остановка процесса `rclone rcd` из Kotlin (`ProcessBuilder`)
 - [ ] Kotlin-клиент HTTP для RC API (Ktor client): методы
   - `config/create`, `config/get`, `config/listremotes`, `config/delete` — управление облаками

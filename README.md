@@ -41,8 +41,9 @@ cd opendisk
 ./gradlew :composeApp:run
 ```
 
-Требования: JDK 17+, установленный `rclone` в PATH (или он будет предложен к установке
-при первом запуске).
+Требования: JDK 17 или 21 (Gradle 8.10 не запускается на JDK 25/26). Ставить `rclone`
+отдельно **не нужно** — он скачивается на этапе сборки и едет внутри дистрибутива.
+Подробнее — в [docs/SETUP.md](docs/SETUP.md).
 
 ## Участие в разработке
 
@@ -51,3 +52,6 @@ cd opendisk
 ## Лицензия
 
 [MIT](LICENSE) — как и у rclone, на котором построен проект.
+
+OpenDisk распространяет бинарник rclone в составе дистрибутива; его лицензия —
+[licenses/rclone-LICENSE.txt](licenses/rclone-LICENSE.txt).
