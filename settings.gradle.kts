@@ -31,20 +31,18 @@ dependencyResolutionManagement {
 include(":composeApp")
 include(":rclone-bridge")
 
-// Модуль Android-клиента подключается, только если в системе есть Android SDK.
+// Модуль Android-клиента подключается только по явной просьбе:
 //
-// Иначе сборка десктопа падала бы у всех, у кого SDK нет, — а нужен он
-// исключительно для мобильной части. Заодно librclone (100 МБ) не качается
-// туда, где она не нужна: ни в релизную сборку установщиков, ни на машину
-// того, кто правит только десктоп.
-val androidSdkAvailable = System.getenv("ANDROID_HOME") != null ||
-    System.getenv("ANDROID_SDK_ROOT") != null ||
-    File(settingsDir, "local.properties").takeIf { it.isFile }
-        ?.readLines()
-        ?.any { it.trimStart().startsWith("sdk.dir") } == true
+//   ./gradlew -Popendisk.android=true :android-core:assembleDebug
+//   OPENDISK_ANDROID=true ./gradlew build
+//
+// Наличия Android SDK в системе для этого нарочно недостаточно. Сначала условие
+// было именно таким — и десктопная релизная сборка на раннерах GitHub, где SDK
+// стоит всегда, начала тянуть Android-модуль и полусотню мегабайт librclone. Тот,
+// кто собирает установщики, Android не просил.
+val androidRequested = startParameter.projectProperties["opendisk.android"] == "true" ||
+    System.getenv("OPENDISK_ANDROID") == "true"
 
-if (androidSdkAvailable) {
+if (androidRequested) {
     include(":android-core")
-} else {
-    logger.lifecycle("Android SDK не найден — модуль :android-core пропущен (десктоп собирается как обычно)")
 }

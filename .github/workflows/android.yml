@@ -42,7 +42,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Собрать модуль
-        run: ./gradlew :android-core:assembleDebugAndroidTest --no-daemon
+        run: ./gradlew -Popendisk.android=true :android-core:assembleDebugAndroidTest --no-daemon
 
       - name: Инструментальные тесты
         uses: reactivecircus/android-emulator-runner@v2
@@ -53,7 +53,7 @@ jobs:
           target: default
           # Библиотека большая, старт с холодной загрузкой заметно дольше.
           disable-animations: true
-          script: ./gradlew :android-core:connectedDebugAndroidTest --no-daemon
+          script: ./gradlew -Popendisk.android=true :android-core:connectedDebugAndroidTest --no-daemon
 
       - uses: actions/upload-artifact@v4
         if: always()

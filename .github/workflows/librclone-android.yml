@@ -13,11 +13,21 @@ name: librclone для Android
 # помечен экспериментальным, и ломается он тихо.
 
 on:
+  # Только вручную. Раньше сборка запускалась от любой правки
+  # composeApp/build.gradle.kts — в том числе от смены номера версии
+  # приложения, к rclone отношения не имеющей. Каждый такой запуск
+  # перезаписывал опубликованную библиотеку, а gomobile побайтово
+  # одинакового результата не даёт: закреплённая контрольная сумма
+  # устаревала, и сборка Android-модуля падала на ровном месте.
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/librclone-android.yml'
-      - 'composeApp/build.gradle.kts'
+    inputs:
+      overwrite:
+        description: >-
+          Перезаписать уже опубликованную библиотеку той же версии.
+          Понадобится, если поменялись флаги сборки; после этого нужно
+          обновить librcloneSha256 в android-core/build.gradle.kts.
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -122,6 +132,13 @@ jobs:
           SHA-256: \`$sha\`"
 
           if gh release view "$tag" >/dev/null 2>&1; then
+            if [ "${{ inputs.overwrite }}" != "true" ]; then
+              echo "Библиотека $tag уже опубликована — оставляю как есть."
+              echo "Перезаписать можно запуском с overwrite=true, но тогда"
+              echo "нужно обновить librcloneSha256 в android-core/build.gradle.kts:"
+              echo "  новая сумма была бы $sha"
+              exit 0
+            fi
             gh release upload "$tag" librclone.aar --clobber
             gh release edit "$tag" --notes "$notes"
           else

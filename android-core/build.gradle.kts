@@ -23,7 +23,7 @@ plugins {
 // ---------------------------------------------------------------------------
 
 val librcloneVersion = "1.75.1"
-val librcloneSha256 = "785cd5f684886bb876fd1567c39bc3aaaad94887ab866dbeaa16d4aadc5da581"
+val librcloneSha256 = "0d38f3dffca6cf6127c31af1b96dd5beb6ce266c47bb2c6635b540ee1f81f031"
 
 // Библиотека кладётся в локальный репозиторий и подключается как обычная
 // зависимость `org.rclone:librclone`, а не файлом.
@@ -57,7 +57,7 @@ val downloadLibrclone by tasks.registering {
         if (!file.exists() || sha256(file) != expectedSha) {
             val url = "https://github.com/Chistovik92/opendisk/releases/download/" +
                 "librclone-v$version/librclone.aar"
-            logger.lifecycle("Скачиваю librclone: $url (100 МБ, это надолго)")
+            logger.lifecycle("Скачиваю librclone: $url (56 МБ, это надолго)")
             URI(url).toURL().openStream().use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
             }
