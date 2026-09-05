@@ -69,6 +69,8 @@ data class UiState(
     val oauthUrl: String? = null,
     /** Настройки облаков: режим кэширования и точка монтирования. */
     val settings: Map<String, CloudSettings> = emptyMap(),
+    /** Общие настройки: автозапуск и ограничение скорости. */
+    val globalSettings: GlobalSettings = GlobalSettings(),
 ) {
     val mountAvailable: Boolean get() = mount is MountSupport.Status.Available
 }
@@ -106,3 +108,14 @@ fun RcloneClient.AboutInfo.describe(): String? {
     val total = total ?: return "занято ${formatBytes(used)}"
     return "занято ${formatBytes(used)} из ${formatBytes(total)}"
 }
+
+/**
+ * Событие для показа в трее.
+ *
+ * Пользователь не сидит в окне приложения — оно живёт свёрнутым, — поэтому
+ * о сорвавшемся подключении он иначе просто не узнает.
+ */
+data class AppNotification(
+    val title: String,
+    val message: String,
+)

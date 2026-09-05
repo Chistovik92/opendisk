@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -43,6 +44,7 @@ fun CloudSettingsDialog(
 ) {
     var cacheMode by remember { mutableStateOf(current.cacheMode) }
     var mountPoint by remember { mutableStateOf(current.mountPoint.orEmpty()) }
+    var mountOnStartup by remember { mutableStateOf(current.mountOnStartup) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -78,6 +80,14 @@ fun CloudSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Checkbox(checked = mountOnStartup, onCheckedChange = { mountOnStartup = it })
+                    Text("Подключать при запуске приложения")
+                }
+
                 if (isMounted) {
                     Text(
                         "Облако сейчас подключено. Новые настройки применятся при следующем " +
@@ -95,6 +105,7 @@ fun CloudSettingsDialog(
                         CloudSettings(
                             cacheMode = cacheMode,
                             mountPoint = mountPoint.trim().takeIf { it.isNotEmpty() },
+                            mountOnStartup = mountOnStartup,
                         ),
                     )
                 },

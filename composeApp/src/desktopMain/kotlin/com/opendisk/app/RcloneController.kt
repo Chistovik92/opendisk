@@ -15,6 +15,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -40,6 +43,14 @@ class RcloneController(
 ) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+
+    /**
+     * События для показа в трее. Именно поток, а не поле состояния:
+     * уведомление показывается один раз в момент события, а не живёт
+     * в состоянии экрана до следующего изменения.
+     */
+    private val _notifications = MutableSharedFlow<AppNotification>(extraBufferCapacity = 8)
+    val notifications: SharedFlow<AppNotification> = _notifications.asSharedFlow()
 
     private var process: RcloneProcess? = null
     private var client: RcloneClient? = null
@@ -91,14 +102,13 @@ class RcloneController(
                 rcd.start()
                 rcd.awaitReady()
             } catch (e: IllegalStateException) {
+                val message = e.message ?: "не удалось запустить rclone rcd"
                 _state.update {
-                    it.copy(
-                        session = SessionState.Failed(
-                            e.message ?: "не удалось запустить rclone rcd",
-                            rcd.recentOutput(),
-                        ),
-                    )
+                    it.copy(session = SessionState.Failed(message, rcd.recentOutput()))
                 }
+                _notifications.tryEmit(
+                    AppNotification(title = "OpenDisk не запустился", message = message),
+                )
                 return@launch
             }
 
@@ -115,10 +125,14 @@ class RcloneController(
         val api = client ?: return
         try {
             api.ensureConfigReadable()
-            _state.update { it.copy(session = SessionState.Ready) }
+            _state.update {
+                it.copy(session = SessionState.Ready, globalSettings = settings.global())
+            }
             loadMountSupport()
+            applyBandwidthLimit(settings.global().bandwidthLimit)
             loadProviders()
-            refresh()
+            reloadClouds()
+            mountMarkedClouds()
         } catch (e: RcloneConfigLockedException) {
             _state.update { it.copy(session = SessionState.NeedPassword(wrongAttempt)) }
         } catch (e: RcloneRcException) {
@@ -195,8 +209,58 @@ class RcloneController(
         _state.update { it.copy(providers = ordered) }
     }
 
+    /**
+     * Подключает облака, отмеченные как «подключать при запуске».
+     *
+     * Ошибки не роняют запуск и не копятся в общей ошибке экрана: каждое
+     * облако само показывает свою, а пользователь узнаёт об этом уведомлением.
+     */
+    private suspend fun mountMarkedClouds() {
+        if (state.value.mount !is MountSupport.Status.Available) return
+        val marked = settings.load().filterValues { it.mountOnStartup }.keys
+        val existing = state.value.clouds.map { it.name }.toSet()
+
+        marked.filter { it in existing }.forEach { name ->
+            mountAndWait(name)
+        }
+    }
+
+    private fun applyBandwidthLimit(rate: String) {
+        val api = client ?: return
+        scope.launch {
+            try {
+                api.setBandwidthLimit(rate)
+            } catch (e: RcloneRcException) {
+                _state.update {
+                    it.copy(globalError = "Не удалось применить ограничение скорости: ${e.rcloneError}")
+                }
+            }
+        }
+    }
+
     fun refresh() {
         scope.launch { reloadClouds() }
+    }
+
+    /** Сохраняет общие настройки: автозапуск и ограничение скорости. */
+    fun updateGlobalSettings(updated: GlobalSettings) {
+        val previous = settings.global()
+        settings.updateGlobal(updated)
+        _state.update { it.copy(globalSettings = updated) }
+
+        if (updated.autostart != previous.autostart) {
+            if (!Autostart.setEnabled(updated.autostart)) {
+                _state.update {
+                    it.copy(
+                        globalError = "Не удалось изменить автозапуск. Он настраивается " +
+                            "только для установленного приложения, не для запуска из сборки.",
+                    )
+                }
+            }
+        }
+        if (updated.bandwidthLimit != previous.bandwidthLimit) {
+            applyBandwidthLimit(updated.bandwidthLimit)
+        }
     }
 
     /** Сохраняет настройки облака и обновляет экран. */
@@ -350,20 +414,28 @@ class RcloneController(
      * вместо них умолчания при каждом подключении было бы неожиданно.
      */
     fun mount(name: String) {
+        scope.launch { mountAndWait(name) }
+    }
+
+    private suspend fun mountAndWait(name: String) {
         val api = client ?: return
         val cloudSettings = settings.forCloud(name)
         val mountPoint = cloudSettings.mountPoint?.takeIf { it.isNotBlank() }
             ?: defaultMountPoint(name)
 
-        scope.launch {
-            updateCloud(name) { it.copy(busy = true, error = null) }
-            try {
-                api.mount(name, mountPoint, vfsCacheMode = cloudSettings.cacheMode)
-                ourMounts[name] = mountPoint
-                reloadClouds()
-            } catch (e: RcloneRcException) {
-                updateCloud(name) { it.copy(busy = false, error = e.rcloneError) }
-            }
+        updateCloud(name) { it.copy(busy = true, error = null) }
+        try {
+            api.mount(name, mountPoint, vfsCacheMode = cloudSettings.cacheMode)
+            ourMounts[name] = mountPoint
+            reloadClouds()
+        } catch (e: RcloneRcException) {
+            updateCloud(name) { it.copy(busy = false, error = e.rcloneError) }
+            _notifications.tryEmit(
+                AppNotification(
+                    title = "Не удалось подключить «$name»",
+                    message = e.rcloneError,
+                ),
+            )
         }
     }
 

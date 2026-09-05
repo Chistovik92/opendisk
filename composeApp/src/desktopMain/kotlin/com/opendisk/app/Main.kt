@@ -14,7 +14,9 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Notification
 import androidx.compose.ui.window.Tray
+import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -34,20 +36,27 @@ private val activationSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
  * пункт меню трея. Если трей системой не поддерживается, закрытие окна
  * завершает приложение: иначе его стало бы нечем закрыть.
  */
-fun main() {
+fun main(args: Array<String>) {
     // Окно прячется в трей, поэтому ярлык нажимают повторно — и без этой
     // проверки получали вторую копию приложения со своим процессом rclone.
     if (!SingleInstance.acquire { activationSignal.tryEmit(Unit) }) {
         return
     }
-    runApplication()
+    // При автозапуске окно показывать не нужно: приложение поднимается
+    // вместе с системой, чтобы подключить диски, а не чтобы мешать.
+    runApplication(startHidden = args.contains(HIDDEN_FLAG))
 }
 
-private fun runApplication() = application {
+/** Флаг запуска свёрнутым — его добавляет автозапуск. */
+const val HIDDEN_FLAG = "--hidden"
+
+private fun runApplication(startHidden: Boolean) = application {
     val controller = remember { RcloneController() }
     val state by controller.state.collectAsState()
     val traySupported = remember { runCatching { SystemTray.isSupported() }.getOrDefault(false) }
-    var windowVisible by remember { mutableStateOf(true) }
+    val trayState = rememberTrayState()
+    // Свёрнутым можно стартовать только с треем: иначе окно не вернуть.
+    var windowVisible by remember { mutableStateOf(!(startHidden && traySupported)) }
 
     LaunchedEffect(Unit) { controller.start() }
 
@@ -58,6 +67,20 @@ private fun runApplication() = application {
         }
     }
 
+    // Об оборвавшемся подключении пользователь иначе не узнает: окно живёт
+    // свёрнутым, а в трее уведомление видно сразу.
+    LaunchedEffect(Unit) {
+        controller.notifications.collect { event ->
+            trayState.sendNotification(
+                Notification(
+                    title = event.title,
+                    message = event.message,
+                    type = Notification.Type.Error,
+                ),
+            )
+        }
+    }
+
     fun quit() {
         controller.shutdown()
         exitApplication()
@@ -65,6 +88,7 @@ private fun runApplication() = application {
 
     if (traySupported) {
         Tray(
+            state = trayState,
             icon = OpenDiskIcon,
             tooltip = "OpenDisk",
             onAction = { windowVisible = true },

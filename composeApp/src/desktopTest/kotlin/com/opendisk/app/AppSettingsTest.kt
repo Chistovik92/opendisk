@@ -4,6 +4,7 @@ import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -115,6 +116,47 @@ class AppSettingsTest {
         )
 
         assertEquals(File("/home/user/.config/opendisk/settings.json"), file)
+    }
+
+    @Test
+    fun `global settings survive cloud changes and back`() {
+        val dir = createTempDirectory("settings").toFile()
+        val settings = settingsIn(dir)
+
+        settings.updateGlobal(GlobalSettings(autostart = true, bandwidthLimit = "2M"))
+        // Запись настроек облака не должна затирать общие — они в одном файле.
+        settings.update("yandex", CloudSettings(cacheMode = "full"))
+
+        val reloaded = settingsIn(dir)
+        assertTrue(reloaded.global().autostart)
+        assertEquals("2M", reloaded.global().bandwidthLimit)
+        assertEquals("full", reloaded.forCloud("yandex").cacheMode)
+    }
+
+    @Test
+    fun `global settings do not erase clouds`() {
+        val dir = createTempDirectory("settings").toFile()
+        val settings = settingsIn(dir)
+
+        settings.update("yandex", CloudSettings(mountOnStartup = true))
+        settings.updateGlobal(GlobalSettings(bandwidthLimit = "1M"))
+
+        val reloaded = settingsIn(dir)
+        assertTrue(reloaded.forCloud("yandex").mountOnStartup)
+        assertEquals("1M", reloaded.global().bandwidthLimit)
+    }
+
+    @Test
+    fun `startup flag is remembered per cloud`() {
+        val dir = createTempDirectory("settings").toFile()
+        val settings = settingsIn(dir)
+
+        settings.update("auto", CloudSettings(mountOnStartup = true))
+        settings.update("manual", CloudSettings(mountOnStartup = false))
+
+        val reloaded = settingsIn(dir)
+        assertTrue(reloaded.forCloud("auto").mountOnStartup)
+        assertFalse(reloaded.forCloud("manual").mountOnStartup)
     }
 
     @Test

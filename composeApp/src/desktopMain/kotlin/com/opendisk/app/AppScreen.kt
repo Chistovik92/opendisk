@@ -36,6 +36,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
     var cloudToRename by remember { mutableStateOf<String?>(null) }
     var cloudToConfigure by remember { mutableStateOf<String?>(null) }
+    var showingAppSettings by remember { mutableStateOf(false) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -61,6 +62,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
                     onRequestDelete = { cloudToDelete = it },
                     onRequestRename = { cloudToRename = it },
                     onRequestSettings = { cloudToConfigure = it },
+                    onAppSettings = { showingAppSettings = true },
                 )
             }
         }
@@ -77,6 +79,17 @@ fun AppScreen(state: UiState, controller: RcloneController) {
                     if (error == null) addingCloud = false
                     onResult(error)
                 }
+            },
+        )
+    }
+
+    if (showingAppSettings) {
+        GlobalSettingsDialog(
+            current = state.globalSettings,
+            onDismiss = { showingAppSettings = false },
+            onSave = { updated ->
+                controller.updateGlobalSettings(updated)
+                showingAppSettings = false
             },
         )
     }
@@ -143,6 +156,7 @@ private fun ReadyContent(
     onRequestDelete: (String) -> Unit,
     onRequestRename: (String) -> Unit,
     onRequestSettings: (String) -> Unit,
+    onAppSettings: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -151,6 +165,7 @@ private fun ReadyContent(
     ) {
         Button(onClick = onAddCloud) { Text("Добавить облако") }
         OutlinedButton(onClick = controller::refresh) { Text("Обновить") }
+        OutlinedButton(onClick = onAppSettings) { Text("Настройки приложения") }
     }
 
     (state.mount as? MountSupport.Status.Missing)?.let { missing ->

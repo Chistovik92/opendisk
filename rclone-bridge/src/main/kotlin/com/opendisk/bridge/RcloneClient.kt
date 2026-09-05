@@ -246,6 +246,29 @@ class RcloneClient(
     suspend fun about(remoteName: String): AboutInfo =
         call("operations/about", buildJsonObject { put("fs", "$remoteName:") })
 
+    /**
+     * Ограничение скорости. rclone умеет ограничивать только глобально —
+     * на все переносы сразу, а не по отдельным облакам.
+     */
+    @Serializable
+    data class BandwidthLimit(
+        val rate: String = "off",
+        val bytesPerSecond: Long = -1,
+    ) {
+        val isUnlimited: Boolean get() = bytesPerSecond < 0
+    }
+
+    /** Текущее ограничение скорости. */
+    suspend fun bandwidthLimit(): BandwidthLimit = call("core/bwlimit")
+
+    /**
+     * Задаёт ограничение скорости в формате rclone: «1M», «500k», «off».
+     * На некорректном значении rclone отвечает ошибкой — она долетит
+     * до вызывающего как [RcloneRcException].
+     */
+    suspend fun setBandwidthLimit(rate: String): BandwidthLimit =
+        call("core/bwlimit", buildJsonObject { put("rate", rate) })
+
     @Serializable
     private data class MountTypesResponse(val mountTypes: List<String> = emptyList())
 

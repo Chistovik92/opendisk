@@ -16,6 +16,8 @@ data class CloudSettings(
     val cacheMode: String = DEFAULT_CACHE_MODE,
     /** Куда монтировать. null — подобрать автоматически при подключении. */
     val mountPoint: String? = null,
+    /** Подключать это облако сразу при запуске приложения. */
+    val mountOnStartup: Boolean = false,
 ) {
     companion object {
         /**
@@ -28,6 +30,24 @@ data class CloudSettings(
          * работает; кто хочет экономить место, переключит режим осознанно.
          */
         const val DEFAULT_CACHE_MODE = "writes"
+    }
+}
+
+/**
+ * Общие настройки приложения — не привязанные к конкретному облаку.
+ */
+@Serializable
+data class GlobalSettings(
+    /** Запускать приложение при входе в систему. */
+    val autostart: Boolean = false,
+    /**
+     * Ограничение скорости в формате rclone: «1M», «500k», «off».
+     * Общее на все облака — rclone умеет ограничивать только глобально.
+     */
+    val bandwidthLimit: String = BANDWIDTH_UNLIMITED,
+) {
+    companion object {
+        const val BANDWIDTH_UNLIMITED = "off"
     }
 }
 
@@ -81,12 +101,23 @@ val CACHE_MODES = listOf(
 class AppSettings(private val file: File) {
 
     @Serializable
-    private data class Stored(val clouds: Map<String, CloudSettings> = emptyMap())
+    private data class Stored(
+        val clouds: Map<String, CloudSettings> = emptyMap(),
+        val global: GlobalSettings = GlobalSettings(),
+    )
 
-    fun load(): Map<String, CloudSettings> = runCatching {
-        if (!file.isFile) return emptyMap()
-        json.decodeFromString<Stored>(file.readText()).clouds
-    }.getOrDefault(emptyMap())
+    private fun read(): Stored = runCatching {
+        if (!file.isFile) return Stored()
+        json.decodeFromString<Stored>(file.readText())
+    }.getOrDefault(Stored())
+
+    fun load(): Map<String, CloudSettings> = read().clouds
+
+    fun global(): GlobalSettings = read().global
+
+    fun updateGlobal(updated: GlobalSettings) {
+        write(read().copy(global = updated))
+    }
 
     fun forCloud(name: String): CloudSettings = load()[name] ?: CloudSettings()
 
@@ -106,9 +137,13 @@ class AppSettings(private val file: File) {
     }
 
     private fun save(clouds: Map<String, CloudSettings>) {
+        write(read().copy(clouds = clouds))
+    }
+
+    private fun write(stored: Stored) {
         runCatching {
             file.parentFile?.mkdirs()
-            file.writeText(json.encodeToString(Stored.serializer(), Stored(clouds)))
+            file.writeText(json.encodeToString(Stored.serializer(), stored))
         }
     }
 
