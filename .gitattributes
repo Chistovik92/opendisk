@@ -1,0 +1,17 @@
+# Единый LF в репозитории для всех текстовых файлов
+* text=auto eol=lf
+
+# Скрипты Gradle wrapper: gradlew обязан быть LF (иначе не запустится на Linux),
+# gradlew.bat — CRLF
+gradlew        text eol=lf
+*.sh           text eol=lf
+gradlew.bat    text eol=crlf
+*.bat          text eol=crlf
+*.cmd          text eol=crlf
+
+# Бинарные файлы
+*.jar          binary
+*.png          binary
+*.jpg          binary
+*.ico          binary
+*.icns         binary
