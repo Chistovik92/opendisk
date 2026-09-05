@@ -106,6 +106,18 @@ class Strings(private val russian: Boolean) {
     )
     val rcdFailedToStart = t("не удалось запустить rclone rcd", "failed to start rclone rcd")
     val appDidNotStart = t("OpenDisk не запустился", "OpenDisk did not start")
+    val previousSessionCleaned = t(
+        "Убран остаток прошлого запуска",
+        "Leftover from the previous run removed",
+    )
+    val previousSessionCleanedDetails = t(
+        "В прошлый раз OpenDisk закрылся аварийно, и служебный процесс rclone остался " +
+            "работать — он держал подключённые диски. Процесс остановлен, диски можно " +
+            "подключить заново.",
+        "OpenDisk was shut down abnormally last time and its rclone helper kept running, " +
+            "holding the connected drives. It has been stopped — the drives can be " +
+            "connected again.",
+    )
     val createFailed = t("не удалось создать облако", "failed to create the cloud")
     val renameFailed = t("не удалось переименовать", "failed to rename")
 
@@ -198,6 +210,12 @@ class Strings(private val russian: Boolean) {
         "Sign-in will use the account you are already signed into in the browser. " +
             "To connect a different one, open the page in a private window or sign out " +
             "in the browser first.",
+    )
+    val browserWillAskAccount = t(
+        "На странице входа можно выбрать аккаунт — в том числе не тот, под которым " +
+            "вы уже сидите в браузере.",
+        "The sign-in page will let you pick an account — including one you are not " +
+            "already signed into in the browser.",
     )
     val waitingForBrowser = t(
         "Ожидаю подтверждения в браузере",

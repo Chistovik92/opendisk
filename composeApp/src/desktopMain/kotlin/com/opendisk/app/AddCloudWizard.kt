@@ -241,14 +241,23 @@ private fun PresetFormDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        // Про это спотыкаются: страница открывается в аккаунте, в
-                        // который браузер уже вошёл, и второй диск незаметно
-                        // привязывается к тому же аккаунту.
-                        Text(
-                            strings.browserAccountWarning,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        // Предупреждение — только там, где сервис не спрашивает
+                        // сам. Для Яндекса, Google, Dropbox и OneDrive выбор
+                        // аккаунта включён параметром в адресе авторизации,
+                        // и лишний текст сбивал бы с толку.
+                        if (!preset.asksWhichAccount) {
+                            Text(
+                                strings.browserAccountWarning,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Text(
+                                strings.browserWillAskAccount,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
 

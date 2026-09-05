@@ -6,6 +6,7 @@ import com.opendisk.bridge.RcloneConfigFile
 import com.opendisk.bridge.RcloneConfigLockedException
 import com.opendisk.bridge.RcloneProcess
 import com.opendisk.bridge.RcloneRcException
+import com.opendisk.bridge.StaleRcloneCleanup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +41,12 @@ class RcloneController(
     private val locateRclone: () -> RcloneProcess.Located? = { RcloneProcess.locate() },
     private val resolveConfig: () -> RcloneConfigFile = { RcloneConfigFile.default() },
     private val settings: AppSettings = AppSettings(AppSettings.defaultFile()),
+    /**
+     * Уборка rcd, пережившего аварийное завершение. Файл лежит рядом с
+     * настройками — там же, где приложение и так хранит своё состояние.
+     */
+    private val staleCleanup: StaleRcloneCleanup =
+        StaleRcloneCleanup(File(AppSettings.defaultFile().parentFile, "rcd.pid")),
 ) {
     /**
      * Строки для сообщений об ошибках. Контроллер не композабл, поэтому берёт
@@ -84,6 +91,20 @@ class RcloneController(
                 return@launch
             }
 
+            // До запуска своего rcd: прошлый мог пережить аварийное завершение
+            // и до сих пор держать смонтированные диски. Тогда новые маунты на
+            // те же буквы просто не встанут, а пользователь увидит буквы,
+            // за которыми ничего нет.
+            val killed = withContext(Dispatchers.IO) { staleCleanup.killLeftover() }
+            if (killed != null) {
+                _notifications.tryEmit(
+                    AppNotification(
+                        title = strings.previousSessionCleaned,
+                        message = strings.previousSessionCleanedDetails,
+                    ),
+                )
+            }
+
             val config = resolveConfig()
             _state.update {
                 it.copy(
@@ -100,6 +121,7 @@ class RcloneController(
                 // или наш собственный, переживший аварийное завершение.
                 rcAddr = RcloneProcess.freeRcAddr(),
                 config = config,
+                cleanup = staleCleanup,
             )
             process = rcd
 

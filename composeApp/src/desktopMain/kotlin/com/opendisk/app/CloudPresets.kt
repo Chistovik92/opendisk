@@ -33,6 +33,18 @@ data class CloudPreset(
     val glyph: String,
 )
 
+/**
+ * Спросит ли сервис, под каким аккаунтом входить.
+ *
+ * Определяется тем, переопределён ли адрес авторизации: переопределяем мы его
+ * ровно ради параметра выбора аккаунта (`force_confirm`, `force_reapprove`,
+ * `prompt=select_account` — у каждого сервиса свой). Где адрес свой, там
+ * страница открывается в уже открытом аккаунте молча, и об этом нужно
+ * предупредить заранее — иначе второй диск незаметно окажется первым.
+ */
+val CloudPreset.asksWhichAccount: Boolean
+    get() = oauth && "auth_url" in fixed
+
 data class PresetField(
     val key: String,
     val label: String,
@@ -89,10 +101,16 @@ fun cloudPresets(strings: Strings): List<CloudPreset> = listOf(
         title = strings.googleDrive,
         subtitle = strings.presetBrowserLogin,
         backend = "drive",
-        // Адрес авторизации Google переопределять не стали: проверить его на
-        // живом флоу не удалось, а неверный адрес сломал бы вход полностью.
-        // Поэтому Google может молча взять аккаунт, в который вы уже вошли, —
-        // об этом предупреждает сам мастер.
+        // prompt=select_account — штатный параметр Google OAuth: без него вход
+        // молча уходит в аккаунт, уже открытый в браузере, и второй диск
+        // привязывается к тому же самому.
+        //
+        // Адрес не выдуман: это ровно тот, которым пользуется сам rclone
+        // (backend/drive/drive.go берёт google.Endpoint.AuthURL), к нему только
+        // добавлен параметр. Свои параметры rclone дописывает через «&».
+        fixed = mapOf(
+            "auth_url" to "https://accounts.google.com/o/oauth2/auth?prompt=select_account",
+        ),
         oauth = true,
         accent = Color(0xFF43A047),
         glyph = "G",

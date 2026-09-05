@@ -52,13 +52,26 @@ class LibrcloneTransportTest {
         val transport = LibrcloneTransport.get()
 
         val failure = assertFailsWith<RcloneRcException> {
-            transport.rpc("config/get", buildJsonObject { put("name", "нет-такого-облака") })
+            transport.rpc("operations/about", buildJsonObject { put("fs", "нет-такого-облака:") })
         }
 
         // Ради этого транспорт и разбирает Status: без него ошибка rclone
         // выглядела бы как успешный ответ с невнятным содержимым.
         assertTrue(failure.statusCode >= 400, "ожидался код ошибки, получен ${failure.statusCode}")
         assertTrue(failure.rcloneError.isNotBlank(), "текст причины потерялся")
+    }
+
+    @Test
+    fun askingAboutUnknownCloudIsNotAnError() = runBlocking {
+        val transport = LibrcloneTransport.get()
+
+        // Проверено и на живом rcd, и здесь: config/get про несуществующее
+        // облако отвечает пустым объектом с кодом 200, а не ошибкой. Знать это
+        // важно — код, который ждал бы здесь исключения, молча считал бы любое
+        // облако существующим.
+        val answer = transport.rpc("config/get", buildJsonObject { put("name", "нет-такого") })
+
+        assertTrue(answer.isEmpty(), "ожидался пустой объект, получено: $answer")
     }
 
     @Test

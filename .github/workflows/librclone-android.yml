@@ -74,12 +74,21 @@ jobs:
           # эмулятор. Каждая архитектура добавляет к .aar полную копию rclone,
           # а он большой; 32-битные сборки ради вымирающих устройств удваивали
           # бы размер установки.
+          # Версию нужно проставить явно. В исходниках она записана как
+          # "v<версия>-DEV", а настоящий номер релизные сборки rclone
+          # подставляют линковщиком. Без этого библиотека представляется
+          # как DEV-сборка, и сверить её с десктопным бинарником нельзя —
+          # а сверять надо, на этом держится общий код разбора ответов.
           gomobile bind -v \
             -target=android/arm64,android/amd64 \
             -androidapi 24 \
             -javapkg=org.rclone \
+            -ldflags "-s -X github.com/rclone/rclone/fs.Version=v${{ steps.version.outputs.version }}" \
             -o "$GITHUB_WORKSPACE/librclone.aar" \
             ./librclone/gomobile
+          # Что подстановка сработала, проверяет инструментальный тест
+          # LibrcloneTransportTest.rcloneAnswersWithItsVersion — он спрашивает
+          # версию у библиотеки на устройстве и сверяет с зафиксированной.
 
       - name: Что получилось
         run: |

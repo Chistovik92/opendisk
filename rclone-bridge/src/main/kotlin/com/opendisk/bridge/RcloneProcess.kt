@@ -26,6 +26,12 @@ class RcloneProcess(
     private val rcAddr: String = DEFAULT_RC_ADDR,
     private val config: RcloneConfigFile? = null,
     private val configPassword: String? = null,
+    /**
+     * Куда записать запущенный процесс, чтобы найти его после аварийного
+     * завершения приложения. Владелец процесса — здесь, поэтому и запись
+     * ведётся отсюда: иначе она рано или поздно разошлась бы с реальностью.
+     */
+    private val cleanup: StaleRcloneCleanup? = null,
 ) : AutoCloseable {
 
     private var process: Process? = null
@@ -74,6 +80,7 @@ class RcloneProcess(
             )
         }
 
+        cleanup?.remember(requireNotNull(process))
         drainOutputInBackground(requireNotNull(process))
         registerShutdownHook(requireNotNull(process))
     }
@@ -139,6 +146,10 @@ class RcloneProcess(
         if (!running.waitFor(STOP_GRACE_SECONDS, TimeUnit.SECONDS)) {
             running.destroyForcibly()
         }
+
+        // Только после того, как процесса действительно не стало: убери запись
+        // раньше — и при падении между этими строками искать было бы нечего.
+        cleanup?.forget()
     }
 
     fun isRunning(): Boolean = process?.isAlive == true
