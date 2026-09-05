@@ -73,7 +73,11 @@ jobs:
       # на чистом раннере их нет.
       - name: Инструменты упаковки для Linux
         if: startsWith(matrix.os, 'ubuntu')
-        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm
+        # fuse3 — не для упаковки, а для тестов: /dev/fuse на раннере есть,
+        # и приложение считает монтирование доступным, но без fusermount3
+        # rclone смонтировать ничего не может. Это та же зависимость, которую
+        # рекомендует наш deb-пакет.
+        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm fuse3
 
       # Интеграционные тесты гоняются против настоящего rclone и по умолчанию
       # пропускаются — без пути к бинарнику. В CI пропускать их нельзя: моки

@@ -184,7 +184,12 @@ class RcloneControllerTest {
         assertEquals(mountPoint, mounted.clouds.single { it.name == "data" }.mountPoint)
 
         // Собственно проверка, ради которой всё: файл виден и читается через диск.
-        val throughMount = File("$mountPoint\\hello.txt")
+        //
+        // Путь собираем через File(родитель, имя), а не склейкой с обратным
+        // слэшем: на Windows точка монтирования это "Z:", а на Linux — каталог,
+        // и склейка давала там путь с буквальным «\» в имени файла. Тест был
+        // написан под Windows и до включения в CI больше нигде не запускался.
+        val throughMount = File(mountPoint, "hello.txt")
         assertTrue(throughMount.isFile, "файла нет на смонтированном диске $mountPoint")
         assertEquals("привет из облака", throughMount.readText(Charsets.UTF_8))
 
