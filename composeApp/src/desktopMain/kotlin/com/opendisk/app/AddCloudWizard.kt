@@ -237,6 +237,16 @@ private fun PresetFormDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // Про это спотыкаются: страница открывается в аккаунте, в
+                        // который браузер уже вошёл, и второй диск незаметно
+                        // привязывается к тому же аккаунту.
+                        Text(
+                            "Вход пойдёт под тем аккаунтом, в который вы вошли в браузере. " +
+                                "Чтобы подключить другой — откройте страницу в приватном окне " +
+                                "или выйдите из аккаунта в браузере перед подключением.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
 

@@ -53,6 +53,12 @@ val CLOUD_PRESETS: List<CloudPreset> = listOf(
         title = "Яндекс.Диск",
         subtitle = "вход через браузер",
         backend = "yandex",
+        // force_confirm=yes заставляет Яндекс показать выбор аккаунта. Без него
+        // второй диск молча привязывался к тому же аккаунту, что и первый:
+        // приложение уже разрешено, сессия в браузере активна — и страница
+        // подтверждения просто не показывается. Свои параметры rclone дописывает
+        // к этому адресу через «&», проверено на живом флоу.
+        fixed = mapOf("auth_url" to "https://oauth.yandex.com/authorize?force_confirm=yes"),
         oauth = true,
         accent = Color(0xFFE53935),
         glyph = "Я",
@@ -81,6 +87,10 @@ val CLOUD_PRESETS: List<CloudPreset> = listOf(
         title = "Google Диск",
         subtitle = "вход через браузер",
         backend = "drive",
+        // Адрес авторизации Google переопределять не стали: проверить его на
+        // живом флоу не удалось, а неверный адрес сломал бы вход полностью.
+        // Поэтому Google может молча взять аккаунт, в который вы уже вошли, —
+        // об этом предупреждает сам мастер.
         oauth = true,
         accent = Color(0xFF43A047),
         glyph = "G",
@@ -90,6 +100,9 @@ val CLOUD_PRESETS: List<CloudPreset> = listOf(
         title = "Dropbox",
         subtitle = "вход через браузер",
         backend = "dropbox",
+        // Dropbox по той же причине, что и Яндекс: без force_reapprove повторное
+        // подключение уходит в уже разрешённый аккаунт без вопросов.
+        fixed = mapOf("auth_url" to "https://www.dropbox.com/oauth2/authorize?force_reapprove=true"),
         oauth = true,
         accent = Color(0xFF1565C0),
         glyph = "D",
@@ -99,6 +112,10 @@ val CLOUD_PRESETS: List<CloudPreset> = listOf(
         title = "OneDrive",
         subtitle = "вход через браузер",
         backend = "onedrive",
+        fixed = mapOf(
+            "auth_url" to
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?prompt=select_account",
+        ),
         oauth = true,
         accent = Color(0xFF0288D1),
         glyph = "O",
