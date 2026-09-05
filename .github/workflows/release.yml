@@ -86,8 +86,15 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           gh release view "$tag" >/dev/null 2>&1 || \
             gh release create "$tag" --title "OpenDisk $tag" --prerelease --notes "Сборка $tag"
+          # Каталоги разные на разных платформах: distributions существует
+          # только на Windows. find по несуществующему пути возвращает ошибку
+          # и уронил бы шаг целиком, поэтому код возврата гасим.
           files=$(find composeApp/build/distributions composeApp/build/compose/binaries/main \
-            -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \) 2>/dev/null)
+            -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \) 2>/dev/null || true)
+          if [ -z "$files" ]; then
+            echo "Нечего выкладывать — пакеты не найдены" >&2
+            exit 1
+          fi
           echo "Выкладываю:"; echo "$files"
           gh release upload "$tag" $files --clobber
           # Релиз может оказаться черновиком: если тег когда-то удаляли,
