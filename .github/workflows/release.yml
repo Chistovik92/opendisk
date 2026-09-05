@@ -86,11 +86,16 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           gh release view "$tag" >/dev/null 2>&1 || \
             gh release create "$tag" --title "OpenDisk $tag" --prerelease --notes "Сборка $tag"
-          # Каталоги разные на разных платформах: distributions существует
-          # только на Windows. find по несуществующему пути возвращает ошибку
-          # и уронил бы шаг целиком, поэтому код возврата гасим.
-          files=$(find composeApp/build/distributions composeApp/build/compose/binaries/main \
-            -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \) 2>/dev/null || true)
+          # Каталоги перечислены поимённо и с maxdepth, а не одним деревом:
+          # внутри образа приложения лежит встроенный winfsp.msi, и поиск по
+          # всему дереву утащил бы его в релиз отдельным файлом — так и вышло
+          # в первой сборке 0.1.11. Каталоги разные на разных платформах,
+          # поэтому код возврата find гасим.
+          files=$(find composeApp/build/distributions \
+            composeApp/build/compose/binaries/main/deb \
+            composeApp/build/compose/binaries/main/rpm \
+            -maxdepth 1 -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \) \
+            2>/dev/null || true)
           if [ -z "$files" ]; then
             echo "Нечего выкладывать — пакеты не найдены" >&2
             exit 1
