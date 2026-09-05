@@ -24,7 +24,8 @@ import kotlin.time.Duration.Companion.seconds
 class RcloneProcess(
     private val rclonePath: String = findRcloneBinary(),
     private val rcAddr: String = DEFAULT_RC_ADDR,
-    private val configPath: File? = null,
+    private val config: RcloneConfigFile? = null,
+    private val configPassword: String? = null,
 ) : AutoCloseable {
 
     private var process: Process? = null
@@ -46,11 +47,24 @@ class RcloneProcess(
             "rcd",
             "--rc-addr=$rcAddr",
             "--rc-no-auth", // локальный процесс на localhost, отдельная авторизация избыточна
+            // Пароль от зашифрованного конфига спрашивает GUI и передаёт сюда.
+            // Без этого флага rcd на зашифрованном конфиге просто повиснет,
+            // ожидая ввода пароля в stdin, которого у него нет.
+            "--ask-password=false",
         )
-        configPath?.let { args += "--config=${it.absolutePath}" }
+        config?.let { args += "--config=${it.path.absolutePath}" }
 
         process = try {
-            ProcessBuilder(args).redirectErrorStream(true).start()
+            ProcessBuilder(args)
+                .redirectErrorStream(true)
+                .apply {
+                    // Пароль передаём через окружение, а не аргументом: аргументы
+                    // командной строки видны в списке процессов любому в системе.
+                    configPassword?.let { password ->
+                        environment()[RcloneConfigFile.PASSWORD_ENV] = password
+                    }
+                }
+                .start()
         } catch (e: IOException) {
             throw IllegalStateException(
                 "Не удалось запустить rclone по пути '$rclonePath'. " +

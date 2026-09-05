@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import com.opendisk.bridge.RcloneConfigFile
 import com.opendisk.bridge.RcloneProcess
 
 /**
@@ -35,8 +36,21 @@ fun main() = application {
 @Composable
 fun AppRoot() {
     var rcloneStatus by remember { mutableStateOf("Проверка...") }
+    var configStatus by remember { mutableStateOf("Проверка...") }
 
     remember {
+        val config = RcloneConfigFile.default()
+        configStatus = when {
+            !config.exists() ->
+                "Конфиг: ещё не создан\n$config"
+
+            config.isEncrypted() ->
+                "Конфиг: зашифрован, потребуется пароль\n$config"
+
+            else ->
+                "Конфиг: обычный\n$config"
+        }
+
         val located = RcloneProcess.locate()
         rcloneStatus = when (located?.source) {
             RcloneProcess.Source.BUNDLED ->
@@ -64,6 +78,7 @@ fun AppRoot() {
             Text("OpenDisk — открытый клиент облачных дисков", style = MaterialTheme.typography.headlineSmall)
             Text("Этап разработки: 1-2 (см. ROADMAP.md)")
             Text(rcloneStatus)
+            Text(configStatus)
         }
     }
 }

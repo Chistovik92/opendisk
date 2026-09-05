@@ -33,6 +33,15 @@ class RcloneRcException(
 ) : RuntimeException("rclone RC $endpoint → $statusCode: $rcloneError")
 
 /**
+ * Конфиг зашифрован, а пароль не задан или неверен.
+ *
+ * Отделено от прочих ошибок RC, потому что реакция принципиально другая:
+ * не "что-то сломалось", а "спроси у пользователя пароль и перезапусти rcd".
+ */
+class RcloneConfigLockedException(cause: RcloneRcException) :
+    RuntimeException("Конфиг rclone зашифрован: нужен пароль. ${cause.rcloneError}", cause)
+
+/**
  * Типобезопасная обёртка над rclone RC (Remote Control) HTTP API.
  *
  * Список используемых эндпоинтов и их назначение — в docs/ARCHITECTURE.md.
@@ -54,6 +63,28 @@ class RcloneClient(
     suspend fun listRemotes(): List<String> {
         val response: ListRemotesResponse = call("config/listremotes")
         return response.remotes
+    }
+
+    /**
+     * Проверяет, что rcd действительно может прочитать конфиг.
+     *
+     * Одного `RcloneProcess.awaitReady()` мало: rcd поднимает порт и отвечает на
+     * `core/version` даже тогда, когда конфиг зашифрован, а пароля нет —
+     * расшифровка откладывается до первого обращения к эндпоинтам `config`.
+     * Поэтому после
+     * запуска нужно сходить в конфиг явно и разобрать причину отказа.
+     *
+     * @throws RcloneConfigLockedException если нужен или неверен пароль конфига.
+     */
+    suspend fun ensureConfigReadable() {
+        try {
+            listRemotes()
+        } catch (e: RcloneRcException) {
+            if (e.rcloneError.contains(DECRYPT_FAILURE_MARKER, ignoreCase = true)) {
+                throw RcloneConfigLockedException(e)
+            }
+            throw e
+        }
     }
 
     suspend fun createRemote(name: String, type: String, parameters: Map<String, String>) {
@@ -206,6 +237,13 @@ class RcloneClient(
     }
 
     companion object {
+        /**
+         * Фрагмент, по которому опознаём отказ расшифровки конфига. rclone пишет
+         * "unable to decrypt configuration ..." и в случае отсутствующего пароля,
+         * и в случае неверного — обе ситуации для нас одинаковы.
+         */
+        private const val DECRYPT_FAILURE_MARKER = "unable to decrypt configuration"
+
         fun defaultHttpClient(): HttpClient = HttpClient(CIO) {
             install(ContentNegotiation) {
                 json(lenientJson)
