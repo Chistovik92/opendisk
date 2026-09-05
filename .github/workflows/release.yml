@@ -1,0 +1,90 @@
+name: Release
+
+# Сборка установщиков под все платформы.
+#
+# jpackage умеет собирать пакет только под ту ОС, на которой запущен, поэтому
+# Windows-установщик и Linux-пакеты собираются на разных раннерах. Раньше MSI
+# собирался на машине разработчика — это невоспроизводимо и не даёт Linux вообще.
+on:
+  push:
+    tags:
+      - 'v*'
+  # Позволяет собрать пакеты, не выпуская релиз, — чтобы проверить сборку.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    strategy:
+      # Одна упавшая платформа не должна отменять сборку остальных:
+      # лучше выпустить то, что собралось, чем ничего.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+            tasks: packageMsi
+            artifacts: composeApp/build/compose/binaries/main/msi/*.msi
+          - os: ubuntu-latest
+            name: Linux
+            tasks: packageDeb packageRpm
+            artifacts: |
+              composeApp/build/compose/binaries/main/deb/*.deb
+              composeApp/build/compose/binaries/main/rpm/*.rpm
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Кэш Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ matrix.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ matrix.os }}-
+
+      # jpackage собирает deb через fakeroot, а rpm — через rpmbuild;
+      # на чистом раннере их нет.
+      - name: Инструменты упаковки для Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm
+
+      - name: Тесты
+        run: ./gradlew test --no-daemon
+
+      - name: Сборка пакетов
+        run: ./gradlew ${{ matrix.tasks }} --no-daemon
+
+      - name: Артефакты сборки
+        uses: actions/upload-artifact@v4
+        with:
+          name: opendisk-${{ matrix.name }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+
+      # Файлы попадают в релиз по тегу; сам релиз создаётся, если его ещё нет.
+      - name: Выложить в релиз
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" --title "OpenDisk $tag" --prerelease --notes "Сборка $tag"
+          files=$(find composeApp/build/compose/binaries/main -type f \
+            \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \))
+          echo "Выкладываю:"; echo "$files"
+          gh release upload "$tag" $files --clobber

@@ -265,7 +265,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.1.7"
+            packageVersion = "0.1.8"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -288,10 +288,25 @@ compose.desktop {
                 upgradeUuid = "017F57A7-5FBD-3E70-A0A0-07906627B269"
             }
 
+            linux {
+                // Имена пакетов в Debian и RPM должны быть в нижнем регистре,
+                // иначе jpackage отказывается собирать.
+                packageName = "opendisk"
+                // Обязательное поле для .deb. Личный адрес в публичный пакет
+                // класть незачем, поэтому noreply-адрес GitHub.
+                debMaintainer = "chistovik92@users.noreply.github.com"
+                // Обязательное поле для .rpm.
+                rpmLicenseType = "MIT"
+                menuGroup = "Utility"
+                appCategory = "utils"
+                appRelease = "1"
+                shortcut = true
+            }
+
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.0.7"
+                packageVersion = "1.0.8"
             }
         }
     }

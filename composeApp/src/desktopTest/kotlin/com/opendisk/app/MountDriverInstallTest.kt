@@ -47,7 +47,11 @@ class MountDriverInstallTest {
                 "compose.application.resources.dir и задачу downloadWinFsp",
         )
 
-        assertTrue(MountSupport.installBundled(installer), "установка не завершилась успехом")
+        val result = MountSupport.installBundled(installer)
+        assertTrue(
+            result is MountSupport.InstallResult.Installed,
+            "установка не завершилась успехом: $result",
+        )
         assertTrue(
             MountSupport.check() is MountSupport.Status.Available,
             "после установки система всё ещё считает монтирование недоступным",

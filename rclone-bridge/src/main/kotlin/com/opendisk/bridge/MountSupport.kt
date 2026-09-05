@@ -1,6 +1,7 @@
 package com.opendisk.bridge
 
 import java.io.File
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 /**
@@ -87,30 +88,93 @@ object MountSupport {
             ?.takeIf { it.isNotEmpty() }
     }.getOrNull()
 
+    /** Чем закончилась установка драйвера — от этого зависит текст для пользователя. */
+    sealed interface InstallResult {
+        data object Installed : InstallResult
+
+        /** Пользователь отказался: отклонил запрос администратора или закрыл установщик. */
+        data object Cancelled : InstallResult
+
+        data class Failed(val details: String) : InstallResult
+    }
+
     /**
      * Запускает встроенный установщик и дожидается его завершения.
      *
      * MSI ставится с повышением прав, поэтому запускаем его через ShellExecute
-     * с глаголом `runas` — иначе UAC просто не появится, а установка провалится.
-     * Результат определяем не по коду возврата, а повторной проверкой системы:
-     * пользователь может отменить UAC, и тогда никакой осмысленной ошибки нет.
+     * с глаголом `runas` — иначе UAC просто не появится.
      */
-    fun installBundled(installer: File): Boolean {
-        if (!installer.isFile) return false
-
-        runCatching {
-            val command = listOf(
-                "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-                "Start-Process msiexec -ArgumentList '/i','\"${installer.absolutePath}\"','/qb' " +
-                    "-Verb RunAs -Wait",
-            )
-            val process = ProcessBuilder(command).redirectErrorStream(true).start()
-            if (!process.waitFor(INSTALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-                process.destroyForcibly()
-            }
+    fun installBundled(installer: File): InstallResult {
+        if (!installer.isFile) {
+            return InstallResult.Failed("установщик не найден: ${installer.absolutePath}")
         }
 
-        return check() is Status.Available
+        val output = runCatching { runPowerShell(buildInstallScript(installer)) }
+            .getOrElse { return InstallResult.Failed(it.message ?: "не удалось запустить PowerShell") }
+
+        // Даже при успешном коде возврата сверяемся с системой: это единственная
+        // проверка, которой можно верить.
+        if (check() is Status.Available) return InstallResult.Installed
+
+        return interpretOutput(output)
+    }
+
+    private fun interpretOutput(output: String): InstallResult {
+        val exitCode = EXIT_CODE_PATTERN.find(output)?.groupValues?.get(1)?.toIntOrNull()
+        val launchFailure = LAUNCH_FAILED_PATTERN.find(output)?.groupValues?.get(1)?.trim()
+
+        return when {
+            exitCode == MSI_USER_CANCELLED -> InstallResult.Cancelled
+
+            // Start-Process бросает исключение, когда запрос администратора отклонён.
+            launchFailure != null && CANCELLED_MARKERS.any { launchFailure.contains(it, true) } ->
+                InstallResult.Cancelled
+
+            launchFailure != null -> InstallResult.Failed(launchFailure)
+            exitCode != null -> InstallResult.Failed("установщик завершился с кодом $exitCode")
+            else -> InstallResult.Failed(output.trim().ifEmpty { "установщик не сообщил о результате" })
+        }
+    }
+
+    /**
+     * Скрипт запуска установщика.
+     *
+     * Вынесен отдельно, потому что здесь легко ошибиться с экранированием:
+     * путь к MSI в собранном приложении содержит пробел («Program Files»).
+     */
+    internal fun buildInstallScript(installer: File): String {
+        // Одинарные кавычки PowerShell экранируются удвоением.
+        val path = installer.absolutePath.replace("'", "''")
+        return """
+            try {
+                ${'$'}p = Start-Process msiexec -ArgumentList @('/i', '$path', '/qb') -Verb RunAs -Wait -PassThru
+                Write-Output ("EXIT=" + ${'$'}p.ExitCode)
+            } catch {
+                Write-Output ("LAUNCH_FAILED=" + ${'$'}_.Exception.Message)
+            }
+        """.trimIndent()
+    }
+
+    /**
+     * Запускает скрипт через `-EncodedCommand`.
+     *
+     * Раньше скрипт передавался как `-Command` со вставленным путём, и на пути
+     * с пробелом всё разваливалось: Java сама расставляет кавычки вокруг
+     * аргумента, а внутри уже были свои — PowerShell получал мусор и молча не
+     * выполнялся, из-за чего запрос администратора вообще не появлялся.
+     * Base64 в UTF-16LE снимает вопрос экранирования целиком.
+     */
+    private fun runPowerShell(script: String): String {
+        val encoded = Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE))
+        val process = ProcessBuilder(
+            "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded,
+        ).redirectErrorStream(true).start()
+
+        val output = process.inputStream.bufferedReader().readText()
+        if (!process.waitFor(INSTALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+            process.destroyForcibly()
+        }
+        return output
     }
 
     // --- Linux и macOS ------------------------------------------------------
@@ -153,4 +217,16 @@ object MountSupport {
     )
     private const val REG_TIMEOUT_SECONDS = 10L
     private const val INSTALL_TIMEOUT_MINUTES = 10L
+
+    private val EXIT_CODE_PATTERN = Regex("EXIT=(-?\\d+)")
+    private val LAUNCH_FAILED_PATTERN = Regex("LAUNCH_FAILED=(.*)")
+
+    /** ERROR_INSTALL_USEREXIT — установку прервал сам пользователь. */
+    private const val MSI_USER_CANCELLED = 1602
+
+    /**
+     * По этим словам опознаём отказ от запроса администратора. Текст исключения
+     * приходит на языке системы, поэтому проверяем оба варианта написания.
+     */
+    private val CANCELLED_MARKERS = listOf("canceled", "cancelled", "отменен", "отменён")
 }

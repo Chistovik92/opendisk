@@ -157,13 +157,22 @@ class RcloneController(
 
         scope.launch {
             _state.update { it.copy(installingMountDriver = true) }
-            val installed = withContext(Dispatchers.IO) { MountSupport.installBundled(installer) }
+            val result = withContext(Dispatchers.IO) { MountSupport.installBundled(installer) }
             _state.update {
                 it.copy(
                     installingMountDriver = false,
                     mount = MountSupport.check(),
-                    globalError = if (installed) null else "Установка ${missing.what} не завершилась. " +
-                        "Возможно, запрос администратора был отклонён.",
+                    globalError = when (result) {
+                        MountSupport.InstallResult.Installed -> null
+
+                        MountSupport.InstallResult.Cancelled ->
+                            "Установка ${missing.what} отменена. Драйвер ставится в систему, " +
+                                "поэтому нужны права администратора — без них подключать облака " +
+                                "как диски не получится."
+
+                        is MountSupport.InstallResult.Failed ->
+                            "Не удалось установить ${missing.what}: ${result.details}"
+                    },
                 )
             }
         }
