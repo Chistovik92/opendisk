@@ -20,6 +20,21 @@ Gradle wrapper (`gradlew`, `gradlew.bat`, `gradle/wrapper/`) лежит в ре�
 устанавливать Gradle отдельно не нужно — при первом запуске он сам скачает
 нужный дистрибутив.
 
+## Тесты
+
+```bash
+./gradlew test
+```
+
+Тесты `rclone-bridge` мокают HTTP-ответы и настоящий rclone не требуют. Отдельно
+есть `RcloneIntegrationTest` — он поднимает реальный `rclone rcd` и проверяет, что
+формы ответов RC API те, на которые рассчитан клиент. По умолчанию он пропускается;
+чтобы прогнать, укажите бинарник (после сборки он лежит в ресурсах приложения):
+
+```bash
+./gradlew test -Dopendisk.rclone.path="$PWD/composeApp/build/appResources/common/rclone"
+```
+
 ## Встроенный rclone
 
 rclone не ставится в систему отдельно — он едет внутри OpenDisk. Задача

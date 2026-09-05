@@ -16,6 +16,15 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+
+    // Путь к rclone прокидываем в тестовую JVM: с ним включается
+    // RcloneIntegrationTest против настоящего rcd, без него он пропускается.
+    // Встроенный бинарник после сборки лежит в
+    // composeApp/build/appResources/common/rclone[.exe].
+    val rclonePath = providers.systemProperty("opendisk.rclone.path").orNull
+    if (rclonePath != null) {
+        systemProperty("opendisk.rclone.path", rclonePath)
+    }
 }
 
 kotlin {

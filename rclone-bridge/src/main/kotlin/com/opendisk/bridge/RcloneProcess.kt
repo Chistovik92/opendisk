@@ -1,6 +1,16 @@
 package com.opendisk.bridge
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.util.concurrent.TimeUnit
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Управляет жизненным циклом дочернего процесса `rclone rcd`.
@@ -13,10 +23,17 @@ import java.io.File
  */
 class RcloneProcess(
     private val rclonePath: String = findRcloneBinary(),
-    private val rcAddr: String = "127.0.0.1:5572",
+    private val rcAddr: String = DEFAULT_RC_ADDR,
     private val configPath: File? = null,
-) {
+) : AutoCloseable {
+
     private var process: Process? = null
+
+    /**
+     * Последние строки вывода rcd. Нужны, чтобы при падении процесса показать
+     * пользователю причину, а не просто "не удалось запустить".
+     */
+    private val output = ArrayDeque<String>()
 
     /** Адрес, по которому RcloneClient должен стучаться после запуска. */
     val rcBaseUrl: String get() = "http://$rcAddr"
@@ -32,17 +49,93 @@ class RcloneProcess(
         )
         configPath?.let { args += "--config=${it.absolutePath}" }
 
-        process = ProcessBuilder(args)
-            .redirectErrorStream(true)
-            .start()
+        process = try {
+            ProcessBuilder(args).redirectErrorStream(true).start()
+        } catch (e: IOException) {
+            throw IllegalStateException(
+                "Не удалось запустить rclone по пути '$rclonePath'. " +
+                    "В собранном дистрибутиве он идёт в комплекте; при запуске из исходников " +
+                    "его кладёт в ресурсы задача :composeApp:downloadRclone.",
+                e,
+            )
+        }
+
+        drainOutputInBackground(requireNotNull(process))
+    }
+
+    /**
+     * Ждёт, пока rcd начнёт принимать соединения на [rcAddr].
+     *
+     * Запуск асинхронный: [start] возвращается сразу, а порт открывается через
+     * десятки-сотни миллисекунд. Без этого ожидания первый же вызов RC API
+     * упирался бы в "connection refused" на холодном старте.
+     *
+     * @throws IllegalStateException если процесс умер или не поднялся за [timeout].
+     */
+    suspend fun awaitReady(timeout: Duration = DEFAULT_READY_TIMEOUT) {
+        val running = checkNotNull(process) { "rclone rcd не запущен — сначала вызовите start()" }
+        val host = rcAddr.substringBeforeLast(ADDR_SEPARATOR)
+        val port = rcAddr.substringAfterLast(ADDR_SEPARATOR).toIntOrNull()
+            ?: error("Некорректный адрес RC API: '$rcAddr', ожидается host:port")
+
+        val deadline = System.nanoTime() + timeout.inWholeNanoseconds
+        while (System.nanoTime() < deadline) {
+            if (!running.isAlive) {
+                error(
+                    "rclone rcd завершился с кодом ${running.exitValue()}.\n" +
+                        recentOutput().joinToString("\n"),
+                )
+            }
+            if (canConnect(host, port)) return
+            delay(READY_POLL_INTERVAL)
+        }
+        error(
+            "rclone rcd не начал отвечать на $rcAddr за $timeout.\n" +
+                recentOutput().joinToString("\n"),
+        )
     }
 
     fun stop() {
-        process?.destroy()
+        val running = process ?: return
         process = null
+
+        running.destroy()
+        // Даём rclone размонтировать то, что он смонтировал; добиваем только если завис.
+        if (!running.waitFor(STOP_GRACE_SECONDS, TimeUnit.SECONDS)) {
+            running.destroyForcibly()
+        }
     }
 
     fun isRunning(): Boolean = process?.isAlive == true
+
+    /** Копия перехваченного вывода rcd — для показа в GUI и диагностики. */
+    fun recentOutput(): List<String> = synchronized(output) { output.toList() }
+
+    override fun close() = stop()
+
+    private fun drainOutputInBackground(running: Process) {
+        Thread {
+            running.inputStream.bufferedReader().useLines { lines ->
+                lines.forEach { line ->
+                    synchronized(output) {
+                        output.addLast(line)
+                        while (output.size > MAX_OUTPUT_LINES) output.removeFirst()
+                    }
+                }
+            }
+        }.apply {
+            isDaemon = true // не держим JVM, если приложение закрывают
+            name = "rclone-rcd-output"
+            start()
+        }
+    }
+
+    private suspend fun canConnect(host: String, port: Int): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                Socket().use { it.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MILLIS) }
+            }.isSuccess
+        }
 
     /** Откуда взялся бинарник — GUI показывает это пользователю. */
     enum class Source {
@@ -59,6 +152,8 @@ class RcloneProcess(
     data class Located(val file: File, val source: Source)
 
     companion object {
+        const val DEFAULT_RC_ADDR = "127.0.0.1:5572"
+
         /** Системное свойство, которым можно указать свой бинарник rclone. */
         const val OVERRIDE_PROPERTY = "opendisk.rclone.path"
 
@@ -71,6 +166,13 @@ class RcloneProcess(
          * кладёт встроенный rclone.
          */
         const val COMPOSE_RESOURCES_PROPERTY = "compose.application.resources.dir"
+
+        private const val ADDR_SEPARATOR = ":"
+        private val DEFAULT_READY_TIMEOUT = 15.seconds
+        private val READY_POLL_INTERVAL = 50.milliseconds
+        private const val CONNECT_TIMEOUT_MILLIS = 250
+        private const val STOP_GRACE_SECONDS = 10L
+        private const val MAX_OUTPUT_LINES = 200
 
         private val isWindows: Boolean
             get() = System.getProperty("os.name").lowercase().contains("win")
