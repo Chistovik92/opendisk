@@ -74,19 +74,20 @@ jobs:
       - name: Сборка пакетов
         run: ./gradlew ${{ matrix.tasks }} --no-daemon
 
-      # Права на встроенный rclone уже терялись: он приезжал в deb с 644,
-      # и на Linux приложение не смогло бы его запустить. Проверяем это
-      # в сборке, а не постфактум разбором пакета.
-      - name: Проверить собранный пакет
+      # Права на встроенный rclone теряются внутри jpackage: он приезжает
+      # в пакет с 644. Повлиять на это из сборки не вышло — ни настройкой
+      # прав на копировании, ни chmod после него. Поэтому приложение умеет
+      # обходиться само: если бит выполнения снять не удалось (а в /opt,
+      # принадлежащем root, он и не снимется), оно работает с копией
+      # в пользовательском кэше — см. RcloneProcess.executableCopy.
+      #
+      # Шаг оставлен как наблюдение: если однажды jpackage начнёт сохранять
+      # права, это будет видно, и обходной путь можно будет убрать.
+      - name: Права на встроенный rclone
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           deb=$(ls composeApp/build/compose/binaries/main/deb/*.deb)
-          line=$(dpkg-deb -c "$deb" | grep '/opt/opendisk/lib/app/resources/rclone$')
-          echo "$line"
-          case "$line" in
-            -rwx*) echo "rclone исполняемый — порядок" ;;
-            *) echo "ОШИБКА: встроенный rclone не исполняемый" >&2; exit 1 ;;
-          esac
+          dpkg-deb -c "$deb" | grep '/opt/opendisk/lib/app/resources/rclone$'
 
       - name: Артефакты сборки
         uses: actions/upload-artifact@v4
