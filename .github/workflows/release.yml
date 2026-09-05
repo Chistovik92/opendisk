@@ -74,20 +74,41 @@ jobs:
       - name: Сборка пакетов
         run: ./gradlew ${{ matrix.tasks }} --no-daemon
 
-      # Права на встроенный rclone теряются внутри jpackage: он приезжает
-      # в пакет с 644. Повлиять на это из сборки не вышло — ни настройкой
-      # прав на копировании, ни chmod после него. Поэтому приложение умеет
-      # обходиться само: если бит выполнения снять не удалось (а в /opt,
-      # принадлежащем root, он и не снимется), оно работает с копией
-      # в пользовательском кэше — см. RcloneProcess.executableCopy.
+      # Две вещи, которые jpackage делает не так, а повлиять на них из сборки
+      # нельзя. Обе чинятся распаковкой и пересборкой готового пакета.
       #
-      # Шаг оставлен как наблюдение: если однажды jpackage начнёт сохранять
-      # права, это будет видно, и обходной путь можно будет убрать.
-      - name: Права на встроенный rclone
+      # 1. Встроенный rclone приезжает с правами 644, то есть неисполняемым:
+      #    приложение не смогло бы его запустить, а исправить права на месте
+      #    не может — /opt принадлежит root.
+      # 2. postinst безусловно вызывает xdg-desktop-menu, а тот падает на
+      #    системах без /etc/xdg/menus (минимальные установки, серверы, WSL).
+      #    postinst идёт с set -e, поэтому пакет оставался ненастроенным
+      #    и ломал dpkg. Ярлык в меню приложений того не стоит.
+      - name: Починить содержимое deb
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           deb=$(ls composeApp/build/compose/binaries/main/deb/*.deb)
+          work=$(mktemp -d)
+          dpkg-deb -R "$deb" "$work"
+
+          chmod 755 "$work/opt/opendisk/lib/app/resources/rclone"
+
+          for script in postinst prerm; do
+            [ -f "$work/DEBIAN/$script" ] || continue
+            # Разделитель # вместо | — в самой замене есть ||.
+            sed -i '/^xdg-desktop-menu /s#$# || true#' "$work/DEBIAN/$script"
+          done
+
+          dpkg-deb -b "$work" "$deb"
+          rm -rf "$work"
+
+          echo "Права и maintainer-скрипты после починки:"
           dpkg-deb -c "$deb" | grep '/opt/opendisk/lib/app/resources/rclone$'
+          dpkg-deb -I "$deb" postinst | grep xdg-desktop-menu
+
+          # Пакет обязан быть исполняемым — иначе смысла в починке нет.
+          dpkg-deb -c "$deb" | grep '/opt/opendisk/lib/app/resources/rclone$' | grep -q '^-rwx' ||
+            { echo 'rclone так и не стал исполняемым' >&2; exit 1; }
 
       - name: Артефакты сборки
         uses: actions/upload-artifact@v4
