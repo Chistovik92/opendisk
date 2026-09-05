@@ -272,4 +272,36 @@ class RcloneControllerTest {
         }
         assertEquals(listOf("demo"), unlocked.clouds.map { it.name })
     }
+
+    /**
+     * Буква диска и каталог различаются не косметически: каталог перед
+     * монтированием нужно создать, а букву — ни в коем случае, иначе она
+     * окажется занята и rclone смонтировать в неё уже не сможет.
+     */
+    @Test
+    fun `windows drive letters are told apart from directories`() {
+        assertTrue(RcloneController.isWindowsDriveLetter("Z:"))
+        assertTrue(RcloneController.isWindowsDriveLetter("Z:\\"))
+        assertTrue(RcloneController.isWindowsDriveLetter("d:"))
+
+        assertFalse(RcloneController.isWindowsDriveLetter("/home/user/OpenDisk/data"))
+        assertFalse(RcloneController.isWindowsDriveLetter("""C:\Users\me\OpenDisk"""))
+        assertFalse(RcloneController.isWindowsDriveLetter(""))
+    }
+
+    @Test
+    fun `directory mount point is created, drive letter is not`() {
+        val base = createTempDirectory("mount-point").toFile()
+        val directory = File(base, "OpenDisk/data")
+
+        RcloneController.prepareMountPoint(directory.absolutePath)
+
+        // Ради этого всё: на свежей системе каталога ~/OpenDisk нет, а rclone
+        // отказывается монтировать в несуществующий путь.
+        assertTrue(directory.isDirectory, "каталог точки монтирования не создан")
+
+        // А букву диска создавать нельзя — она должна остаться свободной.
+        RcloneController.prepareMountPoint("Z:")
+        assertFalse(File("Z:").exists(), "по букве диска что-то создалось")
+    }
 }

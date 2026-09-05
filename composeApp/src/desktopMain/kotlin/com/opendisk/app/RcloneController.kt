@@ -518,6 +518,7 @@ class RcloneController(
 
         updateCloud(name) { it.copy(busy = true, error = null) }
         try {
+            withContext(Dispatchers.IO) { prepareMountPoint(mountPoint) }
             api.mount(name, mountPoint, vfsCacheMode = cloudSettings.cacheMode)
             ourMounts[name] = mountPoint
             reloadClouds()
@@ -578,6 +579,28 @@ class RcloneController(
         /** Ссылка, которую rclone печатает при запуске браузерной авторизации. */
         private val OAUTH_LINK_PATTERN = Regex("http://127\\.0\\.0\\.1:\\d+/auth\\?state=\\S+")
         private const val OAUTH_LINK_POLL_MILLIS = 400L
+
+        /**
+         * Готовит точку монтирования.
+         *
+         * На Linux и macOS точка — это каталог, и он должен существовать: rclone
+         * отказывается монтировать в несуществующий путь. Каталога `~/OpenDisk`
+         * на свежей системе нет, поэтому без этого первое же подключение
+         * упиралось в ошибку, а пользователю оставалось создавать папку руками.
+         *
+         * На Windows точка — буква диска, и создавать там нечего: буква не
+         * должна быть занята вообще ничем, иначе монтирование не пройдёт.
+         */
+        internal fun prepareMountPoint(mountPoint: String) {
+            if (isWindowsDriveLetter(mountPoint)) return
+            runCatching { File(mountPoint).mkdirs() }
+        }
+
+        /** «Z:» или «Z:\» — точка монтирования в виде буквы диска. */
+        internal fun isWindowsDriveLetter(mountPoint: String): Boolean {
+            val trimmed = mountPoint.trimEnd('\\', '/')
+            return trimmed.length == 2 && trimmed[0].isLetter() && trimmed[1] == ':'
+        }
 
         /**
          * Точка монтирования по умолчанию. На Windows это буква диска, поэтому
