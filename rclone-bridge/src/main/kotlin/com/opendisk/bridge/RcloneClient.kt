@@ -11,6 +11,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -139,6 +140,91 @@ class RcloneClient(
     suspend fun listMounts(): List<MountInfo> {
         val response: ListMountsResponse = call("mount/listmounts")
         return response.mountPoints
+    }
+
+    /**
+     * Снимает блокировку зашифрованного конфига на уже запущенном rcd —
+     * перезапускать процесс не нужно.
+     *
+     * `config/unlock` возвращает пустой ответ независимо от того, подошёл пароль
+     * или нет: проверка происходит только при следующем обращении к конфигу.
+     * Поэтому сразу же проверяем результат сами. Неверный пароль ничего не ломает —
+     * можно вызвать повторно с правильным.
+     *
+     * @throws RcloneConfigLockedException если пароль не подошёл.
+     */
+    suspend fun unlockConfig(password: String) {
+        call<JsonObject>("config/unlock", buildJsonObject { put("configPassword", password) })
+        ensureConfigReadable()
+    }
+
+    /**
+     * Превращает пароль в «затемнённый» вид, в котором rclone хранит секреты
+     * в конфиге. Класть пароль в `config/create` открытым текстом нельзя —
+     * rclone ожидает именно обработанное значение.
+     */
+    suspend fun obscure(clear: String): String {
+        val response: ObscureResponse = call("core/obscure", buildJsonObject { put("clear", clear) })
+        return response.obscured
+    }
+
+    @Serializable
+    private data class ObscureResponse(val obscured: String)
+
+    // --- Провайдеры и место -------------------------------------------------
+
+    /** Описание бэкенда rclone и его настроек — основа мастера добавления облака. */
+    @Serializable
+    data class Provider(
+        @SerialName("Name") val name: String,
+        @SerialName("Description") val description: String = "",
+        @SerialName("Options") val options: List<Option> = emptyList(),
+    )
+
+    @Serializable
+    data class Option(
+        @SerialName("Name") val name: String,
+        @SerialName("Help") val help: String = "",
+        @SerialName("Required") val required: Boolean = false,
+        @SerialName("IsPassword") val isPassword: Boolean = false,
+        @SerialName("Advanced") val advanced: Boolean = false,
+    ) {
+        /** Первая строка справки: в rclone Help многострочный, в поле формы нужна короткая. */
+        val shortHelp: String get() = help.lineSequence().firstOrNull().orEmpty()
+    }
+
+    @Serializable
+    private data class ProvidersResponse(val providers: List<Provider> = emptyList())
+
+    suspend fun providers(): List<Provider> {
+        val response: ProvidersResponse = call("config/providers")
+        return response.providers
+    }
+
+    /**
+     * Занятое и свободное место на облаке. Поля необязательные: не каждый бэкенд
+     * умеет это сообщать, и тогда rclone просто не присылает соответствующий ключ.
+     */
+    @Serializable
+    data class AboutInfo(
+        val total: Long? = null,
+        val used: Long? = null,
+        val free: Long? = null,
+    )
+
+    suspend fun about(remoteName: String): AboutInfo =
+        call("operations/about", buildJsonObject { put("fs", "$remoteName:") })
+
+    @Serializable
+    private data class MountTypesResponse(val mountTypes: List<String> = emptyList())
+
+    /**
+     * Доступные на этой машине способы монтирования. Пустой список означает,
+     * что монтировать нечем: на Windows не установлен WinFsp, на Linux нет FUSE.
+     */
+    suspend fun mountTypes(): List<String> {
+        val response: MountTypesResponse = call("mount/types")
+        return response.mountTypes
     }
 
     // --- Прогресс и состояние ----------------------------------------------

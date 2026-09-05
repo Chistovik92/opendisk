@@ -75,7 +75,21 @@ class RcloneProcess(
         }
 
         drainOutputInBackground(requireNotNull(process))
+        registerShutdownHook(requireNotNull(process))
     }
+
+    /**
+     * Гасит rcd, если JVM завершается мимо [stop] — например, приложение убили.
+     * Без этого дочерний процесс переживает родителя и продолжает держать порт,
+     * из-за чего следующий запуск уже не может подняться.
+     */
+    private fun registerShutdownHook(running: Process) {
+        val hook = Thread { running.destroy() }
+        Runtime.getRuntime().addShutdownHook(hook)
+        shutdownHook = hook
+    }
+
+    private var shutdownHook: Thread? = null
 
     /**
      * Ждёт, пока rcd начнёт принимать соединения на [rcAddr].
@@ -112,6 +126,13 @@ class RcloneProcess(
     fun stop() {
         val running = process ?: return
         process = null
+
+        // Хук больше не нужен и, если его не снять, будет удерживать ссылку
+        // на процесс до самого конца работы приложения.
+        shutdownHook?.let { hook ->
+            runCatching { Runtime.getRuntime().removeShutdownHook(hook) }
+            shutdownHook = null
+        }
 
         running.destroy()
         // Даём rclone размонтировать то, что он смонтировал; добиваем только если завис.
@@ -167,6 +188,22 @@ class RcloneProcess(
 
     companion object {
         const val DEFAULT_RC_ADDR = "127.0.0.1:5572"
+
+        /**
+         * Адрес со свободным портом вместо штатного 5572.
+         *
+         * На 5572 может уже сидеть чужой `rclone rcd` — в том числе наш собственный,
+         * переживший аварийное завершение приложения. Тогда новый процесс не
+         * поднимется, и пользователь увидит непонятную ошибку на ровном месте.
+         *
+         * Порт освобождается сразу после выбора, так что теоретически его может
+         * успеть занять кто-то ещё; практически это несопоставимо менее вероятно,
+         * чем занятый 5572, а такой случай отловит [awaitReady].
+         */
+        fun freeRcAddr(host: String = "127.0.0.1"): String {
+            val port = java.net.ServerSocket(0).use { it.localPort }
+            return "$host:$port"
+        }
 
         /** Системное свойство, которым можно указать свой бинарник rclone. */
         const val OVERRIDE_PROPERTY = "opendisk.rclone.path"

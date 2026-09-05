@@ -2,7 +2,6 @@ package com.opendisk.bridge
 
 import kotlinx.coroutines.runBlocking
 import java.io.File
-import java.net.ServerSocket
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -34,12 +33,6 @@ class RcloneIntegrationTest {
         rclone?.stop()
     }
 
-    /**
-     * Свободный порт вместо штатного 5572 — чтобы тест не подрался с уже
-     * запущенным у разработчика rclone или с параллельным прогоном.
-     */
-    private fun freePort(): Int = ServerSocket(0).use { it.localPort }
-
     /** Пустой конфиг во временном каталоге: настоящий конфиг пользователя не трогаем. */
     private fun plainConfig(content: String = "[demo]\ntype = local\n"): RcloneConfigFile {
         val dir = createTempDirectory("plain-config").toFile()
@@ -53,7 +46,7 @@ class RcloneIntegrationTest {
         val binary = requireNotNull(RcloneProcess.locate()).file.absolutePath
         val process = RcloneProcess(
             rclonePath = binary,
-            rcAddr = "127.0.0.1:${freePort()}",
+            rcAddr = RcloneProcess.freeRcAddr(),
             config = config,
             configPassword = password,
         )

@@ -20,6 +20,38 @@ Gradle wrapper (`gradlew`, `gradlew.bat`, `gradle/wrapper/`) лежит в ре�
 устанавливать Gradle отдельно не нужно — при первом запуске он сам скачает
 нужный дистрибутив.
 
+## Сборка установщика под Windows
+
+```bash
+./gradlew :composeApp:packageMsi
+```
+
+Результат — `composeApp/build/compose/binaries/main/msi/OpenDisk-<версия>.msi`
+(около 92 МБ: внутри JRE и встроенный rclone). WiX ставить не нужно — плагин
+Compose скачивает и распаковывает его сам (задача `unzipWix`).
+
+Портативный вариант без установщика:
+
+```bash
+./gradlew :composeApp:createDistributable
+```
+
+Он кладёт готовое приложение в `composeApp/build/compose/binaries/main/app/OpenDisk/`,
+запускать — `OpenDisk.exe`.
+
+> **Только ASCII в метаданных установщика.** WiX собирает MSI в кодовой странице
+> 1252 и падает с `LGHT0311` на кириллице в `description`/`vendor`. Поэтому
+> описание в `nativeDistributions` английское, хотя интерфейс русский.
+
+### Про 32-битную сборку
+
+Её нет и быть не может:
+
+- Skiko (движок отрисовки Compose) публикует нативные библиотеки только для
+  `windows-x64` и `windows-arm64` — сборки под x86 не существует;
+- 32-битных JDK новее восьмой версии не выпускают, а jpackage требует JDK
+  той же разрядности, что и целевая платформа.
+
 ## Тесты
 
 ```bash

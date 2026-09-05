@@ -1,10 +1,13 @@
 plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
+    // Нужен ради конфигурации api: HttpClient торчит в публичном конструкторе
+    // RcloneClient, поэтому потребители модуля обязаны его видеть.
+    `java-library`
 }
 
 dependencies {
-    implementation("io.ktor:ktor-client-core:2.3.12")
+    api("io.ktor:ktor-client-core:2.3.12")
     implementation("io.ktor:ktor-client-cio:2.3.12")
     implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")

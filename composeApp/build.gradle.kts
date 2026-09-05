@@ -14,6 +14,8 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
+
+    testImplementation(kotlin("test"))
 }
 
 kotlin {
@@ -23,6 +25,19 @@ kotlin {
     // про src/main/kotlin. Раскладка commonMain/desktopMain из docs/ARCHITECTURE.md
     // подключается вручную — иначе исходники молча не компилируются (NO-SOURCE).
     sourceSets["main"].kotlin.srcDirs("src/commonMain/kotlin", "src/desktopMain/kotlin")
+    sourceSets["test"].kotlin.srcDirs("src/desktopTest/kotlin")
+    sourceSets["test"].resources.srcDirs("src/desktopTest/resources")
+}
+
+tasks.test {
+    useJUnitPlatform()
+
+    // Как и в :rclone-bridge — с указанным бинарником включается прогон
+    // контроллера против настоящего rcd, без него тест пропускается.
+    val rclonePath = providers.systemProperty("opendisk.rclone.path").orNull
+    if (rclonePath != null) {
+        systemProperty("opendisk.rclone.path", rclonePath)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,8 +182,10 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.1.0"
-            description = "Открытый кроссплатформенный клиент виртуальных облачных дисков"
+            packageVersion = "0.1.5"
+            // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
+            // с LGHT0311 на кириллице в метаданных установщика.
+            description = "Open cross-platform client for cloud drives"
             vendor = "OpenDisk contributors"
 
             appResourcesRootDir.set(appResourcesRoot)
@@ -176,7 +193,7 @@ compose.desktop {
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.0.0"
+                packageVersion = "1.0.5"
             }
         }
     }
