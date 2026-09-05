@@ -20,7 +20,7 @@ on:
       - 'composeApp/build.gradle.kts'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -93,8 +93,31 @@ jobs:
           unzip -o -q ../librclone.aar
           javap -classpath classes.jar org.rclone.gomobile.Gomobile || true
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: librclone-android-${{ steps.version.outputs.version }}
-          path: librclone.aar
-          retention-days: 30
+      # Библиотеку нужно откуда-то брать при сборке Android-модуля — и на машине
+      # разработчика тоже, а Go и NDK ради этого ставить не хочется. Кладём её
+      # в отдельный релиз и качаем по контрольной сумме, ровно как десктопный
+      # бинарник rclone. Релиз помечен предварительным, чтобы не подменять собой
+      # последнюю версию приложения на странице релизов.
+      - name: Опубликовать библиотеку
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          sha=$(sha256sum librclone.aar | cut -d' ' -f1)
+          echo "SHA-256: $sha"
+          tag="librclone-v$VERSION"
+          notes="librclone $VERSION, собрана gomobile для android/arm64 и android/amd64.
+
+          Это не приложение, а библиотека для сборки Android-клиента OpenDisk.
+
+          SHA-256: \`$sha\`"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" librclone.aar --clobber
+            gh release edit "$tag" --notes "$notes"
+          else
+            gh release create "$tag" librclone.aar \
+              --title "librclone $VERSION для Android" \
+              --notes "$notes" \
+              --prerelease
+          fi
