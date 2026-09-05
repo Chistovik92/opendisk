@@ -41,6 +41,12 @@ class RcloneController(
     private val resolveConfig: () -> RcloneConfigFile = { RcloneConfigFile.default() },
     private val settings: AppSettings = AppSettings(AppSettings.defaultFile()),
 ) {
+    /**
+     * Строки для сообщений об ошибках. Контроллер не композабл, поэтому берёт
+     * их сам и обновляет при смене языка в настройках.
+     */
+    private var strings: Strings = Strings.of(Language.fromCode(settings.global().language))
+
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -72,10 +78,7 @@ class RcloneController(
             if (located == null) {
                 _state.update {
                     it.copy(
-                        session = SessionState.Failed(
-                            "rclone не найден. В собранном дистрибутиве он идёт в комплекте; " +
-                                "при запуске из исходников его кладёт задача :composeApp:downloadRclone.",
-                        ),
+                        session = SessionState.Failed(strings.rcloneNotFound),
                     )
                 }
                 return@launch
@@ -102,12 +105,12 @@ class RcloneController(
                 rcd.start()
                 rcd.awaitReady()
             } catch (e: IllegalStateException) {
-                val message = e.message ?: "не удалось запустить rclone rcd"
+                val message = e.message ?: strings.rcdFailedToStart
                 _state.update {
                     it.copy(session = SessionState.Failed(message, rcd.recentOutput()))
                 }
                 _notifications.tryEmit(
-                    AppNotification(title = "OpenDisk не запустился", message = message),
+                    AppNotification(title = strings.appDidNotStart, message = message),
                 )
                 return@launch
             }
@@ -181,12 +184,10 @@ class RcloneController(
                         MountSupport.InstallResult.Installed -> null
 
                         MountSupport.InstallResult.Cancelled ->
-                            "Установка ${missing.what} отменена. Драйвер ставится в систему, " +
-                                "поэтому нужны права администратора — без них подключать облака " +
-                                "как диски не получится."
+                            strings.driverInstallCancelled(missing.what)
 
                         is MountSupport.InstallResult.Failed ->
-                            "Не удалось установить ${missing.what}: ${result.details}"
+                            strings.driverInstallFailed(missing.what, result.details)
                     },
                 )
             }
@@ -232,7 +233,7 @@ class RcloneController(
                 api.setBandwidthLimit(rate)
             } catch (e: RcloneRcException) {
                 _state.update {
-                    it.copy(globalError = "Не удалось применить ограничение скорости: ${e.rcloneError}")
+                    it.copy(globalError = strings.bandwidthFailed(e.rcloneError))
                 }
             }
         }
@@ -246,14 +247,22 @@ class RcloneController(
     fun updateGlobalSettings(updated: GlobalSettings) {
         val previous = settings.global()
         settings.updateGlobal(updated)
-        _state.update { it.copy(globalSettings = updated) }
+        strings = Strings.of(Language.fromCode(updated.language))
+        _state.update {
+            it.copy(
+                globalSettings = updated,
+                // Описания источника rclone и конфига уже переведены — обновляем
+                // их вместе с языком, иначе шапка осталась бы на старом.
+                rcloneDescription = locateRclone()?.let(::describeRclone).orEmpty(),
+                configDescription = describeConfig(resolveConfig()),
+            )
+        }
 
         if (updated.autostart != previous.autostart) {
             if (!Autostart.setEnabled(updated.autostart)) {
                 _state.update {
                     it.copy(
-                        globalError = "Не удалось изменить автозапуск. Он настраивается " +
-                            "только для установленного приложения, не для запуска из сборки.",
+                        globalError = strings.autostartFailed,
                     )
                 }
             }
@@ -339,7 +348,7 @@ class RcloneController(
             } catch (e: Exception) {
                 // Обрыв связи с rcd на длинном OAuth-запросе иначе выглядел бы
                 // как навсегда зависший диалог: показываем причину.
-                onDone(e.message ?: "не удалось создать облако")
+                onDone(e.message ?: strings.createFailed)
             } finally {
                 linkWatcher.cancel()
                 _state.update { it.copy(oauthUrl = null) }
@@ -381,7 +390,7 @@ class RcloneController(
             } catch (e: Exception) {
                 val message = (e as? RcloneRcException)?.rcloneError
                     ?: e.message
-                    ?: "не удалось переименовать"
+                    ?: strings.renameFailed
                 updateCloud(from) { it.copy(busy = false, error = message) }
                 onDone(message)
             }
@@ -432,7 +441,7 @@ class RcloneController(
             updateCloud(name) { it.copy(busy = false, error = e.rcloneError) }
             _notifications.tryEmit(
                 AppNotification(
-                    title = "Не удалось подключить «$name»",
+                    title = strings.mountFailed(name),
                     message = e.rcloneError,
                 ),
             )
@@ -470,15 +479,15 @@ class RcloneController(
     }
 
     private fun describeRclone(located: RcloneProcess.Located): String = when (located.source) {
-        RcloneProcess.Source.BUNDLED -> "rclone: встроенный"
-        RcloneProcess.Source.OVERRIDE -> "rclone: задан вручную (${located.file})"
-        RcloneProcess.Source.SYSTEM_PATH -> "rclone: системный (${located.file})"
+        RcloneProcess.Source.BUNDLED -> strings.rcloneBundled
+        RcloneProcess.Source.OVERRIDE -> strings.rcloneOverride(located.file.toString())
+        RcloneProcess.Source.SYSTEM_PATH -> strings.rcloneSystem(located.file.toString())
     }
 
     private fun describeConfig(config: RcloneConfigFile): String = when {
-        !config.exists() -> "конфиг: будет создан в $config"
-        config.isEncrypted() -> "конфиг: зашифрован ($config)"
-        else -> "конфиг: $config"
+        !config.exists() -> strings.configWillBeCreated(config.toString())
+        config.isEncrypted() -> strings.configEncrypted(config.toString())
+        else -> strings.configPath(config.toString())
     }
 
     companion object {

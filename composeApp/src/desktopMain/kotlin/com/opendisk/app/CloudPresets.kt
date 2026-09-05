@@ -3,7 +3,7 @@ package com.opendisk.app
 import androidx.compose.ui.graphics.Color
 
 /**
- * Готовые подключения к популярным сервисам.
+ * Готовое подключение к популярному сервису.
  *
  * Смысл в том, чтобы человеку не приходилось знать, что Яндекс.Диск — это
  * бэкенд `yandex`, а Mail.ru просит не обычный пароль, а пароль для внешних
@@ -46,12 +46,15 @@ data class PresetField(
  * официальные логотипы: чужие товарные знаки в дистрибутив мы не кладём.
  * Если появятся права на использование фирменной символики, менять придётся
  * только [CloudPreset.glyph] и [CloudPreset.accent].
+ *
+ * Список строится от [Strings], а не лежит константой: названия и подсказки
+ * переводятся вместе с остальным интерфейсом.
  */
-val CLOUD_PRESETS: List<CloudPreset> = listOf(
+fun cloudPresets(strings: Strings): List<CloudPreset> = listOf(
     CloudPreset(
         id = "yandex",
-        title = "Яндекс.Диск",
-        subtitle = "вход через браузер",
+        title = strings.yandexDisk,
+        subtitle = strings.presetBrowserLogin,
         backend = "yandex",
         // force_confirm=yes заставляет Яндекс показать выбор аккаунта. Без него
         // второй диск молча привязывался к тому же аккаунту, что и первый:
@@ -65,27 +68,26 @@ val CLOUD_PRESETS: List<CloudPreset> = listOf(
     ),
     CloudPreset(
         id = "mailru",
-        title = "Облако Mail.ru",
-        subtitle = "логин и пароль",
+        title = strings.mailruCloud,
+        subtitle = strings.presetLoginPassword,
         backend = "mailru",
         fields = listOf(
-            PresetField("user", "Логин или почта"),
+            PresetField("user", strings.fieldLoginOrEmail),
             PresetField(
                 key = "pass",
-                label = "Пароль для внешних приложений",
+                label = strings.fieldExternalAppPassword,
                 isPassword = true,
-                help = "Не основной пароль от почты: его нужно создать в настройках безопасности Mail.ru",
+                help = strings.mailruPasswordHelp,
             ),
         ),
-        hint = "Mail.ru не принимает основной пароль от аккаунта — нужен отдельный " +
-            "пароль для внешних приложений.",
+        hint = strings.mailruHint,
         accent = Color(0xFF1E88E5),
         glyph = "@",
     ),
     CloudPreset(
         id = "gdrive",
-        title = "Google Диск",
-        subtitle = "вход через браузер",
+        title = strings.googleDrive,
+        subtitle = strings.presetBrowserLogin,
         backend = "drive",
         // Адрес авторизации Google переопределять не стали: проверить его на
         // живом флоу не удалось, а неверный адрес сломал бы вход полностью.
@@ -98,7 +100,7 @@ val CLOUD_PRESETS: List<CloudPreset> = listOf(
     CloudPreset(
         id = "dropbox",
         title = "Dropbox",
-        subtitle = "вход через браузер",
+        subtitle = strings.presetBrowserLogin,
         backend = "dropbox",
         // Dropbox по той же причине, что и Яндекс: без force_reapprove повторное
         // подключение уходит в уже разрешённый аккаунт без вопросов.
@@ -110,7 +112,7 @@ val CLOUD_PRESETS: List<CloudPreset> = listOf(
     CloudPreset(
         id = "onedrive",
         title = "OneDrive",
-        subtitle = "вход через браузер",
+        subtitle = strings.presetBrowserLogin,
         backend = "onedrive",
         fixed = mapOf(
             "auth_url" to
@@ -122,32 +124,32 @@ val CLOUD_PRESETS: List<CloudPreset> = listOf(
     ),
     CloudPreset(
         id = "yandex-webdav",
-        title = "Яндекс.Диск по WebDAV",
-        subtitle = "если браузерный вход не подходит",
+        title = strings.yandexDiskWebdav,
+        subtitle = strings.presetWebdavFallback,
         backend = "webdav",
         fixed = mapOf("url" to "https://webdav.yandex.ru", "vendor" to "other"),
         fields = listOf(
-            PresetField("user", "Логин"),
+            PresetField("user", strings.fieldLogin),
             PresetField(
                 key = "pass",
-                label = "Пароль приложения",
+                label = strings.fieldAppPassword,
                 isPassword = true,
-                help = "Создаётся на id.yandex.ru в разделе «Пароли приложений»",
+                help = strings.yandexAppPasswordHelp,
             ),
         ),
-        hint = "Для Яндекса по WebDAV нужен пароль приложения, а не пароль от аккаунта.",
+        hint = strings.yandexWebdavHint,
         accent = Color(0xFFD32F2F),
         glyph = "Я",
     ),
     CloudPreset(
         id = "webdav",
         title = "WebDAV",
-        subtitle = "любой сервер",
+        subtitle = strings.presetAnyServer,
         backend = "webdav",
         fields = listOf(
-            PresetField("url", "Адрес сервера", help = "Например, https://example.com/dav"),
-            PresetField("user", "Логин", required = false),
-            PresetField("pass", "Пароль", isPassword = true, required = false),
+            PresetField("url", strings.fieldServerUrl, help = strings.fieldServerUrlHint),
+            PresetField("user", strings.fieldLogin, required = false),
+            PresetField("pass", strings.fieldPassword, isPassword = true, required = false),
         ),
         accent = Color(0xFF6D4C41),
         glyph = "W",
@@ -155,12 +157,12 @@ val CLOUD_PRESETS: List<CloudPreset> = listOf(
     CloudPreset(
         id = "sftp",
         title = "SFTP",
-        subtitle = "доступ по SSH",
+        subtitle = strings.presetSshAccess,
         backend = "sftp",
         fields = listOf(
-            PresetField("host", "Сервер"),
-            PresetField("user", "Логин", required = false),
-            PresetField("pass", "Пароль", isPassword = true, required = false),
+            PresetField("host", strings.fieldServer),
+            PresetField("user", strings.fieldLogin, required = false),
+            PresetField("pass", strings.fieldPassword, isPassword = true, required = false),
         ),
         accent = Color(0xFF455A64),
         glyph = "S",

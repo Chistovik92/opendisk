@@ -32,6 +32,7 @@ import com.opendisk.bridge.MountSupport
 
 @Composable
 fun AppScreen(state: UiState, controller: RcloneController) {
+    val strings = LocalStrings.current
     var addingCloud by remember { mutableStateOf(false) }
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
     var cloudToRename by remember { mutableStateOf<String?>(null) }
@@ -46,7 +47,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
             Header(state)
 
             when (val session = state.session) {
-                SessionState.Starting -> CenteredMessage("Запускаю rclone...", showSpinner = true)
+                SessionState.Starting -> CenteredMessage(strings.startingRclone, showSpinner = true)
 
                 is SessionState.NeedPassword -> PasswordPrompt(
                     wrongAttempt = session.wrongAttempt,
@@ -158,14 +159,16 @@ private fun ReadyContent(
     onRequestSettings: (String) -> Unit,
     onAppSettings: () -> Unit,
 ) {
+    val strings = LocalStrings.current
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Button(onClick = onAddCloud) { Text("Добавить облако") }
-        OutlinedButton(onClick = controller::refresh) { Text("Обновить") }
-        OutlinedButton(onClick = onAppSettings) { Text("Настройки приложения") }
+        Button(onClick = onAddCloud) { Text(strings.addCloud) }
+        OutlinedButton(onClick = controller::refresh) { Text(strings.refresh) }
+        OutlinedButton(onClick = onAppSettings) { Text(strings.appSettings) }
     }
 
     (state.mount as? MountSupport.Status.Missing)?.let { missing ->
@@ -175,20 +178,21 @@ private fun ReadyContent(
             onInstall = controller::installMountDriver,
         )
     }
-    state.globalError?.let { Banner("Ошибка: $it") }
+    state.globalError?.let { Banner(strings.errorPrefix(it)) }
 
     Divider()
 
     if (state.clouds.isEmpty()) {
-        CenteredMessage("Облаков пока нет. Начните с кнопки «Добавить облако».")
+        CenteredMessage(strings.noCloudsYet)
     } else {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.clouds, key = { it.name }) { cloud ->
                 CloudRow(
                     cloud = cloud,
                     mountAvailable = state.mountAvailable,
+                    cacheMode = state.settings[cloud.name]?.cacheMode
+                        ?: CloudSettings.DEFAULT_CACHE_MODE,
                     onMount = { controller.mount(cloud.name) },
-                    cacheMode = state.settings[cloud.name]?.cacheMode ?: CloudSettings.DEFAULT_CACHE_MODE,
                     onUnmount = { controller.unmount(cloud.name) },
                     onRename = { onRequestRename(cloud.name) },
                     onSettings = { onRequestSettings(cloud.name) },
@@ -203,13 +207,15 @@ private fun ReadyContent(
 private fun CloudRow(
     cloud: CloudUi,
     mountAvailable: Boolean,
+    cacheMode: String,
     onMount: () -> Unit,
     onUnmount: () -> Unit,
     onRename: () -> Unit,
     onSettings: () -> Unit,
     onDelete: () -> Unit,
-    cacheMode: String,
 ) {
+    val strings = LocalStrings.current
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -223,7 +229,7 @@ private fun CloudRow(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(cloud.name, style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = cloudStatusLine(cloud, cacheMode),
+                        text = cloudStatusLine(cloud, cacheMode, strings),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -235,13 +241,17 @@ private fun CloudRow(
                     if (cloud.busy) {
                         CircularProgressIndicator(modifier = Modifier.width(24.dp))
                     } else if (cloud.isMounted) {
-                        OutlinedButton(onClick = onUnmount) { Text("Отключить") }
+                        OutlinedButton(onClick = onUnmount) { Text(strings.disconnect) }
                     } else {
-                        Button(onClick = onMount, enabled = mountAvailable) { Text("Подключить") }
+                        Button(onClick = onMount, enabled = mountAvailable) {
+                            Text(strings.connect)
+                        }
                     }
-                    TextButton(onClick = onSettings, enabled = !cloud.busy) { Text("Настройки") }
-                    TextButton(onClick = onRename, enabled = !cloud.busy) { Text("Переименовать") }
-                    TextButton(onClick = onDelete, enabled = !cloud.busy) { Text("Удалить") }
+                    TextButton(onClick = onSettings, enabled = !cloud.busy) {
+                        Text(strings.settings)
+                    }
+                    TextButton(onClick = onRename, enabled = !cloud.busy) { Text(strings.rename) }
+                    TextButton(onClick = onDelete, enabled = !cloud.busy) { Text(strings.delete) }
                 }
             }
 
@@ -256,19 +266,26 @@ private fun CloudRow(
     }
 }
 
-private fun cloudStatusLine(cloud: CloudUi, cacheMode: String): String {
-    val status = if (cloud.isMounted) "подключено к ${cloud.mountPoint}" else "не подключено"
-    val space = cloud.about?.describe()
+private fun cloudStatusLine(cloud: CloudUi, cacheMode: String, strings: Strings): String {
+    val status = cloud.mountPoint?.let { strings.connectedTo(it) } ?: strings.notConnected
+    val space = cloud.about?.describe(strings)
     // Режим кэширования показываем прямо в строке: это то, чем облака между
     // собой отличаются на практике, и лезть в настройки ради проверки неудобно.
-    val cache = CACHE_MODES.firstOrNull { it.value == cacheMode }?.title?.substringBefore(" —")
-    return listOfNotNull(status, space, cache?.let { "кэш: ${it.lowercase()}" }).joinToString("  ·  ")
+    val cache = strings.cacheModes.firstOrNull { it.value == cacheMode }
+        ?.title
+        ?.substringBefore(" —")
+        ?.substringBefore(" -")
+    return listOfNotNull(status, space, cache?.let { strings.cacheLabel(it.lowercase()) })
+        .joinToString("  ·  ")
 }
 
 /**
  * Не установлен драйвер монтирования. Если установщик едет внутри дистрибутива,
  * предлагаем поставить его прямо отсюда — искать и качать что-то руками
  * пользователь не должен.
+ *
+ * Текст объяснения берётся здесь, а не из моста: мост сообщает, чего не хватает,
+ * а как это рассказать человеку и на каком языке — дело интерфейса.
  */
 @Composable
 private fun MountDriverBanner(
@@ -276,13 +293,21 @@ private fun MountDriverBanner(
     installing: Boolean,
     onInstall: () -> Unit,
 ) {
+    val strings = LocalStrings.current
+    val explanation = when (missing.kind) {
+        MountSupport.Status.Kind.WINFSP -> strings.winFspExplanation
+        MountSupport.Status.Kind.FUSE -> strings.fuseExplanation
+        MountSupport.Status.Kind.MACFUSE -> strings.macFuseExplanation
+    }
+    val downloadUrl = missing.downloadUrl
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Подключение дисков недоступно", style = MaterialTheme.typography.titleSmall)
-            Text(missing.explanation, style = MaterialTheme.typography.bodySmall)
+            Text(strings.mountUnavailable, style = MaterialTheme.typography.titleSmall)
+            Text(explanation, style = MaterialTheme.typography.bodySmall)
 
             when {
                 installing -> Row(
@@ -290,14 +315,17 @@ private fun MountDriverBanner(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CircularProgressIndicator(modifier = Modifier.width(20.dp))
-                    Text("Устанавливаю ${missing.what}...", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        strings.installingDriver(missing.what),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
 
                 missing.bundledInstaller != null ->
-                    Button(onClick = onInstall) { Text("Установить ${missing.what}") }
+                    Button(onClick = onInstall) { Text(strings.installDriver(missing.what)) }
 
-                missing.downloadUrl != null -> Text(
-                    "Скачать: ${missing.downloadUrl}",
+                downloadUrl != null -> Text(
+                    strings.downloadFrom(downloadUrl),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -328,10 +356,12 @@ private fun CenteredMessage(text: String, showSpinner: Boolean = false) {
 
 @Composable
 private fun FailureMessage(session: SessionState.Failed) {
+    val strings = LocalStrings.current
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(session.message, color = MaterialTheme.colorScheme.error)
         if (session.details.isNotEmpty()) {
-            Text("Вывод rclone:", style = MaterialTheme.typography.labelMedium)
+            Text(strings.rcloneOutput, style = MaterialTheme.typography.labelMedium)
             LazyColumn {
                 items(session.details) { line ->
                     Text(line, style = MaterialTheme.typography.bodySmall)

@@ -33,15 +33,16 @@ import com.opendisk.bridge.RcloneClient
  */
 @Composable
 fun PasswordPrompt(wrongAttempt: Boolean, onSubmit: (String) -> Unit) {
+    val strings = LocalStrings.current
     var password by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Конфигурация rclone зашифрована", style = MaterialTheme.typography.titleMedium)
+        Text(strings.configEncryptedTitle, style = MaterialTheme.typography.titleMedium)
         Text(
-            "Введите пароль конфига — он нужен, чтобы прочитать список облаков.",
+            strings.configPasswordHint,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -49,7 +50,7 @@ fun PasswordPrompt(wrongAttempt: Boolean, onSubmit: (String) -> Unit) {
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("Пароль") },
+            label = { Text(strings.password) },
             singleLine = true,
             isError = wrongAttempt,
             visualTransformation = PasswordVisualTransformation(),
@@ -58,14 +59,14 @@ fun PasswordPrompt(wrongAttempt: Boolean, onSubmit: (String) -> Unit) {
 
         if (wrongAttempt) {
             Text(
-                "Пароль не подошёл. Попробуйте ещё раз.",
+                strings.wrongPassword,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
         }
 
         Button(onClick = { onSubmit(password) }, enabled = password.isNotEmpty()) {
-            Text("Разблокировать")
+            Text(strings.unlock)
         }
     }
 }
@@ -85,6 +86,7 @@ fun RenameCloudDialog(
     onDismiss: () -> Unit,
     onRename: (String, (String?) -> Unit) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var newName by remember { mutableStateOf(cloudName) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -94,22 +96,21 @@ fun RenameCloudDialog(
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("Переименовать облако") },
+        title = { Text(strings.renameCloud) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("Новое название") },
+                    label = { Text(strings.newName) },
                     singleLine = true,
                     isError = taken,
-                    supportingText = { if (taken) Text("Такое название уже занято") },
+                    supportingText = { if (taken) Text(strings.nameTaken) },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (isMounted) {
                     Text(
-                        "Облако сейчас подключено как диск — при переименовании оно будет " +
-                            "отключено, подключить его нужно будет заново.",
+                        strings.renameWillDisconnect,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -131,29 +132,31 @@ fun RenameCloudDialog(
                     }
                 },
             ) {
-                Text(if (busy) "Переименовываю..." else "Переименовать")
+                Text(if (busy) strings.renaming else strings.rename)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Отмена") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(strings.cancel) } },
     )
 }
 
 @Composable
 fun ConfirmDeleteDialog(cloudName: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    val strings = LocalStrings.current
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Удалить облако?") },
+        title = { Text(strings.deleteCloudTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Облако «$cloudName» будет удалено из конфигурации rclone.")
+                Text(strings.deleteCloudText(cloudName))
                 Text(
-                    "Файлы в самом облаке не тронутся — удаляется только подключение.",
+                    strings.deleteKeepsFiles,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
-        confirmButton = { Button(onClick = onConfirm) { Text("Удалить") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+        confirmButton = { Button(onClick = onConfirm) { Text(strings.delete) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings.cancel) } },
     )
 }

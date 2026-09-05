@@ -42,21 +42,22 @@ fun CloudSettingsDialog(
     onDismiss: () -> Unit,
     onSave: (CloudSettings) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var cacheMode by remember { mutableStateOf(current.cacheMode) }
     var mountPoint by remember { mutableStateOf(current.mountPoint.orEmpty()) }
     var mountOnStartup by remember { mutableStateOf(current.mountOnStartup) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Настройки: $cloudName") },
+        title = { Text(strings.cloudSettingsTitle(cloudName)) },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Что хранить на диске", style = MaterialTheme.typography.titleSmall)
+                Text(strings.whatToKeepOnDisk, style = MaterialTheme.typography.titleSmall)
 
-                CACHE_MODES.forEach { option ->
+                strings.cacheModes.forEach { option ->
                     CacheModeRow(
                         option = option,
                         selected = cacheMode == option.value,
@@ -64,18 +65,15 @@ fun CloudSettingsDialog(
                     )
                 }
 
-                Text("Куда подключать", style = MaterialTheme.typography.titleSmall)
+                Text(strings.whereToMount, style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(
                     value = mountPoint,
                     onValueChange = { mountPoint = it },
-                    label = { Text("Точка монтирования") },
+                    label = { Text(strings.mountPoint) },
                     singleLine = true,
                     placeholder = { Text(RcloneController.defaultMountPoint(cloudName)) },
                     supportingText = {
-                        Text(
-                            "Оставьте пустым — подберём свободную сами. " +
-                                "На Windows это буква диска, на Linux — каталог.",
-                        )
+                        Text(strings.mountPointHint)
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -85,13 +83,12 @@ fun CloudSettingsDialog(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Checkbox(checked = mountOnStartup, onCheckedChange = { mountOnStartup = it })
-                    Text("Подключать при запуске приложения")
+                    Text(strings.mountOnStartup)
                 }
 
                 if (isMounted) {
                     Text(
-                        "Облако сейчас подключено. Новые настройки применятся при следующем " +
-                            "подключении — отключите и подключите заново.",
+                        strings.settingsApplyOnReconnect,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -110,10 +107,10 @@ fun CloudSettingsDialog(
                     )
                 },
             ) {
-                Text("Сохранить")
+                Text(strings.save)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings.cancel) } },
     )
 }
 

@@ -1,6 +1,7 @@
 package com.opendisk.app
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,6 +56,7 @@ private fun runApplication(startHidden: Boolean) = application {
     val state by controller.state.collectAsState()
     val traySupported = remember { runCatching { SystemTray.isSupported() }.getOrDefault(false) }
     val trayState = rememberTrayState()
+    val strings = Strings.of(Language.fromCode(state.globalSettings.language))
     // Свёрнутым можно стартовать только с треем: иначе окно не вернуть.
     var windowVisible by remember { mutableStateOf(!(startHidden && traySupported)) }
 
@@ -93,8 +95,8 @@ private fun runApplication(startHidden: Boolean) = application {
             tooltip = "OpenDisk",
             onAction = { windowVisible = true },
             menu = {
-                Item("Показать окно", onClick = { windowVisible = true })
-                Item("Выход", onClick = ::quit)
+                Item(strings.showWindow, onClick = { windowVisible = true })
+                Item(strings.quit, onClick = ::quit)
             },
         )
     }
@@ -107,7 +109,11 @@ private fun runApplication(startHidden: Boolean) = application {
         icon = OpenDiskIcon,
     ) {
         MaterialTheme {
-            AppScreen(state, controller)
+            // Язык подаётся сверху: строки нужны и вне композиции — например,
+            // контроллеру для сообщений об ошибках.
+            CompositionLocalProvider(LocalStrings provides strings) {
+                AppScreen(state, controller)
+            }
         }
     }
 }

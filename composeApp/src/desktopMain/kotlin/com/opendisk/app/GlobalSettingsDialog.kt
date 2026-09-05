@@ -9,6 +9,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +33,8 @@ fun GlobalSettingsDialog(
     onDismiss: () -> Unit,
     onSave: (GlobalSettings) -> Unit,
 ) {
+    val strings = LocalStrings.current
+    var language by remember { mutableStateOf(Language.fromCode(current.language)) }
     var autostart by remember { mutableStateOf(current.autostart) }
     var unlimited by remember {
         mutableStateOf(current.bandwidthLimit == GlobalSettings.BANDWIDTH_UNLIMITED)
@@ -47,9 +50,36 @@ fun GlobalSettingsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Настройки приложения") },
+        title = { Text(strings.appSettings) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(strings.language, style = MaterialTheme.typography.titleSmall)
+                    Language.entries.forEach { option ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            RadioButton(
+                                selected = language == option,
+                                onClick = { language = option },
+                            )
+                            Text(
+                                when (option) {
+                                    Language.AUTO -> strings.languageAuto
+                                    Language.RUSSIAN -> "Русский"
+                                    Language.ENGLISH -> "English"
+                                },
+                            )
+                        }
+                    }
+                    Text(
+                        strings.languageChangeHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 Column {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -60,52 +90,40 @@ fun GlobalSettingsDialog(
                             onCheckedChange = { autostart = it },
                             enabled = autostartSupported,
                         )
-                        Text("Запускать при входе в систему")
+                        Text(strings.runAtLogin)
                     }
                     Text(
-                        if (autostartSupported) {
-                            "Приложение запустится свёрнутым в трей и подключит облака, " +
-                                "отмеченные как автоподключаемые."
-                        } else {
-                            "На этой системе автозапуск пока не поддерживается."
-                        },
+                        if (autostartSupported) strings.runAtLoginHint else strings.autostartUnsupported,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Ограничение скорости", style = MaterialTheme.typography.titleSmall)
+                    Text(strings.speedLimit, style = MaterialTheme.typography.titleSmall)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Checkbox(checked = unlimited, onCheckedChange = { unlimited = it })
-                        Text("Без ограничения")
+                        Text(strings.unlimited)
                     }
                     if (!unlimited) {
                         OutlinedTextField(
                             value = limit,
                             onValueChange = { limit = it },
-                            label = { Text("Скорость") },
+                            label = { Text(strings.speed) },
                             singleLine = true,
                             isError = !limitLooksValid,
-                            placeholder = { Text("например, 2M") },
+                            placeholder = { Text(strings.speedExample) },
                             supportingText = {
-                                Text(
-                                    if (limitLooksValid) {
-                                        "Килобайты, мегабайты или гигабайты в секунду: 500k, 2M, 1G."
-                                    } else {
-                                        "Не разобрать. Ожидается число и единица: 500k, 2M, 1G."
-                                    },
-                                )
+                                Text(if (limitLooksValid) strings.speedHint else strings.speedInvalid)
                             },
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
                     Text(
-                        "Ограничение действует сразу на все облака — rclone умеет " +
-                            "ограничивать только так.",
+                        strings.speedIsGlobal,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -121,13 +139,19 @@ fun GlobalSettingsDialog(
                     } else {
                         limit.trim()
                     }
-                    onSave(GlobalSettings(autostart = autostart, bandwidthLimit = rate))
+                    onSave(
+                        GlobalSettings(
+                            autostart = autostart,
+                            bandwidthLimit = rate,
+                            language = language.code,
+                        ),
+                    )
                 },
             ) {
-                Text("Сохранить")
+                Text(strings.save)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings.cancel) } },
     )
 }
 

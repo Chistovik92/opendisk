@@ -75,6 +75,13 @@ data class UiState(
     val mountAvailable: Boolean get() = mount is MountSupport.Status.Available
 }
 
+/** Режим кэширования и человеческое объяснение, что он означает на практике. */
+data class CacheModeOption(
+    val value: String,
+    val title: String,
+    val explanation: String,
+)
+
 /**
  * Провайдеры, вынесенные в начало списка: с них начинают почти все, а искать их
  * среди семи десятков бэкендов в алфавитном порядке неудобно. WebDAV первым —
@@ -90,23 +97,22 @@ fun RcloneClient.Provider.formOptions(): List<RcloneClient.Option> =
 private val COMMON_OPTIONAL_FIELDS = setOf("user", "pass", "vendor", "host", "port", "url")
 
 /** Человекочитаемый размер: rclone отдаёт байты, показывать их пользователю бессмысленно. */
-fun formatBytes(bytes: Long): String {
-    if (bytes < 1024) return "$bytes Б"
-    val units = listOf("КБ", "МБ", "ГБ", "ТБ", "ПБ")
+fun formatBytes(bytes: Long, strings: Strings): String {
+    if (bytes < 1024) return "$bytes ${strings.bytes}"
     var value = bytes.toDouble() / 1024
     var unitIndex = 0
-    while (value >= 1024 && unitIndex < units.lastIndex) {
+    while (value >= 1024 && unitIndex < strings.sizeUnits.lastIndex) {
         value /= 1024
         unitIndex++
     }
-    return String.format("%.1f %s", value, units[unitIndex])
+    return String.format("%.1f %s", value, strings.sizeUnits[unitIndex])
 }
 
-/** Строка вида "занято 1,6 ТБ из 1,8 ТБ" или null, если бэкенд ничего не сообщил. */
-fun RcloneClient.AboutInfo.describe(): String? {
-    val used = used ?: return total?.let { "всего ${formatBytes(it)}" }
-    val total = total ?: return "занято ${formatBytes(used)}"
-    return "занято ${formatBytes(used)} из ${formatBytes(total)}"
+/** Строка вида «занято 1,6 ТБ из 1,8 ТБ» или null, если бэкенд ничего не сообщил. */
+fun RcloneClient.AboutInfo.describe(strings: Strings): String? {
+    val used = used ?: return total?.let { strings.totalOnly(formatBytes(it, strings)) }
+    val total = total ?: return strings.usedOnly(formatBytes(used, strings))
+    return strings.usedOf(formatBytes(used, strings), formatBytes(total, strings))
 }
 
 /**

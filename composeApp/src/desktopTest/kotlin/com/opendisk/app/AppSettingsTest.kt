@@ -162,11 +162,32 @@ class AppSettingsTest {
     @Test
     fun `every cache mode offered in the UI is understood by rclone`() {
         // Значения уходят в rclone как есть, поэтому опечатка здесь означала бы
-        // отказ монтирования с невнятной ошибкой.
+        // отказ монтирования с невнятной ошибкой. Проверяем оба языка: значения
+        // должны совпадать, переводится только текст.
         val allowed = setOf("off", "minimal", "writes", "full")
 
-        assertEquals(allowed, CACHE_MODES.map { it.value }.toSet())
+        Language.entries.forEach { language ->
+            val modes = Strings.of(language).cacheModes
+            assertEquals(allowed, modes.map { it.value }.toSet(), "язык $language")
+            assertTrue(modes.all { it.title.isNotBlank() && it.explanation.isNotBlank() })
+        }
         assertTrue(CloudSettings.DEFAULT_CACHE_MODE in allowed)
-        assertTrue(CACHE_MODES.all { it.explanation.isNotBlank() })
+    }
+
+    @Test
+    fun `language setting survives a restart`() {
+        val dir = createTempDirectory("settings").toFile()
+        settingsIn(dir).updateGlobal(GlobalSettings(language = Language.ENGLISH.code))
+
+        assertEquals(Language.ENGLISH.code, settingsIn(dir).global().language)
+    }
+
+    @Test
+    fun `unknown language falls back to system`() {
+        // В файл настроек мог попасть код языка из будущей версии — падать
+        // из-за этого приложение не должно.
+        assertEquals(Language.AUTO, Language.fromCode("klingon"))
+        assertEquals(Language.RUSSIAN, Language.fromCode("ru"))
+        assertEquals(Language.ENGLISH, Language.fromCode("en"))
     }
 }

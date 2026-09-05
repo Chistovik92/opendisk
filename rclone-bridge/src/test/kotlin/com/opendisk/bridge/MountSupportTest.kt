@@ -74,8 +74,8 @@ class MountSupportTest {
             "неожиданный статус: $status",
         )
         if (status is MountSupport.Status.Missing) {
+            // Текст для человека мост не отдаёт — только чего именно не хватает.
             assertFalse(status.what.isBlank())
-            assertFalse(status.explanation.isBlank())
         }
     }
 }

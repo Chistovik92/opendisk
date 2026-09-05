@@ -20,13 +20,20 @@ object MountSupport {
         /** Монтировать можно. */
         data object Available : Status
 
+        /** Какого именно драйвера не хватает. */
+        enum class Kind { WINFSP, FUSE, MACFUSE }
+
         /**
          * Монтировать нечем. [bundledInstaller] не null, если установщик едет
          * внутри дистрибутива и его можно запустить прямо из приложения.
+         *
+         * Объяснения для человека здесь намеренно нет: мост не должен знать
+         * про язык интерфейса. Он сообщает, чего не хватает, а как это
+         * рассказать пользователю — дело приложения.
          */
         data class Missing(
+            val kind: Kind,
             val what: String,
-            val explanation: String,
             val bundledInstaller: File?,
             val downloadUrl: String?,
         ) : Status
@@ -48,10 +55,8 @@ object MountSupport {
     private fun checkWindows(): Status {
         if (isWinFspInstalled()) return Status.Available
         return Status.Missing(
+            kind = Status.Kind.WINFSP,
             what = "WinFsp",
-            explanation = "Чтобы подключать облака как диски, нужен WinFsp — драйвер файловой " +
-                "системы для Windows. Он входит в состав OpenDisk, установка займёт несколько секунд " +
-                "и потребует подтверждения администратора.",
             bundledInstaller = bundledFile(WINFSP_INSTALLER),
             downloadUrl = "https://winfsp.dev/rel/",
         )
@@ -194,9 +199,8 @@ object MountSupport {
     private fun checkLinux(): Status {
         if (File("/dev/fuse").exists()) return Status.Available
         return Status.Missing(
+            kind = Status.Kind.FUSE,
             what = "FUSE",
-            explanation = "Чтобы подключать облака как диски, нужен FUSE. Установите пакет " +
-                "fuse3 средствами вашего дистрибутива — например, `epm install fuse3`.",
             bundledInstaller = null,
             downloadUrl = null,
         )
@@ -205,9 +209,8 @@ object MountSupport {
     private fun checkMac(): Status {
         if (File("/Library/Filesystems/macfuse.fs").exists()) return Status.Available
         return Status.Missing(
+            kind = Status.Kind.MACFUSE,
             what = "macFUSE",
-            explanation = "Чтобы подключать облака как диски, нужен macFUSE — его нужно " +
-                "установить отдельно.",
             bundledInstaller = null,
             downloadUrl = "https://macfuse.github.io/",
         )

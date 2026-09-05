@@ -71,6 +71,7 @@ fun AddCloudWizard(
         onResult: (String?) -> Unit,
     ) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var step by remember { mutableStateOf<WizardStep>(WizardStep.PickService) }
 
     when (val current = step) {
@@ -112,9 +113,12 @@ private fun ServicePickerDialog(
     onPreset: (CloudPreset) -> Unit,
     onAdvanced: () -> Unit,
 ) {
+    val strings = LocalStrings.current
+    val presets = remember(strings) { cloudPresets(strings) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Какое облако подключаем?") },
+        title = { Text(strings.whichCloud) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 LazyVerticalGrid(
@@ -123,17 +127,17 @@ private fun ServicePickerDialog(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(CLOUD_PRESETS, key = { it.id }) { preset ->
+                    items(presets, key = { it.id }) { preset ->
                         ServiceTile(preset = preset, onClick = { onPreset(preset) })
                     }
                 }
                 TextButton(onClick = onAdvanced) {
-                    Text("Другое подключение — весь список бэкендов rclone")
+                    Text(strings.otherConnectionFull)
                 }
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings.cancel) } },
     )
 }
 
@@ -180,6 +184,7 @@ private fun PresetFormDialog(
     onDismiss: () -> Unit,
     onCreate: (String, String, Map<String, String>, Set<String>, (String?) -> Unit) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var name by remember { mutableStateOf(uniqueName(preset.id, existingNames)) }
     var values by remember { mutableStateOf(mapOf<String, String>()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -207,10 +212,10 @@ private fun PresetFormDialog(
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Название в списке") },
+                        label = { Text(strings.nameInList) },
                         singleLine = true,
                         isError = nameTaken,
-                        supportingText = { if (nameTaken) Text("Такое название уже занято") },
+                        supportingText = { if (nameTaken) Text(strings.nameTaken) },
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -232,8 +237,7 @@ private fun PresetFormDialog(
 
                     if (preset.oauth) {
                         Text(
-                            "После нажатия «Подключить» откроется браузер — там нужно разрешить " +
-                                "OpenDisk доступ к вашему хранилищу. Пароль в приложение вводить не нужно.",
+                            strings.browserWillOpen,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -241,9 +245,7 @@ private fun PresetFormDialog(
                         // который браузер уже вошёл, и второй диск незаметно
                         // привязывается к тому же аккаунту.
                         Text(
-                            "Вход пойдёт под тем аккаунтом, в который вы вошли в браузере. " +
-                                "Чтобы подключить другой — откройте страницу в приватном окне " +
-                                "или выйдите из аккаунта в браузере перед подключением.",
+                            strings.browserAccountWarning,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -272,33 +274,34 @@ private fun PresetFormDialog(
                     }
                 },
             ) {
-                Text(if (busy) "Подключаю..." else "Подключить")
+                Text(if (busy) strings.connecting else strings.connect)
             }
         },
         dismissButton = {
-            TextButton(onClick = onBack, enabled = !busy) { Text("Назад") }
+            TextButton(onClick = onBack, enabled = !busy) { Text(strings.back) }
         },
     )
 }
 
 @Composable
 private fun OauthWaiting(oauthUrl: String?) {
+    val strings = LocalStrings.current
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp))
-            Text("Ожидаю подтверждения в браузере")
+            Text(strings.waitingForBrowser)
         }
         Text(
-            "Разрешите доступ на открывшейся странице. Окно можно не закрывать — " +
-                "подключение завершится само.",
+            strings.waitingForBrowserHint,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         oauthUrl?.let {
-            Text("Если браузер не открылся, перейдите по ссылке:", style = MaterialTheme.typography.bodySmall)
+            Text(strings.browserDidNotOpen, style = MaterialTheme.typography.bodySmall)
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
     }
@@ -311,6 +314,7 @@ private fun AdvancedPickerDialog(
     onDismiss: () -> Unit,
     onPick: (RcloneClient.Provider) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var query by remember { mutableStateOf("") }
     val filtered = providers.filter {
         query.isBlank() ||
@@ -320,13 +324,13 @@ private fun AdvancedPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Другое подключение") },
+        title = { Text(strings.otherConnection) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Поиск по ${providers.size} бэкендам") },
+                    label = { Text(strings.searchBackends(providers.size)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -350,13 +354,13 @@ private fun AdvancedPickerDialog(
                         }
                     }
                     if (filtered.isEmpty()) {
-                        Text("Ничего не найдено", style = MaterialTheme.typography.bodySmall)
+                        Text(strings.nothingFound, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onBack) { Text("Назад") } },
+        dismissButton = { TextButton(onClick = onBack) { Text(strings.back) } },
     )
 }
 
@@ -368,6 +372,7 @@ private fun AdvancedFormDialog(
     onDismiss: () -> Unit,
     onCreate: (String, String, Map<String, String>, Set<String>, (String?) -> Unit) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var name by remember { mutableStateOf(uniqueName(provider.name, existingNames)) }
     var values by remember { mutableStateOf(mapOf<String, String>()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -389,17 +394,16 @@ private fun AdvancedFormDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Название в списке") },
+                    label = { Text(strings.nameInList) },
                     singleLine = true,
                     isError = nameTaken,
-                    supportingText = { if (nameTaken) Text("Такое название уже занято") },
+                    supportingText = { if (nameTaken) Text(strings.nameTaken) },
                     modifier = Modifier.fillMaxWidth(),
                 )
 
                 if (options.isEmpty()) {
                     Text(
-                        "У этого бэкенда нет обязательных полей — он настраивается сам, " +
-                            "возможно, с подтверждением в браузере.",
+                        strings.backendHasNoRequiredFields,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -443,10 +447,10 @@ private fun AdvancedFormDialog(
                     }
                 },
             ) {
-                Text(if (busy) "Подключаю..." else "Подключить")
+                Text(if (busy) strings.connecting else strings.connect)
             }
         },
-        dismissButton = { TextButton(onClick = onBack, enabled = !busy) { Text("Назад") } },
+        dismissButton = { TextButton(onClick = onBack, enabled = !busy) { Text(strings.back) } },
     )
 }
 
