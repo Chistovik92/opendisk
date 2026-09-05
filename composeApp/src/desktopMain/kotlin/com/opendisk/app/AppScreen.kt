@@ -35,6 +35,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
     var addingCloud by remember { mutableStateOf(false) }
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
     var cloudToRename by remember { mutableStateOf<String?>(null) }
+    var cloudToConfigure by remember { mutableStateOf<String?>(null) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -59,6 +60,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
                     onAddCloud = { addingCloud = true },
                     onRequestDelete = { cloudToDelete = it },
                     onRequestRename = { cloudToRename = it },
+                    onRequestSettings = { cloudToConfigure = it },
                 )
             }
         }
@@ -75,6 +77,19 @@ fun AppScreen(state: UiState, controller: RcloneController) {
                     if (error == null) addingCloud = false
                     onResult(error)
                 }
+            },
+        )
+    }
+
+    cloudToConfigure?.let { name ->
+        CloudSettingsDialog(
+            cloudName = name,
+            current = state.settings[name] ?: CloudSettings(),
+            isMounted = state.clouds.firstOrNull { it.name == name }?.isMounted == true,
+            onDismiss = { cloudToConfigure = null },
+            onSave = { updated ->
+                controller.updateCloudSettings(name, updated)
+                cloudToConfigure = null
             },
         )
     }
@@ -127,6 +142,7 @@ private fun ReadyContent(
     onAddCloud: () -> Unit,
     onRequestDelete: (String) -> Unit,
     onRequestRename: (String) -> Unit,
+    onRequestSettings: (String) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -156,9 +172,11 @@ private fun ReadyContent(
                 CloudRow(
                     cloud = cloud,
                     mountAvailable = state.mountAvailable,
-                    onMount = { controller.mount(cloud.name, RcloneController.defaultMountPoint(cloud.name)) },
+                    onMount = { controller.mount(cloud.name) },
+                    cacheMode = state.settings[cloud.name]?.cacheMode ?: CloudSettings.DEFAULT_CACHE_MODE,
                     onUnmount = { controller.unmount(cloud.name) },
                     onRename = { onRequestRename(cloud.name) },
+                    onSettings = { onRequestSettings(cloud.name) },
                     onDelete = { onRequestDelete(cloud.name) },
                 )
             }
@@ -173,7 +191,9 @@ private fun CloudRow(
     onMount: () -> Unit,
     onUnmount: () -> Unit,
     onRename: () -> Unit,
+    onSettings: () -> Unit,
     onDelete: () -> Unit,
+    cacheMode: String,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -188,7 +208,7 @@ private fun CloudRow(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(cloud.name, style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = cloudStatusLine(cloud),
+                        text = cloudStatusLine(cloud, cacheMode),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -204,6 +224,7 @@ private fun CloudRow(
                     } else {
                         Button(onClick = onMount, enabled = mountAvailable) { Text("Подключить") }
                     }
+                    TextButton(onClick = onSettings, enabled = !cloud.busy) { Text("Настройки") }
                     TextButton(onClick = onRename, enabled = !cloud.busy) { Text("Переименовать") }
                     TextButton(onClick = onDelete, enabled = !cloud.busy) { Text("Удалить") }
                 }
@@ -220,10 +241,13 @@ private fun CloudRow(
     }
 }
 
-private fun cloudStatusLine(cloud: CloudUi): String {
+private fun cloudStatusLine(cloud: CloudUi, cacheMode: String): String {
     val status = if (cloud.isMounted) "подключено к ${cloud.mountPoint}" else "не подключено"
     val space = cloud.about?.describe()
-    return listOfNotNull(status, space).joinToString("  ·  ")
+    // Режим кэширования показываем прямо в строке: это то, чем облака между
+    // собой отличаются на практике, и лезть в настройки ради проверки неудобно.
+    val cache = CACHE_MODES.firstOrNull { it.value == cacheMode }?.title?.substringBefore(" —")
+    return listOfNotNull(status, space, cache?.let { "кэш: ${it.lowercase()}" }).joinToString("  ·  ")
 }
 
 /**

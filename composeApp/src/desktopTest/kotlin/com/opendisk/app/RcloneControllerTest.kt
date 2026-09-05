@@ -43,11 +43,16 @@ class RcloneControllerTest {
         return RcloneConfigFile(File(dir, "rclone.conf").apply { writeText(content) })
     }
 
+    /** Настройки тоже во временном файле: настоящие трогать нельзя. */
+    private lateinit var settings: AppSettings
+
     private fun controllerFor(config: RcloneConfigFile): RcloneController {
         val located = requireNotNull(RcloneProcess.locate())
+        settings = AppSettings(File(createTempDirectory("settings").toFile(), "settings.json"))
         return RcloneController(
             locateRclone = { located },
             resolveConfig = { config },
+            settings = settings,
         ).also { controller = it }
     }
 
@@ -167,8 +172,11 @@ class RcloneControllerTest {
         assertNull(runBlocking { withTimeout(20_000) { creation.await() } })
         awaitState(controller) { state -> state.clouds.any { it.name == "data" } }
 
+        // Точку монтирования контроллер берёт из настроек — задаём её там же,
+        // где это делает диалог настроек облака.
         val mountPoint = RcloneController.defaultMountPoint("data")
-        controller.mount("data", mountPoint)
+        settings.update("data", CloudSettings(mountPoint = mountPoint))
+        controller.mount("data")
 
         val mounted = awaitState(controller, timeoutMillis = 40_000) { state ->
             state.clouds.firstOrNull { it.name == "data" }?.isMounted == true

@@ -93,6 +93,19 @@ jobs:
 
           chmod 755 "$work/opt/opendisk/lib/app/resources/rclone"
 
+          # FUSE — то, без чего облако не подключить как диск. jpackage
+          # зависимости не даёт задать, поэтому дописываем сюда.
+          #
+          # Recommends, а не Depends: apt ставит рекомендации по умолчанию,
+          # то есть пользователь получит fuse3 сам собой, но на системах,
+          # где пакета нет или он не нужен, установка не заблокируется —
+          # приложение без FUSE запускается и облака добавлять позволяет.
+          if grep -q '^Recommends:' "$work/DEBIAN/control"; then
+            sed -i 's|^Recommends:.*|&, fuse3|' "$work/DEBIAN/control"
+          else
+            sed -i '/^Depends:/a Recommends: fuse3' "$work/DEBIAN/control"
+          fi
+
           for script in postinst prerm; do
             [ -f "$work/DEBIAN/$script" ] || continue
             # Разделитель # вместо | — в самой замене есть ||.
@@ -105,6 +118,7 @@ jobs:
           echo "Права и maintainer-скрипты после починки:"
           dpkg-deb -c "$deb" | grep '/opt/opendisk/lib/app/resources/rclone$'
           dpkg-deb -I "$deb" postinst | grep xdg-desktop-menu
+          dpkg-deb -I "$deb" control | grep -E '^(Depends|Recommends):'
 
           # Пакет обязан быть исполняемым — иначе смысла в починке нет.
           dpkg-deb -c "$deb" | grep '/opt/opendisk/lib/app/resources/rclone$' | grep -q '^-rwx' ||

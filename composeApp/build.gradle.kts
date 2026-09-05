@@ -5,6 +5,7 @@ import java.util.zip.ZipFile
 
 plugins {
     kotlin("jvm")
+    kotlin("plugin.serialization")
     id("org.jetbrains.compose")
     id("org.jetbrains.kotlin.plugin.compose")
 }
@@ -14,6 +15,9 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
+    // Настройки приложения хранятся своим файлом рядом с настройками ОС —
+    // в rclone.conf им не место, это файл rclone.
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     testImplementation(kotlin("test"))
 }
@@ -416,7 +420,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.1.16"
+            packageVersion = "0.1.17"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -457,7 +461,7 @@ compose.desktop {
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.0.16"
+                packageVersion = "1.0.17"
             }
         }
     }

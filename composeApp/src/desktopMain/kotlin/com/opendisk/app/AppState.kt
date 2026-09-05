@@ -67,6 +67,8 @@ data class UiState(
      * rclone печатает её в свой вывод, откуда мы её и достаём.
      */
     val oauthUrl: String? = null,
+    /** Настройки облаков: режим кэширования и точка монтирования. */
+    val settings: Map<String, CloudSettings> = emptyMap(),
 ) {
     val mountAvailable: Boolean get() = mount is MountSupport.Status.Available
 }

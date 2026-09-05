@@ -36,6 +36,7 @@ class RcloneController(
      */
     private val locateRclone: () -> RcloneProcess.Located? = { RcloneProcess.locate() },
     private val resolveConfig: () -> RcloneConfigFile = { RcloneConfigFile.default() },
+    private val settings: AppSettings = AppSettings(AppSettings.defaultFile()),
 ) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -198,6 +199,12 @@ class RcloneController(
         scope.launch { reloadClouds() }
     }
 
+    /** Сохраняет настройки облака и обновляет экран. */
+    fun updateCloudSettings(name: String, updated: CloudSettings) {
+        settings.update(name, updated)
+        _state.update { it.copy(settings = settings.load()) }
+    }
+
     private suspend fun reloadClouds() {
         val api = client ?: return
         try {
@@ -209,9 +216,11 @@ class RcloneController(
             val alive = mounts.map { it.MountPoint }.toSet()
             ourMounts.entries.removeIf { it.value !in alive }
 
+            val storedSettings = settings.load()
             _state.update { current ->
                 current.copy(
                     globalError = null,
+                    settings = storedSettings,
                     clouds = names.map { name ->
                         val previous = current.clouds.firstOrNull { it.name == name }
                         CloudUi(
@@ -302,6 +311,7 @@ class RcloneController(
                     ourMounts.remove(from)
                 }
                 api.renameRemote(from, to)
+                settings.rename(from, to)
                 reloadClouds()
                 onDone(null)
             } catch (e: Exception) {
@@ -326,6 +336,7 @@ class RcloneController(
                     ourMounts.remove(name)
                 }
                 api.deleteRemote(name)
+                settings.forget(name)
                 reloadClouds()
             } catch (e: RcloneRcException) {
                 updateCloud(name) { it.copy(busy = false, error = e.rcloneError) }
@@ -333,12 +344,21 @@ class RcloneController(
         }
     }
 
-    fun mount(name: String, mountPoint: String) {
+    /**
+     * Подключает облако. Режим кэширования и точку монтирования берём из
+     * настроек: это то, что пользователь выбрал осознанно, и подставлять
+     * вместо них умолчания при каждом подключении было бы неожиданно.
+     */
+    fun mount(name: String) {
         val api = client ?: return
+        val cloudSettings = settings.forCloud(name)
+        val mountPoint = cloudSettings.mountPoint?.takeIf { it.isNotBlank() }
+            ?: defaultMountPoint(name)
+
         scope.launch {
             updateCloud(name) { it.copy(busy = true, error = null) }
             try {
-                api.mount(name, mountPoint)
+                api.mount(name, mountPoint, vfsCacheMode = cloudSettings.cacheMode)
                 ourMounts[name] = mountPoint
                 reloadClouds()
             } catch (e: RcloneRcException) {
