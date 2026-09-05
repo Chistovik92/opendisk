@@ -1,0 +1,100 @@
+name: librclone для Android
+
+# Собирает rclone в виде Android-библиотеки (.aar) через gomobile.
+#
+# Зачем отдельно от основной сборки: на Android нельзя запустить `rclone rcd`
+# отдельным процессом и ходить в него по HTTP, как на десктопе — система не даёт
+# приложению исполнять свои файлы. Официальный путь — librclone: та же RC API,
+# но вызывается внутри процесса функцией RcloneRPC(метод, json) -> json.
+# Поэтому слой разбора ответов в rclone-bridge остаётся общим, меняется только
+# транспорт.
+#
+# Здесь же и проверяется, что связка вообще собирается: gomobile у rclone
+# помечен экспериментальным, и ломается он тихо.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/librclone-android.yml'
+      - 'composeApp/build.gradle.kts'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Взять версию rclone из сборки десктопа
+        id: version
+        run: |
+          # Версия одна на все платформы: расхождение между библиотекой на
+          # телефоне и бинарником на компьютере означало бы разные формы
+          # ответов RC API при одном и том же коде разбора.
+          version=$(sed -n 's/^val rcloneVersion = "\(.*\)"/\1/p' composeApp/build.gradle.kts)
+          if [ -z "$version" ]; then
+            echo "не удалось прочитать rcloneVersion из composeApp/build.gradle.kts" >&2
+            exit 1
+          fi
+          echo "версия rclone: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Забрать исходники rclone
+        run: |
+          git clone --depth 1 --branch "v${{ steps.version.outputs.version }}" \
+            https://github.com/rclone/rclone.git rclone-src
+
+      - uses: actions/setup-go@v5
+        with:
+          # Ту же версию Go, на которой собирается сам rclone — иначе рискуем
+          # собирать библиотеку тулчейном, на котором проект не проверялся.
+          go-version-file: rclone-src/go.mod
+          cache: false
+
+      - name: Поставить gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Собрать .aar
+        working-directory: rclone-src
+        run: |
+          set -x
+          # ANDROID_NDK_LATEST_HOME задаёт образ раннера, но в контекст `env`
+          # переменные образа не попадают — только то, что выставил сам workflow.
+          # Поэтому пробрасываем здесь, а не в блоке env шага, где вышла бы пустая строка.
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          go get golang.org/x/mobile/bind
+          gomobile init
+          # Только arm64 и amd64: первое — все актуальные телефоны, второе —
+          # эмулятор. Каждая архитектура добавляет к .aar полную копию rclone,
+          # а он большой; 32-битные сборки ради вымирающих устройств удваивали
+          # бы размер установки.
+          gomobile bind -v \
+            -target=android/arm64,android/amd64 \
+            -androidapi 24 \
+            -javapkg=org.rclone \
+            -o "$GITHUB_WORKSPACE/librclone.aar" \
+            ./librclone/gomobile
+
+      - name: Что получилось
+        run: |
+          ls -lh librclone.aar
+          echo "--- содержимое ---"
+          unzip -l librclone.aar
+          echo "--- Java API ---"
+          # Ради этого шага стоит смотреть логи: по сгенерированной сигнатуре
+          # видно, как на самом деле выглядит вызов RcloneRPC из Kotlin.
+          mkdir -p aar-inspect && cd aar-inspect
+          unzip -o -q ../librclone.aar
+          javap -classpath classes.jar org.rclone.gomobile.Gomobile || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: librclone-android-${{ steps.version.outputs.version }}
+          path: librclone.aar
+          retention-days: 30
