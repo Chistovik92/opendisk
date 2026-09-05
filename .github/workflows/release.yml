@@ -75,8 +75,23 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get update && sudo apt-get install -y fakeroot rpm
 
+      # Интеграционные тесты гоняются против настоящего rclone и по умолчанию
+      # пропускаются — без пути к бинарнику. В CI пропускать их нельзя: моки
+      # отвечают так, как их научили, и расхождение между тем, что умеет клиент,
+      # и тем, что реально отвечает rclone, они по определению не ловят. Поэтому
+      # сначала кладём бинарник в ресурсы, потом запускаем тесты с указанием
+      # на него.
       - name: Тесты
-        run: ./gradlew test --no-daemon
+        shell: bash
+        run: |
+          ./gradlew :composeApp:prepareAppResources --no-daemon
+          rclone=$(ls composeApp/build/appResources/common/rclone \
+                      composeApp/build/appResources/common/rclone.exe 2>/dev/null | head -1)
+          if [ -z "$rclone" ]; then
+            echo "встроенный rclone не найден — интеграционные тесты нельзя пропускать молча" >&2
+            exit 1
+          fi
+          ./gradlew test --no-daemon -Dopendisk.rclone.path="$PWD/$rclone"
 
       - name: Сборка пакетов
         run: ./gradlew ${{ matrix.tasks }} --no-daemon

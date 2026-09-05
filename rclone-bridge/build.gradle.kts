@@ -8,9 +8,11 @@ plugins {
 
 dependencies {
     api("io.ktor:ktor-client-core:2.3.12")
+    // JsonObject торчит в сигнатурах RcloneTransport и RcloneClient, поэтому api.
+    // Раньше приезжал транзитивно через ktor-serialization-kotlinx-json — то есть
+    // модуль зависел от того, что кто-то другой его притащит.
+    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("io.ktor:ktor-client-cio:2.3.12")
-    implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
 
     testImplementation(kotlin("test"))

@@ -4,15 +4,12 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -44,11 +41,16 @@ class RcloneClientTest {
         return RcloneClient(BASE_URL, httpClient(engine))
     }
 
-    private fun httpClient(engine: MockEngine) = HttpClient(engine) {
-        install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true })
-        }
-    }
+    /**
+     * Клиент нарочно голый, без единого плагина.
+     *
+     * Раньше тесты ставили сюда ContentNegotiation, а рабочий код обходился без
+     * него — и молча разошлись: транспорт отправлял тело так, как умел только
+     * настроенный в тестах клиент. Все моки при этом были зелёными, а живой
+     * вызов падал на "Fail to prepare request body". Пусть тесты работают через
+     * то же, через что работает приложение.
+     */
+    private fun httpClient(engine: MockEngine) = HttpClient(engine)
 
     private fun lastRequestBody(): String = (requests.last().body as TextContent).text
 
@@ -194,9 +196,9 @@ class RcloneClientTest {
 
     @Test
     fun `non-json error body is passed through as is`() {
-        assertEquals("404 page not found", RcloneClient.extractError("404 page not found"))
-        assertEquals("пустой ответ", RcloneClient.extractError("   "))
-        assertEquals("boom", RcloneClient.extractError("""{"error":"boom"}"""))
+        assertEquals("404 page not found", extractError("404 page not found"))
+        assertEquals("пустой ответ", extractError("   "))
+        assertEquals("boom", extractError("""{"error":"boom"}"""))
     }
 
     private companion object {

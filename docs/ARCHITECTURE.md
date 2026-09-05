@@ -15,7 +15,20 @@
      показываем пользователю, когда что-то пошло не так. `stop()` сначала просит
      процесс завершиться и только потом добивает: rclone должен успеть размонтировать
      то, что смонтировал.
-   - `RcloneClient` — типобезопасная обёртка над HTTP RC API (Ktor client):
+   - `RcloneTransport` — как вызов доставляется до rclone. У RC API один и тот же
+     вид везде («метод плюс объект на входе, объект на выходе»), а доставка
+     разная: на десктопе рядом живёт процесс `rclone rcd` и вызов уходит к нему
+     по HTTP (`HttpRcloneTransport`), на Android отдельный процесс поднять нельзя
+     и rclone линкуется в приложение (см. раздел про мобильные платформы).
+     Разбор ответов от этого различия не зависит и остаётся общим.
+
+     Тело запроса транспорт сериализует сам, а не отдаёт объектом на откуп
+     ktor-плагину `ContentNegotiation`: клиент в `RcloneClient` можно передать
+     любой, и без установленного плагина отправка падает с невнятным
+     "Fail to prepare request body". Тесты по этой же причине работают через
+     голый `HttpClient` без плагинов — иначе они проверяют не то, чем пользуется
+     приложение.
+   - `RcloneClient` — типобезопасная обёртка над RC API поверх транспорта:
      - `config/create`, `config/delete`, `config/listremotes` — управление облаками;
      - `mount/mount`, `mount/unmount`, `mount/listmounts` — монтирование;
      - `core/stats`, `job/status`, `job/stop` — прогресс и состояние операций;
@@ -188,6 +201,30 @@ rclone поддерживает `--vfs-cache-mode` с уровнями:
 
 - `rclone` собирается через `gomobile bind` в `.aar`-библиотеку — то же ядро
   (протоколы облаков, OAuth, кэш), что и на десктопе, без переписывания логики.
+  Сборку делает [`.github/workflows/librclone-android.yml`](../.github/workflows/librclone-android.yml)
+  из той же версии rclone, что зафиксирована для десктопа.
+
+  Сгенерированный интерфейс — ровно то, подо что заточен `RcloneTransport`:
+
+  ```java
+  public abstract class org.rclone.gomobile.Gomobile {
+    public static native void rcloneInitialize();
+    public static native void rcloneFinalize();
+    public static native RcloneRPCResult rcloneRPC(String method, String input);
+  }
+  // RcloneRPCResult: String Output (JSON), int Status (HTTP-код, 200 = успех)
+  ```
+
+  То есть на Android меняется только транспорт: вместо HTTP-запроса к соседнему
+  процессу — вызов `rcloneRPC` внутри своего. `RcloneClient` и весь разбор
+  ответов переиспользуются как есть.
+
+  **Про размер.** Библиотека большая: 100 МБ в сжатом `.aar`, внутри по полной
+  копии rclone на архитектуру (arm64 — 106 МБ, x86_64 — 153 МБ). Поэтому
+  собираются только эти две (первое — реальные телефоны, второе — эмулятор),
+  а раздавать приложение придётся так, чтобы устройство скачивало код лишь
+  своей архитектуры — через Android App Bundle или ABI splits. Один APK со
+  всеми архитектурами сразу — не вариант.
 - Поверх — реализация `android.content.DocumentsProvider` (часть Storage Access
   Framework). Это официальный и единственный путь для сторонних облачных дисков
   на Android — так же устроены Google Drive, Dropbox, Box.

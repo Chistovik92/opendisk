@@ -1,20 +1,10 @@
 package com.opendisk.bridge
 
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -48,10 +38,16 @@ class RcloneConfigLockedException(cause: RcloneRcException) :
  * Список используемых эндпоинтов и их назначение — в docs/ARCHITECTURE.md.
  * Официальная документация rclone RC: https://rclone.org/rc/
  */
-class RcloneClient(
-    private val baseUrl: String,
-    private val httpClient: HttpClient = defaultHttpClient(),
-) : Closeable {
+class RcloneClient(private val transport: RcloneTransport) : Closeable {
+
+    /**
+     * Клиент к отдельно запущенному `rclone rcd` — вариант для десктопа.
+     * На Android вместо этого передаётся транспорт поверх librclone.
+     */
+    constructor(
+        baseUrl: String,
+        httpClient: HttpClient = HttpRcloneTransport.defaultHttpClient(),
+    ) : this(HttpRcloneTransport(baseUrl, httpClient))
 
     // --- Облака (remotes) ---------------------------------------------------
 
@@ -347,8 +343,9 @@ class RcloneClient(
     /** Используется как проба готовности `rclone rcd` — см. [RcloneProcess.awaitReady]. */
     suspend fun version(): VersionInfo = call("core/version")
 
+
     override fun close() {
-        httpClient.close()
+        transport.close()
     }
 
     // --- Транспорт ----------------------------------------------------------
@@ -361,20 +358,7 @@ class RcloneClient(
     private suspend inline fun <reified T> call(
         endpoint: String,
         body: JsonObject = JsonObject(emptyMap()),
-    ): T {
-        val response = httpClient.post("$baseUrl/$endpoint") {
-            contentType(ContentType.Application.Json)
-            setBody(body)
-        }
-        if (!response.status.isSuccess()) {
-            throw RcloneRcException(
-                endpoint = endpoint,
-                statusCode = response.status.value,
-                rcloneError = extractError(response.bodyAsText()),
-            )
-        }
-        return response.body()
-    }
+    ): T = rcloneJson.decodeFromJsonElement(transport.rpc(endpoint, body))
 
     companion object {
         /**
@@ -383,44 +367,5 @@ class RcloneClient(
          * и в случае неверного — обе ситуации для нас одинаковы.
          */
         private const val DECRYPT_FAILURE_MARKER = "unable to decrypt configuration"
-
-        /**
-         * Сколько ждём ответа от rcd.
-         *
-         * Обычные вызовы отвечают мгновенно, но создание облака с OAuth
-         * (Яндекс.Диск, Google Drive, Dropbox) держит запрос открытым всё то
-         * время, пока пользователь подтверждает доступ в браузере. Таймаут CIO
-         * по умолчанию на это не рассчитан и обрывает запрос — облако не
-         * создаётся, а причина никак не видна.
-         */
-        const val REQUEST_TIMEOUT_MILLIS = 10 * 60 * 1000L
-
-        fun defaultHttpClient(): HttpClient = HttpClient(CIO) {
-            engine {
-                requestTimeout = REQUEST_TIMEOUT_MILLIS
-            }
-            install(ContentNegotiation) {
-                json(lenientJson)
-            }
-        }
-
-        private val lenientJson = Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-        }
-
-        /**
-         * Достаёт поле `error` из тела ответа. Если тело не разобралось
-         * (rclone может ответить и просто текстом), возвращаем его как есть —
-         * лучше показать сырой ответ, чем потерять причину.
-         */
-        internal fun extractError(rawBody: String): String {
-            val fallback = rawBody.trim().ifEmpty { "пустой ответ" }
-            return runCatching {
-                (lenientJson.parseToJsonElement(rawBody) as? JsonObject)
-                    ?.get("error")
-                    ?.let { element -> element.toString().trim('"') }
-            }.getOrNull() ?: fallback
-        }
     }
 }
