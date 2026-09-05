@@ -113,7 +113,7 @@ object Autostart {
      * `X-GNOME-Autostart-enabled` понимают GNOME и производные; остальные
      * среды просто игнорируют неизвестный ключ.
      */
-    private fun desktopEntry(target: Target): String = """
+    internal fun desktopEntry(target: Target): String = """
         [Desktop Entry]
         Type=Application
         Name=OpenDisk
