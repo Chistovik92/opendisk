@@ -279,6 +279,32 @@ class RcloneController(
         }
     }
 
+    /**
+     * Переименовывает облако. Смонтированное сначала отключаем: маунт держится
+     * за старое имя, и после переименования он указывал бы в никуда.
+     */
+    fun renameCloud(from: String, to: String, onDone: (String?) -> Unit) {
+        val api = client ?: return
+        scope.launch {
+            updateCloud(from) { it.copy(busy = true, error = null) }
+            try {
+                state.value.clouds.firstOrNull { it.name == from }?.mountPoint?.let { point ->
+                    runCatching { api.unmount(point) }
+                    ourMounts.remove(from)
+                }
+                api.renameRemote(from, to)
+                reloadClouds()
+                onDone(null)
+            } catch (e: Exception) {
+                val message = (e as? RcloneRcException)?.rcloneError
+                    ?: e.message
+                    ?: "не удалось переименовать"
+                updateCloud(from) { it.copy(busy = false, error = message) }
+                onDone(message)
+            }
+        }
+    }
+
     fun deleteCloud(name: String) {
         val api = client ?: return
         scope.launch {

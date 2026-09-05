@@ -113,6 +113,37 @@ class RcloneClient(
         call<JsonObject>("config/delete", buildJsonObject { put("name", name) })
     }
 
+    /**
+     * Переименовывает облако.
+     *
+     * Отдельного метода в RC API нет, поэтому читаем настройки, создаём копию
+     * под новым именем и удаляем старую. Порядок важен: сначала создаём, потом
+     * удаляем — если создание не удалось, исходное облако останется на месте.
+     *
+     * `noObscure` обязателен: значения из конфига уже «затемнены», и без него
+     * rclone обработал бы их повторно, превратив пароль в мусор.
+     */
+    suspend fun renameRemote(from: String, to: String) {
+        val existing = getRemote(from)
+        val type = existing["type"]?.toString()?.trim('"')
+            ?: throw IllegalStateException("у облака '$from' не указан тип — переименование невозможно")
+
+        call<JsonObject>(
+            "config/create",
+            buildJsonObject {
+                put("name", to)
+                put("type", type)
+                putJsonObject("parameters") {
+                    existing.forEach { (key, value) ->
+                        if (key != "type") put(key, value)
+                    }
+                }
+                putJsonObject("opt") { put("noObscure", true) }
+            },
+        )
+        deleteRemote(from)
+    }
+
     // --- Монтирование -------------------------------------------------------
 
     suspend fun mount(remoteName: String, mountPoint: String, vfsCacheMode: String = "writes") {

@@ -187,6 +187,52 @@ class RcloneControllerTest {
         assertFalse(throughMount.isFile, "диск $mountPoint остался после отключения")
     }
 
+    /**
+     * Переименование пересоздаёт запись в конфиге, поэтому главная опасность —
+     * испортить пароль: значения в конфиге уже «затемнены», и повторная
+     * обработка превратила бы их в мусор. Проверяем, что строка пароля
+     * осталась ровно той же.
+     */
+    @Test
+    fun `rename keeps the stored password intact`() {
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
+
+        val config = tempConfig("")
+        val controller = controllerFor(config)
+        controller.start()
+        awaitState(controller) { it.session == SessionState.Ready }
+
+        val creation = CompletableDeferred<String?>()
+        controller.addCloud(
+            name = "before",
+            type = "webdav",
+            parameters = mapOf("url" to "https://example.invalid/dav", "pass" to "secret-value"),
+            secretKeys = setOf("pass"),
+        ) { creation.complete(it) }
+        assertNull(runBlocking { withTimeout(20_000) { creation.await() } })
+        awaitState(controller) { state -> state.clouds.any { it.name == "before" } }
+
+        val obscuredBefore = passwordLine(config.path.readText())
+
+        val rename = CompletableDeferred<String?>()
+        controller.renameCloud("before", "after") { rename.complete(it) }
+        assertNull(runBlocking { withTimeout(20_000) { rename.await() } })
+
+        val after = awaitState(controller) { state ->
+            state.clouds.any { it.name == "after" } && state.clouds.none { it.name == "before" }
+        }
+        assertEquals(listOf("after"), after.clouds.map { it.name })
+
+        val stored = config.path.readText()
+        assertContains(stored, "[after]")
+        assertFalse(stored.contains("[before]"))
+        assertEquals(obscuredBefore, passwordLine(stored), "пароль изменился при переименовании")
+        assertContains(stored, "https://example.invalid/dav")
+    }
+
+    private fun passwordLine(config: String): String =
+        config.lineSequence().first { it.trimStart().startsWith("pass") }.trim()
+
     @Test
     fun `encrypted config asks for a password and unlocks with the right one`() {
         assumeTrue(RcloneProcess.locate() != null, "rclone не найден")

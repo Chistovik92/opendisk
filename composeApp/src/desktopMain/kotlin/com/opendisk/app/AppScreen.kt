@@ -34,6 +34,7 @@ import com.opendisk.bridge.MountSupport
 fun AppScreen(state: UiState, controller: RcloneController) {
     var addingCloud by remember { mutableStateOf(false) }
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
+    var cloudToRename by remember { mutableStateOf<String?>(null) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -57,6 +58,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
                     controller = controller,
                     onAddCloud = { addingCloud = true },
                     onRequestDelete = { cloudToDelete = it },
+                    onRequestRename = { cloudToRename = it },
                 )
             }
         }
@@ -71,6 +73,21 @@ fun AppScreen(state: UiState, controller: RcloneController) {
             onCreate = { name, type, parameters, secrets, onResult ->
                 controller.addCloud(name, type, parameters, secrets) { error ->
                     if (error == null) addingCloud = false
+                    onResult(error)
+                }
+            },
+        )
+    }
+
+    cloudToRename?.let { name ->
+        RenameCloudDialog(
+            cloudName = name,
+            isMounted = state.clouds.firstOrNull { it.name == name }?.isMounted == true,
+            existingNames = state.clouds.map { it.name }.toSet(),
+            onDismiss = { cloudToRename = null },
+            onRename = { newName, onResult ->
+                controller.renameCloud(name, newName) { error ->
+                    if (error == null) cloudToRename = null
                     onResult(error)
                 }
             },
@@ -109,6 +126,7 @@ private fun ReadyContent(
     controller: RcloneController,
     onAddCloud: () -> Unit,
     onRequestDelete: (String) -> Unit,
+    onRequestRename: (String) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -140,6 +158,7 @@ private fun ReadyContent(
                     mountAvailable = state.mountAvailable,
                     onMount = { controller.mount(cloud.name, RcloneController.defaultMountPoint(cloud.name)) },
                     onUnmount = { controller.unmount(cloud.name) },
+                    onRename = { onRequestRename(cloud.name) },
                     onDelete = { onRequestDelete(cloud.name) },
                 )
             }
@@ -153,6 +172,7 @@ private fun CloudRow(
     mountAvailable: Boolean,
     onMount: () -> Unit,
     onUnmount: () -> Unit,
+    onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -184,6 +204,7 @@ private fun CloudRow(
                     } else {
                         Button(onClick = onMount, enabled = mountAvailable) { Text("Подключить") }
                     }
+                    TextButton(onClick = onRename, enabled = !cloud.busy) { Text("Переименовать") }
                     TextButton(onClick = onDelete, enabled = !cloud.busy) { Text("Удалить") }
                 }
             }

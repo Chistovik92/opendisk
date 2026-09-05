@@ -70,6 +70,74 @@ fun PasswordPrompt(wrongAttempt: Boolean, onSubmit: (String) -> Unit) {
     }
 }
 
+/**
+ * Переименование облака.
+ *
+ * В rclone у облака нет отдельного «отображаемого имени» — имя и есть ключ
+ * секции в конфиге, поэтому переименование пересоздаёт запись. Про отключение
+ * смонтированного диска предупреждаем заранее, чтобы это не стало сюрпризом.
+ */
+@Composable
+fun RenameCloudDialog(
+    cloudName: String,
+    isMounted: Boolean,
+    existingNames: Set<String>,
+    onDismiss: () -> Unit,
+    onRename: (String, (String?) -> Unit) -> Unit,
+) {
+    var newName by remember { mutableStateOf(cloudName) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    val taken = newName != cloudName && newName in existingNames
+    val canSubmit = newName.isNotBlank() && newName != cloudName && !taken && !busy
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Переименовать облако") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Новое название") },
+                    singleLine = true,
+                    isError = taken,
+                    supportingText = { if (taken) Text("Такое название уже занято") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (isMounted) {
+                    Text(
+                        "Облако сейчас подключено как диск — при переименовании оно будет " +
+                            "отключено, подключить его нужно будет заново.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = canSubmit,
+                onClick = {
+                    busy = true
+                    error = null
+                    onRename(newName.trim()) { failure ->
+                        busy = false
+                        error = failure
+                    }
+                },
+            ) {
+                Text(if (busy) "Переименовываю..." else "Переименовать")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Отмена") } },
+    )
+}
+
 @Composable
 fun ConfirmDeleteDialog(cloudName: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
