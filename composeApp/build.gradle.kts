@@ -182,7 +182,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.1.5"
+            packageVersion = "0.1.6"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -190,10 +190,25 @@ compose.desktop {
 
             appResourcesRootDir.set(appResourcesRoot)
 
+            windows {
+                // Без этого jpackage не создаёт вообще никаких ярлыков, и после
+                // установки приложение можно запустить только вручную из
+                // Program Files. Найдено при обкатке установщика 0.1.5.
+                menu = true
+                menuGroup = "OpenDisk"
+                shortcut = true
+                dirChooser = true
+
+                // Закреплено тем самым значением, которое jpackage вывел из имени
+                // пакета для 0.1.5, — иначе установка новой версии встанет рядом
+                // со старой вместо обновления.
+                upgradeUuid = "017F57A7-5FBD-3E70-A0A0-07906627B269"
+            }
+
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.0.5"
+                packageVersion = "1.0.6"
             }
         }
     }
