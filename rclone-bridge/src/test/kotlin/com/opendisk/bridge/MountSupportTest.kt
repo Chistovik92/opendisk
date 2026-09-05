@@ -9,25 +9,28 @@ import kotlin.test.assertTrue
 /**
  * Проверка команды запуска установщика драйвера.
  *
- * Ошибка, ради которой этот тест написан: путь к MSI подставлялся прямо в
- * аргумент `-Command`, и на пути с пробелом (в собранном приложении это
- * `C:\Program Files\OpenDisk\...`) команда разваливалась — PowerShell молча не
- * выполнялся, а запрос администратора вообще не появлялся. Проверить это на
- * машине разработчика было невозможно: там путь пробелов не содержит.
+ * Здесь дважды ломалось на одном и том же — на пути `C:\Program Files\...`,
+ * который в собранном приложении содержит пробел:
  *
- * Тесты работают со строкой пути, а не с [File], чтобы проверять именно
- * windows-экранирование и на Linux, где `File.absolutePath` дописал бы к
- * «C:\...» рабочий каталог.
+ * 1. Путь подставлялся в аргумент `-Command`, и Java при запуске процесса сама
+ *    расставляла кавычки поверх уже имеющихся — PowerShell молча не выполнялся,
+ *    запрос администратора не появлялся вовсе.
+ * 2. После перехода на `-EncodedCommand` осталась вторая половина: PowerShell
+ *    склеивает элементы `-ArgumentList` пробелами и ничего не экранирует, из-за
+ *    чего msiexec получал путь двумя аргументами и отвечал кодом 1639.
+ *
+ * Тесты работают со строкой пути, а не с [File]: `File.absolutePath` на Linux
+ * дописал бы к «C:\...» рабочий каталог, и проверка перестала бы работать в CI.
  */
 class MountSupportTest {
 
+    private val windowsPath = """C:\Program Files\OpenDisk\app\resources\winfsp.msi"""
+
     @Test
-    fun `path with spaces survives intact`() {
-        val path = """C:\Program Files\OpenDisk\app\resources\winfsp.msi"""
+    fun `path with spaces is quoted for msiexec`() {
+        val script = MountSupport.installScriptFor(windowsPath)
 
-        val script = MountSupport.installScriptFor(path)
-
-        assertContains(script, "'$path'")
+        assertContains(script, "'\"$windowsPath\"'")
     }
 
     @Test
@@ -47,7 +50,7 @@ class MountSupportTest {
     fun `single quotes in the path are escaped`() {
         val script = MountSupport.installScriptFor("""C:\Users\O'Brien\winfsp.msi""")
 
-        assertContains(script, """'C:\Users\O''Brien\winfsp.msi'""")
+        assertContains(script, """'"C:\Users\O''Brien\winfsp.msi"'""")
     }
 
     @Test

@@ -153,9 +153,13 @@ object MountSupport {
     internal fun installScriptFor(absolutePath: String): String {
         // Одинарные кавычки PowerShell экранируются удвоением.
         val path = absolutePath.replace("'", "''")
+        // Двойные кавычки вокруг пути обязательны: Start-Process склеивает
+        // элементы -ArgumentList пробелами и сам ничего не экранирует, поэтому
+        // «C:\Program Files\...» доезжал до msiexec как два аргумента, и тот
+        // отвечал кодом 1639 — «недопустимый аргумент командной строки».
         return """
             try {
-                ${'$'}p = Start-Process msiexec -ArgumentList @('/i', '$path', '/qb') -Verb RunAs -Wait -PassThru
+                ${'$'}p = Start-Process msiexec -ArgumentList @('/i', '"$path"', '/qb') -Verb RunAs -Wait -PassThru
                 Write-Output ("EXIT=" + ${'$'}p.ExitCode)
             } catch {
                 Write-Output ("LAUNCH_FAILED=" + ${'$'}_.Exception.Message)
