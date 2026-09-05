@@ -358,6 +358,32 @@ class Strings(private val russian: Boolean) {
         "Files in the cloud itself are untouched — only the connection is removed.",
     )
 
+    // --- О приложении -------------------------------------------------------
+
+    val about = t("О приложении", "About")
+    val aboutDescription = t(
+        "Открытый клиент облачных дисков. Подключает облака как обычные диски, " +
+            "файлы подгружаются по требованию.",
+        "An open client for cloud drives. Connects clouds as ordinary drives, " +
+            "files are fetched on demand.",
+    )
+    val version = t("Версия", "Version")
+    val versionUnknown = t("из сборки", "development build")
+    val builtOnRclone = t("Работает на rclone", "Powered by rclone")
+    val whereFilesAre = t("Где что лежит", "Where files live")
+    val cloudsList = t("Список облаков", "List of clouds")
+    val appSettingsFile = t("Настройки приложения", "Application settings")
+    val licenses = t("Лицензии", "Licenses")
+    val licensesText = t(
+        "OpenDisk — MIT. Встроенный rclone — MIT. Установщик WinFsp — GPLv3 " +
+            "со специальным исключением; тексты лицензий лежат рядом с приложением.",
+        "OpenDisk — MIT. The bundled rclone — MIT. The WinFsp installer — GPLv3 " +
+            "with a special exception; license texts sit next to the application.",
+    )
+    val projectPage = t("Страница проекта", "Project page")
+    val reportProblem = t("Сообщить о проблеме", "Report a problem")
+    val close = t("Закрыть", "Close")
+
     // --- Трей ---------------------------------------------------------------
 
     val showWindow = t("Показать окно", "Show window")

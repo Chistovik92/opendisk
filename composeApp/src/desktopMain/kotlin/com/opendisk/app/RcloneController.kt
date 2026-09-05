@@ -89,6 +89,8 @@ class RcloneController(
                 it.copy(
                     rcloneDescription = describeRclone(located),
                     configDescription = describeConfig(config),
+                    configFilePath = config.path.absolutePath,
+                    settingsFilePath = settings.filePath,
                 )
             }
 
@@ -132,6 +134,7 @@ class RcloneController(
                 it.copy(session = SessionState.Ready, globalSettings = settings.global())
             }
             loadMountSupport()
+            loadRcloneVersion()
             applyBandwidthLimit(settings.global().bandwidthLimit)
             loadProviders()
             reloadClouds()
@@ -161,6 +164,13 @@ class RcloneController(
      * Windows отвечает `["cmount"]` даже без установленного WinFsp, и кнопка
      * «Подключить» оказывалась активной, а монтирование падало с невнятной ошибкой.
      */
+    /** Версия встроенного rclone — нужна только для окна «О приложении». */
+    private suspend fun loadRcloneVersion() {
+        val api = client ?: return
+        val version = runCatching { api.version().version }.getOrNull() ?: return
+        _state.update { it.copy(rcloneVersion = version) }
+    }
+
     private fun loadMountSupport() {
         _state.update { it.copy(mount = MountSupport.check()) }
     }

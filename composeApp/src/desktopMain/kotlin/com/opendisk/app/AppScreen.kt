@@ -38,6 +38,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
     var cloudToRename by remember { mutableStateOf<String?>(null) }
     var cloudToConfigure by remember { mutableStateOf<String?>(null) }
     var showingAppSettings by remember { mutableStateOf(false) }
+    var showingAbout by remember { mutableStateOf(false) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -64,6 +65,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
                     onRequestRename = { cloudToRename = it },
                     onRequestSettings = { cloudToConfigure = it },
                     onAppSettings = { showingAppSettings = true },
+                    onAbout = { showingAbout = true },
                 )
             }
         }
@@ -82,6 +84,10 @@ fun AppScreen(state: UiState, controller: RcloneController) {
                 }
             },
         )
+    }
+
+    if (showingAbout) {
+        AboutDialog(state = state, onDismiss = { showingAbout = false })
     }
 
     if (showingAppSettings) {
@@ -158,6 +164,7 @@ private fun ReadyContent(
     onRequestRename: (String) -> Unit,
     onRequestSettings: (String) -> Unit,
     onAppSettings: () -> Unit,
+    onAbout: () -> Unit,
 ) {
     val strings = LocalStrings.current
 
@@ -169,6 +176,7 @@ private fun ReadyContent(
         Button(onClick = onAddCloud) { Text(strings.addCloud) }
         OutlinedButton(onClick = controller::refresh) { Text(strings.refresh) }
         OutlinedButton(onClick = onAppSettings) { Text(strings.appSettings) }
+        OutlinedButton(onClick = onAbout) { Text(strings.about) }
     }
 
     (state.mount as? MountSupport.Status.Missing)?.let { missing ->

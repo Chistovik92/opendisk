@@ -71,6 +71,11 @@ data class UiState(
     val settings: Map<String, CloudSettings> = emptyMap(),
     /** Общие настройки: автозапуск и ограничение скорости. */
     val globalSettings: GlobalSettings = GlobalSettings(),
+    /** Версия встроенного rclone — показывается в «О приложении». */
+    val rcloneVersion: String? = null,
+    /** Пути к файлам, которые спрашивают первым делом при разборе проблем. */
+    val configFilePath: String = "",
+    val settingsFilePath: String = "",
 ) {
     val mountAvailable: Boolean get() = mount is MountSupport.Status.Available
 }

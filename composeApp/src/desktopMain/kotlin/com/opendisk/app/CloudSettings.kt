@@ -62,6 +62,9 @@ data class GlobalSettings(
  */
 class AppSettings(private val file: File) {
 
+    /** Путь к файлу — показывается в «О приложении» для разбора проблем. */
+    val filePath: String get() = file.absolutePath
+
     @Serializable
     private data class Stored(
         val clouds: Map<String, CloudSettings> = emptyMap(),
