@@ -420,7 +420,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.1.19"
+            packageVersion = "0.1.20"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -429,6 +429,7 @@ compose.desktop {
             appResourcesRootDir.set(appResourcesRoot)
 
             windows {
+                iconFile.set(project.file("icons/opendisk.ico"))
                 // Без этого jpackage не создаёт вообще никаких ярлыков, и после
                 // установки приложение можно запустить только вручную из
                 // Program Files. Найдено при обкатке установщика 0.1.5.
@@ -443,7 +444,10 @@ compose.desktop {
                 upgradeUuid = "017F57A7-5FBD-3E70-A0A0-07906627B269"
             }
 
+            // Иконка одна на все платформы, только в разных форматах.
+            // Рисуется тем же кодом, что и иконка в трее, — см. composeApp/icons.
             linux {
+                iconFile.set(project.file("icons/opendisk.png"))
                 // Имена пакетов в Debian и RPM должны быть в нижнем регистре,
                 // иначе jpackage отказывается собирать.
                 packageName = "opendisk"
@@ -461,7 +465,7 @@ compose.desktop {
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.0.19"
+                packageVersion = "1.0.20"
             }
         }
     }

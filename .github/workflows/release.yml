@@ -36,10 +36,17 @@ jobs:
           # поэтому сборка на 22.04 ставится и туда, и сюда.
           - os: ubuntu-22.04
             name: Linux
-            tasks: packageDeb packageRpm
+            tasks: packageDeb packageRpm createDistributable
             artifacts: |
               composeApp/build/compose/binaries/main/deb/*.deb
               composeApp/build/compose/binaries/main/rpm/*.rpm
+              composeApp/build/distributions/*.AppImage
+          # macOS собирается, но никем не проверялась: Mac для проверки нет.
+          # Пакет всё равно полезнее, чем его отсутствие.
+          - os: macos-latest
+            name: macOS
+            tasks: packageDmg
+            artifacts: composeApp/build/compose/binaries/main/dmg/*.dmg
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.name }}
@@ -124,6 +131,46 @@ jobs:
           dpkg-deb -c "$deb" | grep '/opt/opendisk/lib/app/resources/rclone$' | grep -q '^-rwx' ||
             { echo 'rclone так и не стал исполняемым' >&2; exit 1; }
 
+      # AppImage jpackage не умеет, а формат для Linux привычный: один файл,
+      # запускается без установки и без прав администратора.
+      - name: Собрать AppImage
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          image=composeApp/build/compose/binaries/main/app/OpenDisk
+          version=$(sed -n 's/^ *version = "\(.*\)"/\1/p' build.gradle.kts | head -1)
+          appdir=build/OpenDisk.AppDir
+          rm -rf "$appdir" && mkdir -p "$appdir/usr"
+          cp -r "$image"/. "$appdir/usr/"
+
+          cp composeApp/icons/opendisk.png "$appdir/opendisk.png"
+          cat > "$appdir/opendisk.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=OpenDisk
+          Comment=Open client for cloud drives
+          Exec=OpenDisk
+          Icon=opendisk
+          Categories=Utility;
+          Terminal=false
+          DESKTOP
+
+          cat > "$appdir/AppRun" <<'APPRUN'
+          #!/bin/sh
+          exec "$(dirname "$(readlink -f "$0")")/usr/bin/OpenDisk" "$@"
+          APPRUN
+          chmod +x "$appdir/AppRun"
+
+          curl -fsSL -o build/appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x build/appimagetool
+          # На раннере нет FUSE, поэтому инструмент распаковываем и запускаем
+          # напрямую — сам себя он смонтировать не сможет.
+          (cd build && ./appimagetool --appimage-extract > /dev/null)
+          mkdir -p composeApp/build/distributions
+          ARCH=x86_64 build/squashfs-root/AppRun "$appdir" \
+            "composeApp/build/distributions/OpenDisk-$version-x86_64.AppImage"
+          ls -la composeApp/build/distributions/*.AppImage
+
       - name: Артефакты сборки
         uses: actions/upload-artifact@v4
         with:
@@ -149,7 +196,10 @@ jobs:
           files=$(find composeApp/build/distributions \
             composeApp/build/compose/binaries/main/deb \
             composeApp/build/compose/binaries/main/rpm \
-            -maxdepth 1 -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \) \
+            composeApp/build/compose/binaries/main/dmg \
+            -maxdepth 1 -type f \
+            \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \
+               -o -name '*.dmg' -o -name '*.AppImage' \) \
             2>/dev/null || true)
           if [ -z "$files" ]; then
             echo "Нечего выкладывать — пакеты не найдены" >&2
