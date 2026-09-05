@@ -1,0 +1,102 @@
+name: Обновления встроенных программ
+
+# В дистрибутив вшиты rclone и установщик WinFsp с зафиксированными версиями
+# и контрольными суммами. Фиксация нужна для воспроизводимости, но у неё есть
+# обратная сторона: обновляться сами они не будут, а исправления безопасности
+# в них выходят.
+#
+# Раз в неделю сверяем зафиксированные версии с актуальными и заводим issue,
+# если отстали. Автоматически ничего не поднимаем: смена версии требует новых
+# контрольных сумм и проверки, что приложение с ней работает.
+
+on:
+  schedule:
+    # Понедельник, утро по UTC — чтобы результат был к началу недели.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Сверить версии
+        id: check
+        run: |
+          build=composeApp/build.gradle.kts
+          current_rclone=$(sed -n 's/^val rcloneVersion = "\(.*\)"/\1/p' "$build")
+          current_winfsp=$(sed -n 's/^val winFspVersion = "\(.*\)"/\1/p' "$build")
+
+          # rclone публикует актуальную версию отдельным файлом — это надёжнее,
+          # чем разбирать HTML страницы загрузок.
+          latest_rclone=$(curl -fsSL https://downloads.rclone.org/version.txt |
+            sed 's/^rclone v//' | tr -d '[:space:]')
+          latest_winfsp=$(curl -fsSL https://api.github.com/repos/winfsp/winfsp/releases/latest |
+            sed -n 's/.*"tag_name" *: *"v\?\([^"]*\)".*/\1/p' | head -1)
+
+          echo "rclone: у нас $current_rclone, вышла $latest_rclone"
+          echo "WinFsp: у нас $current_winfsp, вышла $latest_winfsp"
+
+          outdated=""
+          [ -n "$latest_rclone" ] && [ "$current_rclone" != "$latest_rclone" ] &&
+            outdated="${outdated}- rclone: встроена \`$current_rclone\`, доступна \`$latest_rclone\`\n"
+          # У WinFsp тег вида 2.1, а версия сборки 2.1.25156 — сравниваем по началу.
+          case "$current_winfsp" in
+            "$latest_winfsp"*) ;;
+            *) [ -n "$latest_winfsp" ] &&
+                 outdated="${outdated}- WinFsp: встроена \`$current_winfsp\`, доступна \`$latest_winfsp\`\n" ;;
+          esac
+
+          if [ -z "$outdated" ]; then
+            echo "всё актуально"
+            echo "outdated=" >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "outdated<<END"
+              printf "$outdated"
+              echo "END"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Завести или обновить issue
+        if: steps.check.outputs.outdated != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTDATED: ${{ steps.check.outputs.outdated }}
+        run: |
+          title="Обновить встроенные программы"
+          body=$(cat <<EOF
+          Встроенные в дистрибутив программы отстали от актуальных версий:
+
+          $OUTDATED
+
+          ## Что нужно сделать
+
+          1. Поднять версию в \`composeApp/build.gradle.kts\`
+             (\`rcloneVersion\` или \`winFspVersion\`).
+          2. Обновить контрольные суммы — они зафиксированы намеренно, чтобы
+             сборка падала, а не собирала пакет с подменённым бинарником:
+             - rclone: суммы лежат на \`https://downloads.rclone.org/v<версия>/SHA256SUMS\`
+             - WinFsp: посчитать \`sha256sum\` скачанного установщика
+          3. Собрать и проверить, что приложение с новой версией работает —
+             формы ответов RC API между версиями rclone менялись.
+
+          Issue заводится автоматически раз в неделю и обновляется, пока
+          версии не совпадут.
+          EOF
+          )
+
+          existing=$(gh issue list --state open --search "$title in:title" --json number \
+            --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body"
+            echo "обновлён issue #$existing"
+          else
+            gh issue create --title "$title" --body "$body" --label dependencies 2>/dev/null ||
+              gh issue create --title "$title" --body "$body"
+          fi
