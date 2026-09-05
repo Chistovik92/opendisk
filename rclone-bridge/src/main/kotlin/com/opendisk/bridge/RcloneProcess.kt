@@ -256,12 +256,32 @@ class RcloneProcess(
             val resourcesDir = System.getProperty(COMPOSE_RESOURCES_PROPERTY) ?: return null
             val candidate = File(resourcesDir, binaryName)
             if (!candidate.isFile) return null
-            // Установщики на Unix умеют терять бит выполнения — восстанавливаем молча.
-            if (!candidate.canExecute()) {
-                candidate.setExecutable(true)
-            }
-            return candidate
+            if (candidate.canExecute()) return candidate
+
+            // Бит выполнения теряется при упаковке — в собранном deb rclone
+            // приезжал с правами 644. Пробуем восстановить на месте, но в
+            // /opt каталог принадлежит root, и обычному пользователю это
+            // не удастся: тогда работаем с копией там, где права наши.
+            if (candidate.setExecutable(true) && candidate.canExecute()) return candidate
+            return executableCopy(candidate)
         }
+
+        /**
+         * Копия бинарника в пользовательском кэше, которой можно выставить
+         * права. Запасной путь на случай, если в пакете они потерялись.
+         */
+        private fun executableCopy(source: File): File? = runCatching {
+            val cacheDir = File(System.getProperty("user.home"), ".cache/opendisk")
+            cacheDir.mkdirs()
+            val target = File(cacheDir, source.name)
+            // Размер — достаточный признак: копию делаем из неизменного файла
+            // в каталоге установки, и при обновлении он меняется вместе с ним.
+            if (!target.isFile || target.length() != source.length()) {
+                source.copyTo(target, overwrite = true)
+            }
+            target.setExecutable(true)
+            target.takeIf { it.canExecute() }
+        }.getOrNull()
 
         private fun onSystemPath(): File? {
             val pathDirs = System.getenv("PATH")?.split(File.pathSeparator).orEmpty()

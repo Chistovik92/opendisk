@@ -29,7 +29,12 @@ jobs:
             # работающее приложение при обновлении. См. composeApp/wix/Product.wxs.
             tasks: packageWixMsi
             artifacts: composeApp/build/distributions/*.msi
-          - os: ubuntu-latest
+          # 22.04, а не latest: на 24.04 jpackage прописывает зависимости
+          # с суффиксом t64 (libasound2t64, libpng16-16t64) — таких пакетов нет
+          # ни в Debian 12, ни в Ubuntu 22.04, ни в ALT, и установка там просто
+          # не проходит. Пакеты 24.04 объявляют Provides на старые имена,
+          # поэтому сборка на 22.04 ставится и туда, и сюда.
+          - os: ubuntu-22.04
             name: Linux
             tasks: packageDeb packageRpm
             artifacts: |
@@ -60,7 +65,7 @@ jobs:
       # jpackage собирает deb через fakeroot, а rpm — через rpmbuild;
       # на чистом раннере их нет.
       - name: Инструменты упаковки для Linux
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get update && sudo apt-get install -y fakeroot rpm
 
       - name: Тесты

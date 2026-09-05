@@ -160,5 +160,6 @@ else
 fi
 
 say ""
-say "Запуск: opendisk — или найдите OpenDisk в меню приложений."
+say "Запуск: найдите OpenDisk в меню приложений"
+say "        или запустите /opt/opendisk/bin/OpenDisk"
 say "Удалить: $sudo $remove_command"
