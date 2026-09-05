@@ -14,21 +14,25 @@ import kotlin.test.assertTrue
  * `C:\Program Files\OpenDisk\...`) команда разваливалась — PowerShell молча не
  * выполнялся, а запрос администратора вообще не появлялся. Проверить это на
  * машине разработчика было невозможно: там путь пробелов не содержит.
+ *
+ * Тесты работают со строкой пути, а не с [File], чтобы проверять именно
+ * windows-экранирование и на Linux, где `File.absolutePath` дописал бы к
+ * «C:\...» рабочий каталог.
  */
 class MountSupportTest {
 
     @Test
     fun `path with spaces survives intact`() {
-        val installer = File("""C:\Program Files\OpenDisk\app\resources\winfsp.msi""")
+        val path = """C:\Program Files\OpenDisk\app\resources\winfsp.msi"""
 
-        val script = MountSupport.buildInstallScript(installer)
+        val script = MountSupport.installScriptFor(path)
 
-        assertContains(script, """'C:\Program Files\OpenDisk\app\resources\winfsp.msi'""")
+        assertContains(script, "'$path'")
     }
 
     @Test
     fun `script asks for elevation and reports the outcome`() {
-        val script = MountSupport.buildInstallScript(File("C:\\tmp\\winfsp.msi"))
+        val script = MountSupport.installScriptFor("""C:\tmp\winfsp.msi""")
 
         // Без runas запрос администратора не появится, и установка драйвера
         // провалится — это ключевая часть команды.
@@ -41,14 +45,14 @@ class MountSupportTest {
 
     @Test
     fun `single quotes in the path are escaped`() {
-        val script = MountSupport.buildInstallScript(File("""C:\Users\O'Brien\winfsp.msi"""))
+        val script = MountSupport.installScriptFor("""C:\Users\O'Brien\winfsp.msi""")
 
         assertContains(script, """'C:\Users\O''Brien\winfsp.msi'""")
     }
 
     @Test
     fun `missing installer is reported instead of launching anything`() {
-        val absent = File("C:\\nope\\definitely-not-here.msi")
+        val absent = File("definitely-not-here.msi")
 
         val result = MountSupport.installBundled(absent)
 
@@ -57,7 +61,7 @@ class MountSupportTest {
     }
 
     @Test
-    fun `check never reports mounting available without a driver present`() {
+    fun `check reports a usable status on any platform`() {
         // Тест не знает, установлен ли драйвер на этой машине, но знает, что
         // ответ должен быть одним из двух и не должен падать.
         val status = MountSupport.check()

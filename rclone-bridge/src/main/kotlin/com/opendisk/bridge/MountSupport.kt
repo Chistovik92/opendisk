@@ -142,9 +142,17 @@ object MountSupport {
      * Вынесен отдельно, потому что здесь легко ошибиться с экранированием:
      * путь к MSI в собранном приложении содержит пробел («Program Files»).
      */
-    internal fun buildInstallScript(installer: File): String {
+    internal fun buildInstallScript(installer: File): String =
+        installScriptFor(installer.absolutePath)
+
+    /**
+     * Принимает готовый путь строкой, а не [File]: тесты должны проверять
+     * экранирование windows-пути и на Linux, где `File.absolutePath` превратил
+     * бы «C:\...» в путь относительно рабочего каталога.
+     */
+    internal fun installScriptFor(absolutePath: String): String {
         // Одинарные кавычки PowerShell экранируются удвоением.
-        val path = installer.absolutePath.replace("'", "''")
+        val path = absolutePath.replace("'", "''")
         return """
             try {
                 ${'$'}p = Start-Process msiexec -ArgumentList @('/i', '$path', '/qb') -Verb RunAs -Wait -PassThru
