@@ -63,9 +63,10 @@ fun AppScreen(state: UiState, controller: RcloneController) {
     }
 
     if (addingCloud) {
-        AddCloudDialog(
+        AddCloudWizard(
             providers = state.providers,
             existingNames = state.clouds.map { it.name }.toSet(),
+            oauthUrl = state.oauthUrl,
             onDismiss = { addingCloud = false },
             onCreate = { name, type, parameters, secrets, onResult ->
                 controller.addCloud(name, type, parameters, secrets) { error ->

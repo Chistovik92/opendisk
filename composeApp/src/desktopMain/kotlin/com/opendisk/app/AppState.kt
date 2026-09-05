@@ -62,6 +62,11 @@ data class UiState(
      * а не зашивается в код: набор и набор опций зависят от версии rclone.
      */
     val providers: List<RcloneClient.Provider> = emptyList(),
+    /**
+     * Ссылка для подтверждения доступа, если браузер не открылся сам.
+     * rclone печатает её в свой вывод, откуда мы её и достаём.
+     */
+    val oauthUrl: String? = null,
 ) {
     val mountAvailable: Boolean get() = mount is MountSupport.Status.Available
 }

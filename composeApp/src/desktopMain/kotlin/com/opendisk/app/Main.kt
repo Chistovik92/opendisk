@@ -18,7 +18,14 @@ import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.flow.MutableSharedFlow
 import java.awt.SystemTray
+
+/**
+ * Сигнал «покажи окно» от повторного запуска приложения. Живёт вне композиции,
+ * потому что приходит из сокета ещё до того, как окно создано.
+ */
+private val activationSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
 /**
  * Точка входа десктоп-приложения.
@@ -27,13 +34,29 @@ import java.awt.SystemTray
  * пункт меню трея. Если трей системой не поддерживается, закрытие окна
  * завершает приложение: иначе его стало бы нечем закрыть.
  */
-fun main() = application {
+fun main() {
+    // Окно прячется в трей, поэтому ярлык нажимают повторно — и без этой
+    // проверки получали вторую копию приложения со своим процессом rclone.
+    if (!SingleInstance.acquire { activationSignal.tryEmit(Unit) }) {
+        return
+    }
+    runApplication()
+}
+
+private fun runApplication() = application {
     val controller = remember { RcloneController() }
     val state by controller.state.collectAsState()
     val traySupported = remember { runCatching { SystemTray.isSupported() }.getOrDefault(false) }
     var windowVisible by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) { controller.start() }
+
+    // Повторный запуск ярлыка просит показать окно вместо второй копии.
+    LaunchedEffect(Unit) {
+        activationSignal.collect {
+            windowVisible = true
+        }
+    }
 
     fun quit() {
         controller.shutdown()

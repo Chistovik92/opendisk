@@ -330,7 +330,21 @@ class RcloneClient(
          */
         private const val DECRYPT_FAILURE_MARKER = "unable to decrypt configuration"
 
+        /**
+         * Сколько ждём ответа от rcd.
+         *
+         * Обычные вызовы отвечают мгновенно, но создание облака с OAuth
+         * (Яндекс.Диск, Google Drive, Dropbox) держит запрос открытым всё то
+         * время, пока пользователь подтверждает доступ в браузере. Таймаут CIO
+         * по умолчанию на это не рассчитан и обрывает запрос — облако не
+         * создаётся, а причина никак не видна.
+         */
+        const val REQUEST_TIMEOUT_MILLIS = 10 * 60 * 1000L
+
         fun defaultHttpClient(): HttpClient = HttpClient(CIO) {
+            engine {
+                requestTimeout = REQUEST_TIMEOUT_MILLIS
+            }
             install(ContentNegotiation) {
                 json(lenientJson)
             }

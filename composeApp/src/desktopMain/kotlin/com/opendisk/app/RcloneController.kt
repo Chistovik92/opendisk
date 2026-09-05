@@ -10,6 +10,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -238,6 +241,10 @@ class RcloneController(
     ) {
         val api = client ?: return
         scope.launch {
+            // Для OAuth-облаков rclone держит запрос открытым, пока пользователь
+            // подтверждает доступ, и печатает ссылку в свой вывод. Подхватываем
+            // её, чтобы показать, если браузер не открылся сам.
+            val linkWatcher = launch { watchForOauthLink() }
             try {
                 val prepared = parameters.mapValues { (key, value) ->
                     if (key in secretKeys && value.isNotEmpty()) api.obscure(value) else value
@@ -247,7 +254,28 @@ class RcloneController(
                 onDone(null)
             } catch (e: RcloneRcException) {
                 onDone(e.rcloneError)
+            } catch (e: Exception) {
+                // Обрыв связи с rcd на длинном OAuth-запросе иначе выглядел бы
+                // как навсегда зависший диалог: показываем причину.
+                onDone(e.message ?: "не удалось создать облако")
+            } finally {
+                linkWatcher.cancel()
+                _state.update { it.copy(oauthUrl = null) }
             }
+        }
+    }
+
+    /** Ищет в выводе rcd ссылку подтверждения доступа, пока идёт создание облака. */
+    private suspend fun watchForOauthLink() {
+        while (currentCoroutineContext().isActive) {
+            val link = process?.recentOutput()?.firstNotNullOfOrNull { line ->
+                OAUTH_LINK_PATTERN.find(line)?.value
+            }
+            if (link != null) {
+                _state.update { it.copy(oauthUrl = link) }
+                return
+            }
+            delay(OAUTH_LINK_POLL_MILLIS)
         }
     }
 
@@ -327,6 +355,10 @@ class RcloneController(
     }
 
     companion object {
+        /** Ссылка, которую rclone печатает при запуске браузерной авторизации. */
+        private val OAUTH_LINK_PATTERN = Regex("http://127\\.0\\.0\\.1:\\d+/auth\\?state=\\S+")
+        private const val OAUTH_LINK_POLL_MILLIS = 400L
+
         /**
          * Точка монтирования по умолчанию. На Windows это буква диска, поэтому
          * ищем первую свободную; на остальных ОС — каталог в домашней папке.
