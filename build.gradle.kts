@@ -7,5 +7,5 @@ plugins {
 
 allprojects {
     group = "com.opendisk"
-    version = "0.1.20"
+    version = "0.1.21"
 }

@@ -142,6 +142,12 @@ jobs:
           rm -rf "$appdir" && mkdir -p "$appdir/usr"
           cp -r "$image"/. "$appdir/usr/"
 
+          # Та же беда, что и с deb: jpackage кладёт встроенный rclone
+          # с правами 644, и приложение не может его запустить. В AppImage
+          # это критичнее — там файловая система только для чтения, и
+          # исправить права на месте нельзя вообще никак.
+          chmod 755 "$appdir/usr/lib/app/resources/rclone"
+
           cp composeApp/icons/opendisk.png "$appdir/opendisk.png"
           cat > "$appdir/opendisk.desktop" <<'DESKTOP'
           [Desktop Entry]
@@ -170,6 +176,19 @@ jobs:
           ARCH=x86_64 build/squashfs-root/AppRun "$appdir" \
             "composeApp/build/distributions/OpenDisk-$version-x86_64.AppImage"
           ls -la composeApp/build/distributions/*.AppImage
+
+          # Проверяем результат, а не намерение: в первой сборке AppImage
+          # rclone уехал неисполняемым, и приложение запускалось без него.
+          appimage=$(ls composeApp/build/distributions/*.AppImage)
+          chmod +x "$appimage"
+          (cd build && rm -rf check && mkdir check && cd check &&
+            "../../$appimage" --appimage-extract > /dev/null)
+          perms=$(stat -c '%A' build/check/squashfs-root/usr/lib/app/resources/rclone)
+          echo "права на rclone внутри AppImage: $perms"
+          case "$perms" in
+            -rwx*) echo "исполняемый — порядок" ;;
+            *) echo "ОШИБКА: rclone в AppImage не исполняемый" >&2; exit 1 ;;
+          esac
 
       - name: Артефакты сборки
         uses: actions/upload-artifact@v4
