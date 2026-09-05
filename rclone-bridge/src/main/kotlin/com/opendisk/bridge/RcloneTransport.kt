@@ -7,7 +7,6 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
-import io.ktor.http.isSuccess
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.io.Closeable
@@ -53,17 +52,9 @@ class HttpRcloneTransport(
             // Тело сериализуем сами, а не отдаём объектом на откуп ContentNegotiation:
             // клиент сюда можно передать любой, и без установленного плагина
             // ktor падает на отправке с невнятным "Fail to prepare request body".
-            setBody(rcloneJson.encodeToString(JsonObject.serializer(), body))
+            setBody(encodeRcloneRequest(body))
         }
-        val text = response.bodyAsText()
-        if (!response.status.isSuccess()) {
-            throw RcloneRcException(
-                endpoint = endpoint,
-                statusCode = response.status.value,
-                rcloneError = extractError(text),
-            )
-        }
-        return parseObject(endpoint, text)
+        return parseRcloneResponse(endpoint, response.status.value, response.bodyAsText())
     }
 
     override fun close() {
@@ -90,16 +81,37 @@ class HttpRcloneTransport(
     }
 }
 
-/**
- * Общий для всех транспортов разбор тела ответа.
- *
- * Вынесено из транспорта, а не оставлено в HTTP-варианте: librclone возвращает
- * такой же JSON такой же формы, и дублировать разбор ошибок ради этого
- * не нужно.
- */
 internal val rcloneJson = Json {
     ignoreUnknownKeys = true
     isLenient = true
+}
+
+/**
+ * Готовит тело запроса для отправки. Общее для всех транспортов: librclone
+ * принимает на вход такую же строку JSON, какую rcd получает телом POST.
+ */
+fun encodeRcloneRequest(body: JsonObject): String =
+    rcloneJson.encodeToString(JsonObject.serializer(), body)
+
+/**
+ * Разбирает ответ rclone — то, что вернул любой транспорт.
+ *
+ * Вынесено сюда, а не оставлено в HTTP-варианте: librclone отдаёт ровно то же
+ * самое, только не по сети — тело в поле `Output`, код в `Status`, и 200
+ * означает успех точно так же. Дублировать ради этого разбор ошибок незачем.
+ *
+ * @param status код ответа: HTTP-статус у rcd, поле `Status` у librclone.
+ * @throws RcloneRcException если rclone ответил ошибкой.
+ */
+fun parseRcloneResponse(endpoint: String, status: Int, rawBody: String): JsonObject {
+    if (status !in 200..299) {
+        throw RcloneRcException(
+            endpoint = endpoint,
+            statusCode = status,
+            rcloneError = extractError(rawBody),
+        )
+    }
+    return parseObject(endpoint, rawBody)
 }
 
 /**

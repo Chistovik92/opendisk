@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Библиотеке нужна только сеть: всё общение с облаками ведёт rclone
+         внутри процесса. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

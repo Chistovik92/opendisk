@@ -85,8 +85,17 @@ jobs:
         shell: bash
         run: |
           ./gradlew :composeApp:prepareAppResources --no-daemon
-          rclone=$(ls composeApp/build/appResources/common/rclone \
-                      composeApp/build/appResources/common/rclone.exe 2>/dev/null | head -1)
+          # Не через `ls` двух путей сразу: если одного из них нет, ls выходит
+          # с кодом 2, а GitHub запускает bash с -eo pipefail — и шаг падает,
+          # хотя бинарник на месте.
+          rclone=""
+          for candidate in composeApp/build/appResources/common/rclone \
+                           composeApp/build/appResources/common/rclone.exe; do
+            if [ -f "$candidate" ]; then
+              rclone="$candidate"
+              break
+            fi
+          done
           if [ -z "$rclone" ]; then
             echo "встроенный rclone не найден — интеграционные тесты нельзя пропускать молча" >&2
             exit 1
