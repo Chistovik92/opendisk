@@ -9,6 +9,46 @@ GUI на **Kotlin / Compose Multiplatform**.
 
 > Статус: ранняя стадия разработки. См. [ROADMAP.md](ROADMAP.md) для плана и текущего этапа.
 
+## Установка
+
+### Linux — одной командой
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Chistovik92/opendisk/main/scripts/install.sh | sh
+```
+
+Скрипт сам определит пакетный менеджер, скачает подходящий пакет из релизов,
+сверит контрольную сумму и установит. Потребуются права администратора.
+
+Если запускать чужой скрипт из интернета не хочется — и это здравая
+осторожность, — сделайте то же в два шага:
+
+```bash
+curl -fsSL -o install.sh https://raw.githubusercontent.com/Chistovik92/opendisk/main/scripts/install.sh
+less install.sh   # посмотреть, что он делает
+sh install.sh
+```
+
+Конкретную версию можно задать явно:
+
+```bash
+OPENDISK_VERSION=v0.1.11 sh install.sh
+```
+
+Либо скачать пакет вручную со страницы
+[релизов](https://github.com/Chistovik92/opendisk/releases) — там лежат `.deb`
+и `.rpm`.
+
+**Для подключения облаков как дисков нужен FUSE** — его придётся поставить
+отдельно, это модуль ядра: `sudo apt install fuse3` или `sudo dnf install fuse3`.
+Скрипт проверит и напомнит.
+
+### Windows
+
+Скачайте `.msi` со страницы [релизов](https://github.com/Chistovik92/opendisk/releases)
+и запустите. Нужны права администратора. Драйвер файловой системы WinFsp входит
+в состав — приложение предложит установить его по кнопке.
+
 ## Возможности (план)
 
 - Подключение облаков как локальных дисков, файлы скачиваются по требованию

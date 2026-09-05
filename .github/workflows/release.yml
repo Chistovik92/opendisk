@@ -101,7 +101,17 @@ jobs:
             exit 1
           fi
           echo "Выкладываю:"; echo "$files"
-          gh release upload "$tag" $files --clobber
+
+          # Контрольные суммы нужны скрипту установки: он скачивает пакет
+          # и сразу его ставит, поэтому обязан убедиться, что скачал именно то.
+          sums="SHA256SUMS-${{ matrix.name }}"
+          : > "$sums"
+          for file in $files; do
+            (cd "$(dirname "$file")" && sha256sum "$(basename "$file")") >> "$sums"
+          done
+          cat "$sums"
+
+          gh release upload "$tag" $files "$sums" --clobber
           # Релиз может оказаться черновиком: если тег когда-то удаляли,
           # GitHub переводит связанный с ним релиз в черновики, а
           # `gh release view` черновики видит — то есть проверка выше его
