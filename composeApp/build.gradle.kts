@@ -390,8 +390,22 @@ tasks.matching { it.name == "prepareAppResources" }.configureEach {
     // Права на копируемые файлы Gradle выставляет свои, и встроенный rclone
     // приезжал в deb с правами 644 — то есть неисполняемым. Починить их на
     // месте приложение не может: каталог установки принадлежит root.
-    if (this is AbstractCopyTask) {
-        filePermissions { unix("755") }
+    //
+    // Настройка filePermissions на этой задаче не сработала: Compose создаёт
+    // её сам и настраивает после нас. Поэтому выставляем бит выполнения уже
+    // на этапе выполнения, когда всё скопировано и перебить это некому.
+    val binaryName = rcloneBinaryName
+    doLast {
+        // Ищем обходом: раскладку каталога назначения задаёт Compose, и
+        // полагаться на неё не хочется.
+        val destination = (this as Sync).destinationDir
+        destination.walkTopDown()
+            .filter { it.isFile && it.name == binaryName }
+            .forEach { binary ->
+                if (!binary.setExecutable(true)) {
+                    logger.warn("Не удалось сделать $binary исполняемым — на Linux приложение не запустит rclone")
+                }
+            }
     }
 }
 
@@ -402,7 +416,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.1.13"
+            packageVersion = "0.1.14"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -443,7 +457,7 @@ compose.desktop {
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.0.13"
+                packageVersion = "1.0.14"
             }
         }
     }
