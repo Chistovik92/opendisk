@@ -349,6 +349,12 @@ class Strings(private val russian: Boolean) {
         "На этой системе автозапуск пока не поддерживается.",
         "Autostart is not supported on this system yet.",
     )
+    val autostartNeedsInstall = t(
+        "Доступно только для установленного приложения: сейчас OpenDisk запущен " +
+            "из каталога сборки, и прописывать в автозагрузку нечего.",
+        "Available only for the installed application: OpenDisk is running from a " +
+            "build directory, so there is nothing to register for startup.",
+    )
     val autostartFailed = t(
         "Не удалось изменить автозапуск. Он настраивается только для установленного " +
             "приложения, не для запуска из сборки.",

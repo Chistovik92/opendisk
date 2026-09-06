@@ -45,7 +45,8 @@ fun GlobalSettingsDialog(
         )
     }
 
-    val autostartSupported = remember { Autostart.isSupported() }
+    val autostartUnavailable = remember { Autostart.unavailableReason() }
+    val autostartSupported = autostartUnavailable == null
     val limitLooksValid = unlimited || limit.isBlank() || BANDWIDTH_PATTERN.matches(limit.trim())
 
     AlertDialog(
@@ -93,7 +94,11 @@ fun GlobalSettingsDialog(
                         Text(strings.runAtLogin)
                     }
                     Text(
-                        if (autostartSupported) strings.runAtLoginHint else strings.autostartUnsupported,
+                        when (autostartUnavailable) {
+                            null -> strings.runAtLoginHint
+                            Autostart.Unavailable.OPERATING_SYSTEM -> strings.autostartUnsupported
+                            Autostart.Unavailable.NOT_INSTALLED -> strings.autostartNeedsInstall
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
