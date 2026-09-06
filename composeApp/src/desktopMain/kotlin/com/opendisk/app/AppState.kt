@@ -37,6 +37,11 @@ data class CloudUi(
     val about: RcloneClient.AboutInfo? = null,
     /** Ошибка последней операции именно с этим облаком. */
     val error: String? = null,
+    /**
+     * Не ошибка, но то, о чём стоит знать: облако работает, а работает плохо
+     * и по исправимой причине.
+     */
+    val warning: String? = null,
     /** Идёт операция — блокируем кнопки, чтобы не запустить её дважды. */
     val busy: Boolean = false,
 ) {
@@ -109,7 +114,17 @@ fun RcloneClient.Provider.formOptions(): List<RcloneClient.Option> =
     options.filter { !it.advanced && (it.required || it.name in COMMON_OPTIONAL_FIELDS) }
         .distinctBy { it.name }
 
-private val COMMON_OPTIONAL_FIELDS = setOf("user", "pass", "vendor", "host", "port", "url")
+/**
+ * Опции, которые показываем помимо обязательных.
+ *
+ * `client_id` и `client_secret` здесь не для полноты: rclone помечает их
+ * необязательными, но у Google без своего идентификатора диск работает в
+ * десятки раз медленнее, а с 2026 года общий идентификатор отключают совсем.
+ * Раз их нельзя ввести — их нельзя и исправить в уже добавленном облаке.
+ */
+private val COMMON_OPTIONAL_FIELDS = setOf(
+    "user", "pass", "vendor", "host", "port", "url", "client_id", "client_secret",
+)
 
 /** Человекочитаемый размер: rclone отдаёт байты, показывать их пользователю бессмысленно. */
 fun formatBytes(bytes: Long, strings: Strings): String {

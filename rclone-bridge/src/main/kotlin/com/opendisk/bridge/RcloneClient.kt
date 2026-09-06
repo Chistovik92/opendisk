@@ -165,14 +165,61 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
 
     // --- Монтирование -------------------------------------------------------
 
-    suspend fun mount(remoteName: String, mountPoint: String, vfsCacheMode: String = "writes") {
+    /**
+     * Как монтировать. Раньше передавался только режим кэша, а всё остальное
+     * оставалось на умолчаниях rclone — и это оказалось заметно.
+     */
+    data class MountOptions(
+        val vfsCacheMode: String = "writes",
+        /**
+         * Показывать диск сетевым, а не обычным локальным.
+         *
+         * Только Windows. По умолчанию rclone отдаёт диск как локальный
+         * фиксированный, и Windows обходится с ним соответственно: индексирует,
+         * считает размеры папок, опрашивает свободное место при каждом открытии
+         * «Этого компьютера». Для диска, за которым сеть, это оборачивается
+         * зависанием проводника целиком.
+         *
+         * Документация rclone про это прямая: «при непонятных ошибках, зависаниях
+         * и прочих проблемах в режиме обычного диска попробуйте сетевой».
+         * Сетевые диски Windows считает медленными и ведёт себя осторожнее.
+         *
+         * Ограничение: в этом режиме монтировать можно только в букву диска,
+         * в каталог — нельзя, так устроены точки соединения Windows.
+         */
+        val networkMode: Boolean = false,
+        /** Имя тома: в сетевом режиме из него получается `\\server\<имя>`. */
+        val volumeName: String? = null,
+        /**
+         * Предел кэша на диске, байт.
+         *
+         * У rclone его нет (-1), а при режимах `writes` и `full` кэш растёт от
+         * записи и чтения. На системном разделе это рано или поздно кончается
+         * заполненным диском. Файл, который сейчас открыт, не вытесняется, так
+         * что предел не мешает работать с файлами больше него.
+         */
+        val cacheMaxSizeBytes: Long? = null,
+    )
+
+    suspend fun mount(
+        remoteName: String,
+        mountPoint: String,
+        options: MountOptions = MountOptions(),
+    ) {
         call<JsonObject>(
             "mount/mount",
             buildJsonObject {
                 // rclone ожидает имя облака с двоеточием — иначе это трактуется как путь.
                 put("fs", "$remoteName:")
                 put("mountPoint", mountPoint)
-                putJsonObject("vfsOpt") { put("CacheMode", vfsCacheMode) }
+                putJsonObject("mountOpt") {
+                    if (options.networkMode) put("NetworkMode", true)
+                    options.volumeName?.let { put("VolumeName", it) }
+                }
+                putJsonObject("vfsOpt") {
+                    put("CacheMode", options.vfsCacheMode)
+                    options.cacheMaxSizeBytes?.let { put("CacheMaxSize", it) }
+                }
             },
         )
     }

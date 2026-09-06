@@ -551,6 +551,34 @@ class Strings(private val russian: Boolean) {
     val yandexDiskWebdav = t("Яндекс.Диск по WebDAV", "Yandex Disk over WebDAV")
     val mailruCloud = t("Облако Mail.ru", "Mail.ru Cloud")
     val googleDrive = t("Google Диск", "Google Drive")
+    val googleSharedClientId = t(
+        "Работает через общий идентификатор rclone — отсюда медленные папки. " +
+            "Задайте свой в «Настройки» → «Изменить подключение».",
+        "Uses rclone's shared client ID — hence the slow folders. Set your own " +
+            "in «Settings» → «Edit connection».",
+    )
+    val fieldGoogleClientId = t("Идентификатор приложения Google", "Google client ID")
+    val fieldGoogleClientIdHelp = t(
+        "Можно оставить пустым, но диск будет работать в десятки раз медленнее.",
+        "Can be left empty, but the drive will be dozens of times slower.",
+    )
+    val fieldGoogleClientSecret = t("Секрет приложения Google", "Google client secret")
+    val fieldGoogleClientSecretHelp = t(
+        "Выдаётся вместе с идентификатором.",
+        "Issued together with the client ID.",
+    )
+    val googleClientIdHint = t(
+        "Google Диску нужен свой идентификатор приложения. Без него rclone " +
+            "работает через общий, один на всех его пользователей: Google ограничивает " +
+            "его так, что список из 65 файлов занимал 33 секунды вместо одной. " +
+            "К тому же общий идентификатор отключают в течение 2026 года. " +
+            "Как получить свой — rclone.org/drive/#making-your-own-client-id",
+        "Google Drive needs its own client ID. Without one rclone uses a shared ID " +
+            "common to all of its users; Google throttles it so heavily that listing " +
+            "65 files took 33 seconds instead of one. The shared ID is also being " +
+            "retired during 2026. How to create your own — " +
+            "rclone.org/drive/#making-your-own-client-id",
+    )
 
     val mailruPasswordHelp = t(
         "Не основной пароль от почты: его нужно создать в настройках безопасности Mail.ru",

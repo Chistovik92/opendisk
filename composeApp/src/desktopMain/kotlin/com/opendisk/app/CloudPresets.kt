@@ -111,6 +111,31 @@ fun cloudPresets(strings: Strings): List<CloudPreset> = listOf(
         fixed = mapOf(
             "auth_url" to "https://accounts.google.com/o/oauth2/auth?prompt=select_account",
         ),
+        // Свой идентификатор приложения у Google — не тонкая настройка,
+        // а необходимость, и спрашивать его надо здесь, а не прятать
+        // в «другое подключение».
+        //
+        // Без него rclone работает через общий идентификатор, один на всех
+        // пользователей rclone в мире. Google ограничивает его десятью запросами
+        // в секунду суммарно, и на живом диске это давало 33-49 секунд на список
+        // из 65 файлов — против секунды у Яндекса на 81 файле. А с 2026 года
+        // общий идентификатор отключают совсем, о чём написано в справке самого
+        // rclone: «will stop working during 2026».
+        fields = listOf(
+            PresetField(
+                key = "client_id",
+                label = strings.fieldGoogleClientId,
+                required = false,
+                help = strings.fieldGoogleClientIdHelp,
+            ),
+            PresetField(
+                key = "client_secret",
+                label = strings.fieldGoogleClientSecret,
+                required = false,
+                help = strings.fieldGoogleClientSecretHelp,
+            ),
+        ),
+        hint = strings.googleClientIdHint,
         oauth = true,
         accent = Color(0xFF43A047),
         glyph = "G",

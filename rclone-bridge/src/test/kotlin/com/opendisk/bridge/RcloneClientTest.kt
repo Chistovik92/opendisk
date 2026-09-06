@@ -115,13 +115,55 @@ class RcloneClientTest {
     fun `mount sends remote with colon and vfs cache mode`() = runBlocking {
         val client = clientRespondingWith("{}")
 
-        client.mount("gdrive", "/mnt/gdrive", vfsCacheMode = "full")
+        client.mount(
+            "gdrive",
+            "/mnt/gdrive",
+            RcloneClient.MountOptions(vfsCacheMode = "full"),
+        )
 
         val body = lastRequestBody()
         // rclone ожидает именно "gdrive:" — без двоеточия он трактует это как путь.
         assertContains(body, "\"fs\":\"gdrive:\"")
         assertContains(body, "\"mountPoint\":\"/mnt/gdrive\"")
         assertContains(body, "\"CacheMode\":\"full\"")
+    }
+
+    @Test
+    fun `network mode and volume name go into mountOpt`() = runBlocking {
+        val client = clientRespondingWith("{}")
+
+        client.mount(
+            "disk",
+            "Z:",
+            RcloneClient.MountOptions(networkMode = true, volumeName = "Яндекс"),
+        )
+
+        val body = lastRequestBody()
+        // Именно mountOpt, а не vfsOpt: rclone разбирает их разными наборами
+        // настроек, и в чужом блоке параметр молча не применится.
+        assertContains(body, "\"mountOpt\":{")
+        assertContains(body, "\"NetworkMode\":true")
+        assertContains(body, "\"VolumeName\":\"Яндекс\"")
+    }
+
+    @Test
+    fun `local disk mode sends no network flag at all`() = runBlocking {
+        val client = clientRespondingWith("{}")
+
+        client.mount("disk", "/home/user/OpenDisk/disk", RcloneClient.MountOptions())
+
+        // Не «false», а отсутствие ключа: на Linux и macOS такого понятия нет,
+        // и посылать его туда незачем.
+        assertFalse(lastRequestBody().contains("NetworkMode"))
+    }
+
+    @Test
+    fun `cache size limit is sent when set`() = runBlocking {
+        val client = clientRespondingWith("{}")
+
+        client.mount("disk", "Z:", RcloneClient.MountOptions(cacheMaxSizeBytes = 1024))
+
+        assertContains(lastRequestBody(), "\"CacheMaxSize\":1024")
     }
 
     @Test

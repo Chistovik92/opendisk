@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlin.io.path.createTempDirectory
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import kotlin.test.AfterTest
@@ -303,5 +305,108 @@ class RcloneControllerTest {
         // А букву диска создавать нельзя — она должна остаться свободной.
         RcloneController.prepareMountPoint("Z:")
         assertFalse(File("Z:").exists(), "по букве диска что-то создалось")
+    }
+
+    /**
+     * Сетевой режим — не косметика.
+     *
+     * По умолчанию rclone отдаёт диск Windows как обычный локальный, и она
+     * обходится с ним как с локальным: индексирует, опрашивает свободное место,
+     * считает размеры папок. Для диска, за которым сеть, это оборачивается
+     * зависанием проводника — что и наблюдалось на живом Google Диске.
+     */
+    @Test
+    fun `on windows a drive letter is mounted as a network drive`() {
+        val options = RcloneController.mountOptionsFor(
+            name = "Яндекс",
+            mountPoint = "Z:",
+            settings = CloudSettings(),
+            osName = "Windows 11",
+        )
+
+        assertTrue(options.networkMode)
+        assertEquals("Яндекс", options.volumeName)
+    }
+
+    @Test
+    fun `mounting into a directory stays a plain mount`() {
+        // Ограничение самой Windows: в сетевом режиме монтировать можно только
+        // в букву диска. Включить его для каталога значит сломать монтирование.
+        val options = RcloneController.mountOptionsFor(
+            name = "disk",
+            mountPoint = """C:\Users\me\OpenDisk\disk""",
+            settings = CloudSettings(),
+            osName = "Windows 11",
+        )
+
+        assertFalse(options.networkMode)
+        assertNull(options.volumeName)
+    }
+
+    @Test
+    fun `outside windows there is no network mode`() {
+        val options = RcloneController.mountOptionsFor(
+            name = "disk",
+            mountPoint = "/home/me/OpenDisk/disk",
+            settings = CloudSettings(),
+            osName = "Linux",
+        )
+
+        assertFalse(options.networkMode)
+    }
+
+    @Test
+    fun `cache always has a limit`() {
+        val options = RcloneController.mountOptionsFor(
+            name = "disk",
+            mountPoint = "Z:",
+            settings = CloudSettings(cacheMode = "full"),
+            osName = "Windows 11",
+        )
+
+        // У rclone предела нет, и кэш растёт, пока не кончится место
+        // на системном разделе.
+        assertEquals(RcloneController.CACHE_MAX_SIZE_BYTES, options.cacheMaxSizeBytes)
+        assertEquals("full", options.vfsCacheMode)
+    }
+
+    /**
+     * Google Диск на общем идентификаторе rclone.
+     *
+     * Снаружи это выглядит просто как «тормозит»: на живом диске список из
+     * 65 файлов занимал 33 секунды против секунды у Яндекса на 81 файле.
+     * Причину видно только в конфиге, поэтому о ней нужно сказать.
+     */
+    @Test
+    fun `google drive without a client id is flagged`() {
+        val config = Json.parseToJsonElement("""{"type":"drive","client_id":"","token":"..."}""")
+
+        assertTrue(RcloneController.googleWithoutClientId(config as JsonObject))
+    }
+
+    @Test
+    fun `missing key counts the same as an empty one`() {
+        // Для rclone это одно и то же — берётся встроенный идентификатор.
+        val config = Json.parseToJsonElement("""{"type":"drive","token":"..."}""")
+
+        assertTrue(RcloneController.googleWithoutClientId(config as JsonObject))
+    }
+
+    @Test
+    fun `google drive with its own client id is fine`() {
+        val config = Json.parseToJsonElement("""{"type":"drive","client_id":"12345.apps.googleusercontent.com"}""")
+
+        assertFalse(RcloneController.googleWithoutClientId(config as JsonObject))
+    }
+
+    @Test
+    fun `other backends are not about google`() {
+        // У Яндекса и WebDAV своего идентификатора не нужно, и предупреждать
+        // о нём было бы просто шумом.
+        val yandex = Json.parseToJsonElement("""{"type":"yandex","token":"..."}""")
+        val webdav = Json.parseToJsonElement("""{"type":"webdav","url":"https://example.invalid"}""")
+
+        assertFalse(RcloneController.googleWithoutClientId(yandex as JsonObject))
+        assertFalse(RcloneController.googleWithoutClientId(webdav as JsonObject))
     }
 }

@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -349,6 +350,16 @@ class RcloneController(
                 )
             }
 
+            // Google Диск без своего идентификатора приложения работает через
+            // общий, и это видно невооружённым глазом: на живом диске список
+            // из 65 файлов занимал 33 секунды против секунды у Яндекса.
+            // Проверка местная, по конфигу, в сеть не ходит.
+            names.forEach { name ->
+                val config = runCatching { api.getRemote(name) }.getOrNull() ?: return@forEach
+                val warning = googleWithoutClientId(config)
+                if (warning) updateCloud(name) { it.copy(warning = strings.googleSharedClientId) }
+            }
+
             // Место спрашиваем отдельно и по одному: запрос ходит в сеть, а часть
             // бэкендов его вовсе не поддерживает — общий список не должен от этого страдать.
             names.forEach { name ->
@@ -528,7 +539,7 @@ class RcloneController(
         updateCloud(name) { it.copy(busy = true, error = null) }
         try {
             withContext(Dispatchers.IO) { prepareMountPoint(mountPoint) }
-            api.mount(name, mountPoint, vfsCacheMode = cloudSettings.cacheMode)
+            api.mount(name, mountPoint, mountOptionsFor(name, mountPoint, cloudSettings))
             ourMounts[name] = mountPoint
             reloadClouds()
         } catch (e: RcloneRcException) {
@@ -672,6 +683,55 @@ class RcloneController(
         /** Ссылка, которую rclone печатает при запуске браузерной авторизации. */
         private val OAUTH_LINK_PATTERN = Regex("http://127\\.0\\.0\\.1:\\d+/auth\\?state=\\S+")
         private const val OAUTH_LINK_POLL_MILLIS = 400L
+
+        /**
+         * Google Диск, работающий через общий идентификатор приложения rclone.
+         *
+         * Пустое значение и отсутствие ключа для rclone одно и то же — берётся
+         * встроенный идентификатор, общий на всех его пользователей. Google
+         * ограничивает его десятью запросами в секунду суммарно, а с 2026 года
+         * отключает совсем.
+         */
+        internal fun googleWithoutClientId(config: JsonObject): Boolean {
+            val type = config["type"]?.toString()?.trim('"')
+            if (type != "drive") return false
+            val clientId = config["client_id"]?.toString()?.trim('"').orEmpty()
+            return clientId.isBlank()
+        }
+
+        /**
+         * Как монтировать конкретное облако.
+         *
+         * Сетевой режим включается на Windows и только для буквы диска: при
+         * монтировании в каталог он не работает — это ограничение точек
+         * соединения самой Windows, а не rclone.
+         */
+        internal fun mountOptionsFor(
+            name: String,
+            mountPoint: String,
+            settings: CloudSettings,
+            osName: String = System.getProperty("os.name"),
+        ): RcloneClient.MountOptions {
+            val windows = osName.lowercase().contains("win")
+            val asNetworkDrive = windows && isWindowsDriveLetter(mountPoint)
+            return RcloneClient.MountOptions(
+                vfsCacheMode = settings.cacheMode,
+                networkMode = asNetworkDrive,
+                // Имя тома — то же, что видит пользователь в списке облаков.
+                volumeName = name.takeIf { asNetworkDrive },
+                cacheMaxSizeBytes = CACHE_MAX_SIZE_BYTES,
+            )
+        }
+
+        /**
+         * Сколько отдаём кэшу на диске.
+         *
+         * Ограничение нужно само по себе: у rclone его нет, а кэш при режимах
+         * «дописывать» и «скачивать целиком» растёт. Значение с запасом — файл,
+         * с которым работают прямо сейчас, не вытесняется, поэтому предел не
+         * мешает открывать файлы крупнее него.
+         */
+        internal const val CACHE_MAX_SIZE_BYTES = 10L * 1024 * 1024 * 1024
 
         /**
          * Готовит точку монтирования.

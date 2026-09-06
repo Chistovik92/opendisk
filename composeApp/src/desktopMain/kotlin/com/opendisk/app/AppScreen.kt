@@ -321,6 +321,17 @@ private fun CloudRow(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+
+            // Не ошибка: облако работает, но плохо и по исправимой причине.
+            // Иначе о такой причине узнать неоткуда — снаружи это выглядит
+            // просто как «тормозит».
+            cloud.warning?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
