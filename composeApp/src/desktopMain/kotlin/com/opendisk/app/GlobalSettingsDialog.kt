@@ -36,6 +36,7 @@ fun GlobalSettingsDialog(
     val strings = LocalStrings.current
     var language by remember { mutableStateOf(Language.fromCode(current.language)) }
     var autostart by remember { mutableStateOf(current.autostart) }
+    var checkUpdates by remember { mutableStateOf(current.checkUpdates) }
     var unlimited by remember {
         mutableStateOf(current.bandwidthLimit == GlobalSettings.BANDWIDTH_UNLIMITED)
     }
@@ -104,6 +105,21 @@ fun GlobalSettingsDialog(
                     )
                 }
 
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Checkbox(checked = checkUpdates, onCheckedChange = { checkUpdates = it })
+                        Text(strings.checkUpdates)
+                    }
+                    Text(
+                        strings.checkUpdatesHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(strings.speedLimit, style = MaterialTheme.typography.titleSmall)
                     Row(
@@ -148,6 +164,7 @@ fun GlobalSettingsDialog(
                         GlobalSettings(
                             autostart = autostart,
                             bandwidthLimit = rate,
+                            checkUpdates = checkUpdates,
                             language = language.code,
                         ),
                     )

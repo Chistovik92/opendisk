@@ -140,6 +140,98 @@ class Strings(private val russian: Boolean) {
     val nothingToChange = t("Менять нечего", "Nothing to change")
     val saving = t("Сохраняю...", "Saving...")
 
+    // --- Обновления -----------------------------------------------------------
+
+    val checkUpdates = t("Проверять обновления", "Check for updates")
+    val checkUpdatesHint = t(
+        "При запуске приложение спросит у GitHub, не вышла ли новая версия. " +
+            "Это единственное обращение в сеть помимо самих облаков.",
+        "At startup the application asks GitHub whether a newer version exists. " +
+            "This is its only network request besides the clouds themselves.",
+    )
+    val checkNow = t("Проверить обновления", "Check for updates")
+    val updateAvailable = t("Вышла новая версия", "A new version is available")
+    fun updateVersion(version: String) = t("OpenDisk $version", "OpenDisk $version")
+    val updateInstall = t("Обновить", "Update")
+    val updateOpenPage = t("Открыть страницу выпуска", "Open the release page")
+    val updateDownloading = t("Скачиваю установщик...", "Downloading the installer...")
+    fun updateUpToDate(version: String) = t(
+        "Установлена последняя версия ($version).",
+        "You have the latest version ($version).",
+    )
+    val updateOnlyForInstalled = t(
+        "Обновляться некуда: приложение запущено из каталога сборки.",
+        "Nothing to update: the application is running from a build directory.",
+    )
+    val updateInstallerStarted = t(
+        "Установщик запущен. Он закроет OpenDisk и поставит новую версию.",
+        "The installer has started. It will close OpenDisk and install the new version.",
+    )
+    val updateNoPackage = t(
+        "Для этой системы автоматическое обновление не сделано — откройте " +
+            "страницу выпуска и поставьте пакет обычным способом.",
+        "Automatic updates are not available for this system — open the release " +
+            "page and install the package the usual way.",
+    )
+    val updateNoChecksums = t(
+        "В выпуске нет файла контрольных сумм. Скачанный установщик не с чем " +
+            "сверить, и запускать его нельзя.",
+        "The release has no checksum file. There is nothing to verify the downloaded " +
+            "installer against, so it will not be run.",
+    )
+    val updateDownloadFailed = t("Не удалось скачать установщик.", "Could not download the installer.")
+    val updateChecksumMismatch = t(
+        "Контрольная сумма скачанного файла не совпала. Файл удалён и запущен не будет.",
+        "The checksum of the downloaded file did not match. It has been deleted and will not be run.",
+    )
+    val updateLaunchFailed = t(
+        "Не удалось запустить установщик.",
+        "Could not start the installer.",
+    )
+
+    // --- Удаление приложения --------------------------------------------------
+
+    val removeApp = t("Удалить OpenDisk", "Remove OpenDisk")
+    val removeAppTitle = t("Удаление OpenDisk", "Removing OpenDisk")
+    val removeAppIntro = t(
+        "Свои файлы — настройки, служебные записи, автозапуск — приложение уберёт " +
+            "само в любом случае. Ниже то, что удаляется только по вашей просьбе.",
+        "The application always removes its own files — settings, service records, " +
+            "the startup entry. Below is what is removed only if you ask.",
+    )
+    val removeCloudConfig = t(
+        "Список облаков и доступы к ним",
+        "The list of clouds and their access tokens",
+    )
+    val removeCloudConfigHint = t(
+        "Это файл rclone с вашими подключениями. Без него при следующей установке " +
+            "придётся заново подтверждать доступ к каждому хранилищу.",
+        "This is the rclone file with your connections. Without it you will have to " +
+            "confirm access to every storage again after reinstalling.",
+    )
+    val removeWinFsp = t("Драйвер WinFsp", "The WinFsp driver")
+    val removeWinFspHint = t(
+        "Его ставил OpenDisk, но пользоваться им могут и другие программы — " +
+            "например, самостоятельно установленный rclone или sshfs-win. " +
+            "Удаление сломает их.",
+        "OpenDisk installed it, but other programs may use it too — a separately " +
+            "installed rclone or sshfs-win, for instance. Removing it will break them.",
+    )
+    val removeWinFspNotFound = t(
+        "WinFsp в системе не найден.",
+        "WinFsp is not installed.",
+    )
+    val removeProceed = t("Удалить", "Remove")
+    val removeWorking = t("Отключаю диски...", "Disconnecting drives...")
+    val removeStarted = t(
+        "Запущено удаление. Приложение сейчас закроется.",
+        "Removal has started. The application will now close.",
+    )
+    val removeNotInstalled = t(
+        "Приложение запущено из каталога сборки — удалять нечего.",
+        "The application is running from a build directory — there is nothing to remove.",
+    )
+
     fun mountFailed(name: String) =
         t("Не удалось подключить «$name»", "Could not connect «$name»")
 

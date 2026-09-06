@@ -47,6 +47,14 @@ data class GlobalSettings(
     val bandwidthLimit: String = BANDWIDTH_UNLIMITED,
     /** Язык интерфейса: auto, ru или en. */
     val language: String = Language.AUTO.code,
+    /**
+     * Проверять при запуске, не вышла ли новая версия.
+     *
+     * Отдельная настройка, потому что это единственное обращение приложения
+     * в сеть помимо самих облаков — кому-то оно не нужно, и отключить его
+     * должно быть можно.
+     */
+    val checkUpdates: Boolean = true,
 ) {
     companion object {
         const val BANDWIDTH_UNLIMITED = "off"

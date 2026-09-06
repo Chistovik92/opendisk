@@ -64,8 +64,41 @@
     <!-- Чтобы в «Программах и компонентах» был виден путь установки. -->
     <Property Id="ARPINSTALLLOCATION" Secure="yes" />
     <CustomAction Id="SetArpInstallLocation" Property="ARPINSTALLLOCATION" Value="[INSTALLDIR]" />
+
+    <!--
+      Уборка за собой при удалении.
+
+      Настройки приложения и запись автозапуска лежат в профиле пользователя,
+      а не в каталоге программы, поэтому обычным RemoveFile их не достать:
+      удаление файлов идёт от имени системы, и AppDataFolder указывал бы
+      в её профиль, а не в пользовательский.
+
+      Поэтому зовём само приложение с флагом cleanup (два дефиса перед словом;
+      написать их здесь нельзя — XML не допускает двойной дефис в комментарии).
+      Приложение знает свои пути и убирает их само.
+
+      Действие немедленное и без повышения прав, то есть
+      выполняется от имени того, кто запустил удаление: именно его файлы и
+      надо убрать.
+
+      Before="RemoveFiles" обязателен: позже исполняемого файла уже не будет.
+      Return="ignore" — если уборка почему-то не отработала, удаление всё равно
+      должно дойти до конца.
+
+      Список облаков (rclone.conf) и WinFsp здесь не трогаются: первое — данные
+      пользователя, вторым могут пользоваться другие программы. Их удаление
+      предлагается в самом приложении, где можно спросить.
+    -->
+    <CustomAction Id="CleanUserData"
+                  Directory="INSTALLDIR"
+                  ExeCommand="&quot;[INSTALLDIR]OpenDisk.exe&quot; --cleanup"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore" />
+
     <InstallExecuteSequence>
       <Custom Action="SetArpInstallLocation" After="InstallValidate">NOT Installed</Custom>
+      <Custom Action="CleanUserData" Before="RemoveFiles">REMOVE="ALL"</Custom>
     </InstallExecuteSequence>
 
     <!--

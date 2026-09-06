@@ -2,6 +2,7 @@ package com.opendisk.app
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
@@ -11,6 +12,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -23,7 +25,12 @@ import androidx.compose.ui.unit.dp
  * и скопировать, чтобы приложить к сообщению об ошибке.
  */
 @Composable
-fun AboutDialog(state: UiState, onDismiss: () -> Unit) {
+fun AboutDialog(
+    state: UiState,
+    onDismiss: () -> Unit,
+    onCheckUpdates: () -> Unit,
+    onRemoveApp: () -> Unit,
+) {
     val strings = LocalStrings.current
 
     AlertDialog(
@@ -39,9 +46,13 @@ fun AboutDialog(state: UiState, onDismiss: () -> Unit) {
                     Text(strings.aboutDescription, style = MaterialTheme.typography.bodySmall)
 
                     Section(strings.version) {
-                        Text(appVersion() ?: strings.versionUnknown)
+                        Text(AppVersion.current ?: strings.versionUnknown)
                         state.rcloneVersion?.let {
                             Text("${strings.builtOnRclone} $it")
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = onCheckUpdates) { Text(strings.checkNow) }
+                            TextButton(onClick = onRemoveApp) { Text(strings.removeApp) }
                         }
                     }
 
@@ -72,14 +83,6 @@ private fun Section(title: String, content: @Composable () -> Unit) {
         MaterialTheme.typography.bodySmall.let { content() }
     }
 }
-
-/**
- * Версию проставляет лаунчер jpackage. При запуске из исходников её нет —
- * и выдумывать номер не стоит: пусть будет честно видно, что это сборка
- * из репозитория, а не выпущенная версия.
- */
-private fun appVersion(): String? =
-    System.getProperty("jpackage.app-version")?.takeIf { it.isNotBlank() }
 
 private const val PROJECT_URL = "https://github.com/Chistovik92/opendisk"
 private const val ISSUES_URL = "https://github.com/Chistovik92/opendisk/issues"

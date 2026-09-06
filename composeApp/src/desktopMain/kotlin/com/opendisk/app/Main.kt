@@ -38,6 +38,17 @@ private val activationSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
  * завершает приложение: иначе его стало бы нечем закрыть.
  */
 fun main(args: Array<String>) {
+    // Уборка за собой при удалении. Запускается установщиком от имени
+    // пользователя — только так видны его настройки и запись автозапуска,
+    // которые лежат в профиле, а не в каталоге программы. Окно при этом
+    // не показывается и проверка единственной копии не нужна: работы на
+    // доли секунды, и делать её нужно в любом случае.
+    if (args.contains(CLEANUP_FLAG)) {
+        Cleanup.remove(Cleanup.ownFiles())
+        Cleanup.removeAutostart()
+        return
+    }
+
     // Окно прячется в трей, поэтому ярлык нажимают повторно — и без этой
     // проверки получали вторую копию приложения со своим процессом rclone.
     if (!SingleInstance.acquire { activationSignal.tryEmit(Unit) }) {
@@ -50,6 +61,9 @@ fun main(args: Array<String>) {
 
 /** Флаг запуска свёрнутым — его добавляет автозапуск. */
 const val HIDDEN_FLAG = "--hidden"
+
+/** Флаг уборки за собой — его передаёт установщик при удалении. */
+const val CLEANUP_FLAG = "--cleanup"
 
 private fun runApplication(startHidden: Boolean) = application {
     val controller = remember { RcloneController() }
@@ -112,7 +126,7 @@ private fun runApplication(startHidden: Boolean) = application {
             // Язык подаётся сверху: строки нужны и вне композиции — например,
             // контроллеру для сообщений об ошибках.
             CompositionLocalProvider(LocalStrings provides strings) {
-                AppScreen(state, controller)
+                AppScreen(state, controller, onQuit = ::quit)
             }
         }
     }

@@ -18,8 +18,12 @@ dependencies {
     // Настройки приложения хранятся своим файлом рядом с настройками ОС —
     // в rclone.conf им не место, это файл rclone.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    // Проверка обновлений ходит на GitHub своим клиентом: движок нужен здесь
+    // явно, из rclone-bridge торчит только ktor-client-core.
+    implementation("io.ktor:ktor-client-cio:2.3.12")
 
     testImplementation(kotlin("test"))
+    testImplementation("io.ktor:ktor-client-mock:2.3.12")
 }
 
 kotlin {
@@ -420,7 +424,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.1.25"
+            packageVersion = "0.2.5"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -465,7 +469,7 @@ compose.desktop {
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.0.25"
+                packageVersion = "1.2.5"
             }
         }
     }

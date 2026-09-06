@@ -47,6 +47,11 @@ class RcloneController(
      */
     private val staleCleanup: StaleRcloneCleanup =
         StaleRcloneCleanup(File(AppSettings.defaultFile().parentFile, "rcd.pid")),
+    private val updateChecker: UpdateChecker = UpdateChecker(),
+    private val updateInstaller: UpdateInstaller =
+        UpdateInstaller(UpdateChecker.defaultHttpClient()),
+    /** Куда скачивать установщик обновления. Отдельно — чтобы подменить в тестах. */
+    private val downloadDir: File = File(System.getProperty("java.io.tmpdir"), "opendisk"),
 ) {
     /**
      * Строки для сообщений об ошибках. Контроллер не композабл, поэтому берёт
@@ -161,6 +166,10 @@ class RcloneController(
             loadProviders()
             reloadClouds()
             mountMarkedClouds()
+
+            // Фоновая проверка обновлений — после того, как всё остальное
+            // поднялось: она необязательная и не должна задерживать запуск.
+            if (settings.global().checkUpdates) checkForUpdates()
         } catch (e: RcloneConfigLockedException) {
             _state.update { it.copy(session = SessionState.NeedPassword(wrongAttempt)) }
         } catch (e: RcloneRcException) {
@@ -548,8 +557,92 @@ class RcloneController(
         }
     }
 
+    // --- Обновления ---------------------------------------------------------
+
+    /**
+     * Проверяет, не вышла ли новая версия.
+     *
+     * @param manual проверка по кнопке. Фоновая проверка при запуске молчит,
+     *        если обновляться не на что или сеть недоступна: сообщать об этом
+     *        каждый раз незачем. По кнопке молчать нельзя — человек ждёт ответа.
+     */
+    fun checkForUpdates(manual: Boolean = false) {
+        val version = AppVersion.current
+        if (version == null) {
+            // Из каталога сборки обновляться некуда, и номера для сравнения нет.
+            if (manual) _state.update { it.copy(updateMessage = strings.updateOnlyForInstalled) }
+            return
+        }
+
+        scope.launch {
+            val update = updateChecker.check(version)
+            _state.update {
+                it.copy(
+                    availableUpdate = update,
+                    updateMessage = when {
+                        update != null -> null
+                        manual -> strings.updateUpToDate(version)
+                        else -> it.updateMessage
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * Скачивает и запускает установщик новой версии.
+     *
+     * Приложение при этом не закрывается само: его закроет сам установщик —
+     * ради этого в нём и есть `util:CloseApplication`. Закрыться раньше значило
+     * бы оставить пользователя без окна, если установку он отменит.
+     */
+    fun installUpdate(onFinished: () -> Unit = {}) {
+        val update = state.value.availableUpdate ?: return
+        scope.launch {
+            _state.update { it.copy(updateInProgress = true, updateMessage = null) }
+            val result = withContext(Dispatchers.IO) {
+                updateInstaller.download(update, File(downloadDir, "updates"), strings)
+            }
+            _state.update {
+                it.copy(
+                    updateInProgress = false,
+                    updateMessage = when (result) {
+                        is UpdateInstaller.Result.Started -> strings.updateInstallerStarted
+                        is UpdateInstaller.Result.Failed -> result.reason
+                    },
+                )
+            }
+            if (result is UpdateInstaller.Result.Started) onFinished()
+        }
+    }
+
+    // --- Удаление приложения ------------------------------------------------
+
+    /**
+     * Готовит приложение к удалению: отключает диски и гасит rclone.
+     *
+     * Без этого удаление упирается в занятые файлы, а смонтированные диски
+     * остаются в системе без того, кто ими управляет.
+     */
+    fun prepareForRemoval(alsoCloudConfig: Boolean, onDone: () -> Unit) {
+        scope.launch {
+            val api = client
+            state.value.clouds.filter { it.isMounted }.forEach { cloud ->
+                cloud.mountPoint?.let { point -> runCatching { api?.unmount(point) } }
+            }
+            withContext(Dispatchers.IO) {
+                runCatching { process?.stop() }
+                if (alsoCloudConfig) {
+                    Cleanup.remove(listOf(Cleanup.rcloneConfig(state.value.configFilePath)))
+                }
+            }
+            onDone()
+        }
+    }
+
     /** Останавливает rcd. Вызывается при закрытии приложения. */
     fun shutdown() {
+        runCatching { updateChecker.close() }
         runCatching { client?.close() }
         runCatching { process?.stop() }
         scope.cancel()

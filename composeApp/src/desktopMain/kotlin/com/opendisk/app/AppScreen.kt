@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.opendisk.bridge.MountSupport
 
 @Composable
-fun AppScreen(state: UiState, controller: RcloneController) {
+fun AppScreen(state: UiState, controller: RcloneController, onQuit: () -> Unit) {
     val strings = LocalStrings.current
     var addingCloud by remember { mutableStateOf(false) }
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
@@ -40,6 +40,7 @@ fun AppScreen(state: UiState, controller: RcloneController) {
     var cloudToEdit by remember { mutableStateOf<String?>(null) }
     var showingAppSettings by remember { mutableStateOf(false) }
     var showingAbout by remember { mutableStateOf(false) }
+    var removingApp by remember { mutableStateOf(false) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -88,7 +89,26 @@ fun AppScreen(state: UiState, controller: RcloneController) {
     }
 
     if (showingAbout) {
-        AboutDialog(state = state, onDismiss = { showingAbout = false })
+        AboutDialog(
+            state = state,
+            onDismiss = { showingAbout = false },
+            onCheckUpdates = {
+                showingAbout = false
+                controller.checkForUpdates(manual = true)
+            },
+            onRemoveApp = {
+                showingAbout = false
+                removingApp = true
+            },
+        )
+    }
+
+    if (removingApp) {
+        UninstallDialog(
+            controller = controller,
+            onDismiss = { removingApp = false },
+            onQuit = onQuit,
+        )
     }
 
     if (showingAppSettings) {
@@ -161,7 +181,13 @@ fun AppScreen(state: UiState, controller: RcloneController) {
 @Composable
 private fun Header(state: UiState) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text("OpenDisk", style = MaterialTheme.typography.headlineSmall)
+        // Версия прямо в заголовке: по скриншоту от пользователя должно быть
+        // сразу видно, что у него стоит. Раньше это выяснялось только через
+        // «О приложении» или реестр.
+        Text(
+            AppVersion.current?.let { "OpenDisk $it" } ?: "OpenDisk",
+            style = MaterialTheme.typography.headlineSmall,
+        )
         Text(
             listOf(state.rcloneDescription, state.configDescription)
                 .filter { it.isNotEmpty() }
@@ -203,6 +229,14 @@ private fun ReadyContent(
             onInstall = controller::installMountDriver,
         )
     }
+    state.availableUpdate?.let { update ->
+        UpdateBanner(
+            update = update,
+            downloading = state.updateInProgress,
+            onInstall = { controller.installUpdate() },
+        )
+    }
+    state.updateMessage?.let { Banner(it) }
     state.globalError?.let { Banner(strings.errorPrefix(it)) }
 
     Divider()
@@ -364,6 +398,55 @@ private fun Banner(text: String) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Text(text, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
     }
+}
+
+/**
+ * Сообщение о новой версии.
+ *
+ * Автоматически ничего не скачивается и не ставится: обновление меняет
+ * программу на компьютере, и запускать это без нажатия неправильно. Кнопка
+ * есть только там, где обновление можно поставить целиком — то есть на
+ * Windows; иначе предлагается открыть страницу выпуска.
+ */
+@Composable
+private fun UpdateBanner(
+    update: UpdateChecker.Update,
+    downloading: Boolean,
+    onInstall: () -> Unit,
+) {
+    val strings = LocalStrings.current
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(strings.updateAvailable, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    strings.updateVersion(update.version),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (downloading) {
+                CircularProgressIndicator(modifier = Modifier.width(24.dp))
+                Text(strings.updateDownloading, style = MaterialTheme.typography.bodySmall)
+            } else if (update.assetUrl != null) {
+                Button(onClick = onInstall) { Text(strings.updateInstall) }
+            } else {
+                OutlinedButton(onClick = { openInBrowser(update.pageUrl) }) {
+                    Text(strings.updateOpenPage)
+                }
+            }
+        }
+    }
+}
+
+/** Открывает ссылку в браузере по умолчанию. Ошибку глотаем: не критично. */
+private fun openInBrowser(url: String) {
+    runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) }
 }
 
 @Composable

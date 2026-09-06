@@ -76,6 +76,16 @@ data class UiState(
     /** Пути к файлам, которые спрашивают первым делом при разборе проблем. */
     val configFilePath: String = "",
     val settingsFilePath: String = "",
+    /** Найденное обновление; null — проверки не было или обновляться не на что. */
+    val availableUpdate: UpdateChecker.Update? = null,
+    /** Идёт скачивание установщика новой версии. */
+    val updateInProgress: Boolean = false,
+    /**
+     * Итог последней проверки или установки обновления. Показывается только
+     * в ответ на явную просьбу проверить: фоновая проверка молчит, если
+     * обновления нет или сеть недоступна.
+     */
+    val updateMessage: String? = null,
 ) {
     val mountAvailable: Boolean get() = mount is MountSupport.Status.Available
 }
