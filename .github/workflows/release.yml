@@ -273,8 +273,19 @@ jobs:
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME}"
-          gh release view "$tag" >/dev/null 2>&1 || \
-            gh release create "$tag" --title "OpenDisk $tag" --prerelease --notes "Сборка $tag"
+          # Три сборки идут одновременно и все три доходят сюда. Проверки
+          # «есть ли релиз» мало: между проверкой и созданием его успевает
+          # создать соседняя сборка, и `gh release create` отвечает
+          # «Release.tag_name already exists» — так на 0.3.0 потерялся dmg,
+          # потому что сборка macOS упала до выкладывания.
+          #
+          # Поэтому чужое создание считаем удачей: релиз есть, а кто его
+          # создал — неважно.
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "OpenDisk $tag" --prerelease --notes "Сборка $tag" ||
+              gh release view "$tag" >/dev/null 2>&1 ||
+              { echo "релиз $tag не создан и не найден" >&2; exit 1; }
+          fi
           # Каталоги перечислены поимённо и с maxdepth, а не одним деревом:
           # внутри образа приложения лежит встроенный winfsp.msi, и поиск по
           # всему дереву утащил бы его в релиз отдельным файлом — так и вышло
