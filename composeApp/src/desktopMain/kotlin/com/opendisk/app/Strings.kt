@@ -594,12 +594,14 @@ class Strings(private val russian: Boolean) {
             "работает через общий, один на всех его пользователей: Google ограничивает " +
             "его так, что список из 65 файлов занимал 33 секунды вместо одной. " +
             "К тому же общий идентификатор отключают в течение 2026 года. " +
-            "Как получить свой — rclone.org/drive/#making-your-own-client-id",
+            "Пошаговая инструкция, включая обязательный шаг «добавить себя " +
+            "в тестировщики»: chistovik92.github.io/opendisk/USAGE.html",
         "Google Drive needs its own client ID. Without one rclone uses a shared ID " +
             "common to all of its users; Google throttles it so heavily that listing " +
             "65 files took 33 seconds instead of one. The shared ID is also being " +
-            "retired during 2026. How to create your own — " +
-            "rclone.org/drive/#making-your-own-client-id",
+            "retired during 2026. Step-by-step instructions, including the mandatory " +
+            "«add yourself as a test user» step: " +
+            "chistovik92.github.io/opendisk/USAGE.html",
     )
 
     val mailruPasswordHelp = t(

@@ -147,6 +147,35 @@ jobs:
             sed -i '/^xdg-desktop-menu /s#$# || true#' "$work/DEBIAN/$script"
           done
 
+          # При обновлении останавливаем работающую копию. Без этого она
+          # продолжает работать со старым кодом: в Linux файлы заменяются
+          # и под запущенным процессом, поэтому с точки зрения пользователя
+          # обновление просто не происходит.
+          #
+          # Именно preinst новой версии: dpkg вызывает его до распаковки,
+          # то есть исправление действует уже при обновлении на эту версию,
+          # а не начиная со следующей.
+          cat > "$work/DEBIAN/preinst" <<'PREINST'
+          #!/bin/sh
+          set -e
+          if [ "$1" = upgrade ]; then
+              # Сначала по-хорошему: по TERM приложение успевает отключить
+              # диски и погасить свой rclone.
+              pkill -TERM -f "^/opt/opendisk/bin/OpenDisk" 2>/dev/null || true
+              i=0
+              while [ $i -lt 15 ] && pgrep -f "^/opt/opendisk/bin/OpenDisk" >/dev/null 2>&1; do
+                  sleep 1
+                  i=$((i + 1))
+              done
+              pkill -KILL -f "^/opt/opendisk/bin/OpenDisk" 2>/dev/null || true
+              # Дочерний rclone мог пережить родителя и держать диски.
+              pkill -TERM -f "^/opt/opendisk/lib/app/resources/rclone" 2>/dev/null || true
+          fi
+          exit 0
+          PREINST
+          sed -i 's/^          //' "$work/DEBIAN/preinst"
+          chmod 755 "$work/DEBIAN/preinst"
+
           dpkg-deb -b "$work" "$deb"
           rm -rf "$work"
 
@@ -158,6 +187,17 @@ jobs:
           # Пакет обязан быть исполняемым — иначе смысла в починке нет.
           dpkg-deb -c "$deb" | grep '/opt/opendisk/lib/app/resources/rclone$' | grep -q '^-rwx' ||
             { echo 'rclone так и не стал исполняемым' >&2; exit 1; }
+          dpkg-deb -I "$deb" preinst | grep -q 'pkill -TERM' ||
+            { echo 'deb не останавливает приложение при обновлении' >&2; exit 1; }
+
+      # Тот же набор проблем есть и у rpm, причём про права на rclone мы там
+      # не знали вовсе: пакет всё это время ставил его неисполняемым.
+      # Починка вынесена скриптом, чтобы её можно было прогнать вручную.
+      - name: Починить содержимое rpm
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          rpm=$(ls composeApp/build/compose/binaries/main/rpm/*.rpm)
+          sh scripts/repack-rpm.sh "$rpm"
 
       # AppImage jpackage не умеет, а формат для Linux привычный: один файл,
       # запускается без установки и без прав администратора.
