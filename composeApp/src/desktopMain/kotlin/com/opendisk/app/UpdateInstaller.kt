@@ -109,8 +109,9 @@ class UpdateInstaller(private val httpClient: HttpClient) {
          * на этом уже спотыкались и установка WinFsp, и автозапуск.
          */
         internal fun launchInstaller(installer: File): Boolean = runCatching {
+            val script = installScript(installer.absolutePath, Autostart.launcherPath())
             val encoded = Base64.getEncoder()
-                .encodeToString(installScript(installer.absolutePath).toByteArray(Charsets.UTF_16LE))
+                .encodeToString(script.toByteArray(Charsets.UTF_16LE))
             ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
                 .start()
                 // Ждём только запуск: сам msiexec закроет приложение и будет
@@ -118,9 +119,26 @@ class UpdateInstaller(private val httpClient: HttpClient) {
                 .waitFor(LAUNCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         }.getOrDefault(false)
 
-        internal fun installScript(absolutePath: String): String {
+        /**
+         * Ставит обновление и запускает новую версию.
+         *
+         * Запуск нужен именно здесь. Галка «Запустить OpenDisk» живёт на
+         * последней странице установщика, а обновление изнутри приложения идёт
+         * в сокращённом режиме (`/qb`), где этой страницы нет. Установщик при
+         * этом сам закрывает работающую копию — без явного запуска приложение
+         * после обновления просто исчезло бы с экрана.
+         *
+         * `-Wait` относится к msiexec, а не к нам: запускающий PowerShell прав
+         * администратора не получает, поэтому и приложение стартует от имени
+         * пользователя, а не системы.
+         */
+        internal fun installScript(absolutePath: String, launcher: String? = null): String {
             val path = absolutePath.replace("'", "''")
-            return "Start-Process msiexec -ArgumentList @('/i', '\"$path\"', '/qb') -Verb RunAs"
+            val install =
+                "Start-Process msiexec -ArgumentList @('/i', '\"$path\"', '/qb') -Verb RunAs -Wait"
+            if (launcher == null) return install
+            val app = launcher.replace("'", "''")
+            return "$install\nif (Test-Path '$app') { Start-Process '$app' }"
         }
 
         private const val SHA256_HEX_LENGTH = 64

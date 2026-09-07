@@ -83,6 +83,21 @@ if [ "$1" -ge 2 ]; then
     # Обновление. Останавливаем работающую копию, иначе она продолжит работать
     # со старым кодом: в Linux файлы заменяются и под запущенным процессом.
     #
+    # Перед этим запоминаем, чья это была копия и в каком сеансе она жила, —
+    # чтобы вернуть её после обновления. Раз уж мы её закрываем, оставлять
+    # человека без приложения нельзя: он не просил его выключать.
+    #
+    # Окружение берём у самого процесса: без адреса дисплея и шины сеанса
+    # окно попросту не откроется.
+    rm -f /run/opendisk-restart.user /run/opendisk-restart.env
+    for pid in $(pgrep -f "^/opt/opendisk/bin/OpenDisk" 2>/dev/null); do
+        stat -c %U "/proc/$pid" > /run/opendisk-restart.user 2>/dev/null || continue
+        tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null |
+            grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR)=' \
+            > /run/opendisk-restart.env 2>/dev/null || true
+        break
+    done
+
     # Сначала по-хорошему: по TERM приложение успевает отключить диски и
     # погасить свой rclone.
     pkill -TERM -f "^/opt/opendisk/bin/OpenDisk" 2>/dev/null || true
@@ -106,6 +121,29 @@ fi
 # пакетах. %posttrans выполняется последним во всей операции, после всех
 # %preun, поэтому созданное здесь переживает удаление старой версии.
 xdg-desktop-menu install /opt/opendisk/lib/opendisk-OpenDisk.desktop || true
+
+# Возвращаем приложение, если это мы его закрыли ради обновления.
+#
+# Именно здесь: %posttrans выполняется последним, когда новые файлы уже на
+# месте. Запускаем от имени того же пользователя и в том же сеансе, иначе
+# окно открыть негде.
+#
+# По-хорошему, а не наверняка: рабочих сред много, и в какой-то запуск может
+# не получиться. Тогда человек откроет приложение сам — это неприятно, но
+# не сломано.
+if [ -s /run/opendisk-restart.user ]; then
+    od_user=$(cat /run/opendisk-restart.user)
+    {
+        echo '#!/bin/sh'
+        echo 'set -a'
+        echo '[ -f /run/opendisk-restart.env ] && . /run/opendisk-restart.env'
+        echo 'set +a'
+        echo 'nohup /opt/opendisk/bin/OpenDisk >/dev/null 2>&1 &'
+    } > /run/opendisk-restart.sh
+    chmod 755 /run/opendisk-restart.sh
+    su "$od_user" -c /run/opendisk-restart.sh >/dev/null 2>&1 || true
+    rm -f /run/opendisk-restart.user /run/opendisk-restart.env /run/opendisk-restart.sh
+fi
 
 %preun
 # Только при настоящем удалении. При обновлении этот сценарий выполняется уже
