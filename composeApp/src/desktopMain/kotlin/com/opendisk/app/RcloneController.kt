@@ -451,11 +451,19 @@ class RcloneController(
         scope.launch {
             try {
                 // Обрезка та же и по той же причине, что и при добавлении.
+                //
+                // Пустые значения здесь, в отличие от добавления, не
+                // отбрасываются: `config/update` с пустым значением стирает
+                // ключ — проверено на живом rcd, — а стирать бывает нужно.
+                // Скажем, у Google Диска удалили учётные данные в консоли:
+                // пока их идентификатор остаётся в облаке, авторизация отвечает
+                // «401: deleted_client», и починить это можно только очистив
+                // поле. Отсеивать пустые пароли — забота диалога: их текущее
+                // значение не показывается, и там пустота значит «не менять».
                 val prepared = parameters
                     .mapValues { (_, value) -> value.trim() }
-                    .filterValues { it.isNotEmpty() }
                     .mapValues { (key, value) ->
-                        if (key in secretKeys) api.obscure(value) else value
+                        if (key in secretKeys && value.isNotEmpty()) api.obscure(value) else value
                     }
                 if (prepared.isNotEmpty()) {
                     api.updateRemote(name, prepared)

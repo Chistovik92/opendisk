@@ -565,8 +565,24 @@ class Strings(private val russian: Boolean) {
     )
     val fieldGoogleClientId = t("Идентификатор приложения Google", "Google client ID")
     val fieldGoogleClientIdHelp = t(
-        "Можно оставить пустым, но диск будет работать в десятки раз медленнее.",
-        "Can be left empty, but the drive will be dozens of times slower.",
+        "Можно оставить пустым, но диск будет работать в десятки раз медленнее. " +
+            "Создав свой, не забудьте добавить себя в тестировщики — иначе Google " +
+            "ответит «403: access_denied».",
+        "Can be left empty, but the drive will be dozens of times slower. " +
+            "If you create your own, remember to add yourself as a test user — " +
+            "otherwise Google answers «403: access_denied».",
+    )
+    val editGoogleClientIdHelp = t(
+        "Пустое поле — вернуться на встроенный идентификатор rclone. Это медленно, " +
+            "но работает; так же чинится «401: deleted_client», если учётные данные " +
+            "удалили в консоли Google.",
+        "An empty field returns to rclone's built-in client ID: slow but working. " +
+            "This also fixes «401: deleted_client» when the credentials were deleted " +
+            "in the Google console.",
+    )
+    val editGoogleClientSecretHelp = t(
+        "Очищайте вместе с идентификатором — по отдельности они не работают.",
+        "Clear it together with the client ID — they do not work separately.",
     )
     val fieldGoogleClientSecret = t("Секрет приложения Google", "Google client secret")
     val fieldGoogleClientSecretHelp = t(

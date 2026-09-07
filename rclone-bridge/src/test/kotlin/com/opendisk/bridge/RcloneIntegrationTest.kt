@@ -146,4 +146,33 @@ class RcloneIntegrationTest {
             }
         }
     }
+
+    /**
+     * Стирание значения через `config/update`.
+     *
+     * Проверка против настоящего rclone, потому что на этом держится
+     * починка вполне конкретной поломки: если у Google Диска удалить учётные
+     * данные в консоли, авторизация отвечает «401: deleted_client», и вернуть
+     * облако к жизни можно только очистив идентификатор. Мок бы подтвердил,
+     * что мы отправили пустую строку, но не то, что rclone её так и понял.
+     */
+    @Test
+    fun `empty value clears the key, it is not ignored`() {
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
+
+        val (_, client) = startRcd(plainConfig(""))
+
+        runBlocking {
+            client.createRemote(
+                "probe",
+                "webdav",
+                mapOf("url" to "https://example.invalid", "user" to "vasya"),
+            )
+            assertEquals("\"vasya\"", client.getRemote("probe")["user"].toString())
+
+            client.updateRemote("probe", mapOf("user" to ""))
+
+            assertEquals("\"\"", client.getRemote("probe")["user"].toString())
+        }
+    }
 }

@@ -68,9 +68,23 @@ fun EditCloudDialog(
     }
     val options = provider?.formOptions().orEmpty()
 
-    // Отправляем только непустые поля: пустое означает «не трогать», а не
-    // «стереть». Пустой ключ в config/update затёр бы настоящее значение.
-    val changed = values.filterValues { it.isNotBlank() }
+    /**
+     * Что отправлять в rclone.
+     *
+     * Отправляем всё, к чему пользователь притронулся, — включая опустошённые
+     * поля. Стереть значение бывает нужно: например, у Google Диска удалили
+     * учётные данные в консоли, и пока в облаке остаётся их идентификатор,
+     * авторизация отвечает «401: deleted_client». Выход один — очистить поле
+     * и вернуться на встроенный идентификатор rclone. Раньше это было
+     * невозможно: пустые поля отбрасывались, и «Сохранить» не делало ничего.
+     *
+     * Исключение — пароли. Их текущее значение мы не показываем, поэтому
+     * пустое поле там означает «не менять», а не «стереть»: иначе сохранение
+     * любой другой правки затирало бы пароль.
+     */
+    val changed = values.filterNot { (key, value) ->
+        value.isBlank() && options.firstOrNull { it.name == key }?.isPassword == true
+    }
     val canSave = loaded != null && changed.isNotEmpty() && !busy
 
     AlertDialog(
@@ -120,10 +134,16 @@ fun EditCloudDialog(
                             },
                             supportingText = {
                                 Text(
-                                    if (option.isPassword) {
-                                        strings.leaveEmptyToKeep
-                                    } else {
-                                        option.shortHelp
+                                    when {
+                                        option.isPassword -> strings.leaveEmptyToKeep
+                                        // Для полей Google своя подсказка: у rclone
+                                        // там сухое «Google Application Client Id»,
+                                        // из которого не понять ни что вводить,
+                                        // ни что делать с пустым полем.
+                                        option.name == "client_id" -> strings.editGoogleClientIdHelp
+                                        option.name == "client_secret" ->
+                                            strings.editGoogleClientSecretHelp
+                                        else -> option.shortHelp
                                     },
                                 )
                             },
