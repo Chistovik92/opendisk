@@ -63,6 +63,8 @@ fun AddCloudWizard(
     existingNames: Set<String>,
     oauthUrl: String?,
     onDismiss: () -> Unit,
+    /** Отмена ожидания браузера: страница сервиса могла закончиться ошибкой. */
+    onCancel: () -> Unit,
     onCreate: (
         name: String,
         type: String,
@@ -87,6 +89,7 @@ fun AddCloudWizard(
             oauthUrl = oauthUrl,
             onBack = { step = WizardStep.PickService },
             onDismiss = onDismiss,
+            onCancel = onCancel,
             onCreate = onCreate,
         )
 
@@ -182,6 +185,7 @@ private fun PresetFormDialog(
     oauthUrl: String?,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
+    onCancel: () -> Unit,
     onCreate: (String, String, Map<String, String>, Set<String>, (String?) -> Unit) -> Unit,
 ) {
     val strings = LocalStrings.current
@@ -192,7 +196,11 @@ private fun PresetFormDialog(
 
     val nameTaken = name in existingNames
     val missing = preset.fields.any { it.required && values[it.key].isNullOrBlank() }
-    val canSubmit = name.isNotBlank() && !nameTaken && !missing && !busy
+    // Проверяем до похода в браузер: иначе неверный идентификатор выясняется
+    // только на странице Google, а окно остаётся ждать подтверждения, которого
+    // уже не будет.
+    val badClientId = !looksLikeGoogleClientId(values["client_id"].orEmpty())
+    val canSubmit = name.isNotBlank() && !nameTaken && !missing && !badClientId && !busy
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
@@ -220,17 +228,25 @@ private fun PresetFormDialog(
                     )
 
                     preset.fields.forEach { field ->
+                        val wrongShape = field.key == "client_id" && badClientId
                         OutlinedTextField(
                             value = values[field.key].orEmpty(),
                             onValueChange = { values = values + (field.key to it) },
                             label = { Text(field.label + if (field.required) " *" else "") },
                             singleLine = true,
+                            isError = wrongShape,
                             visualTransformation = if (field.isPassword) {
                                 PasswordVisualTransformation()
                             } else {
                                 VisualTransformation.None
                             },
-                            supportingText = { field.help?.let { Text(it) } },
+                            supportingText = {
+                                if (wrongShape) {
+                                    Text(strings.googleClientIdWrongShape)
+                                } else {
+                                    field.help?.let { Text(it) }
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -287,7 +303,18 @@ private fun PresetFormDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onBack, enabled = !busy) { Text(strings.back) }
+            // Пока идёт ожидание браузера, кнопка становится отменой.
+            //
+            // Раньше здесь было просто «Назад» в отключённом виде, и если на
+            // странице сервиса что-то шло не так — например, Google отвечал
+            // «ошибка 401: invalid_client», — окно оставалось ждать
+            // подтверждения, которого уже не будет. Выйти можно было только
+            // по таймауту в десять минут.
+            if (busy) {
+                TextButton(onClick = onCancel) { Text(strings.cancel) }
+            } else {
+                TextButton(onClick = onBack) { Text(strings.back) }
+            }
         },
     )
 }

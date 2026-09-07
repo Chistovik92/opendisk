@@ -79,6 +79,7 @@ fun AppScreen(state: UiState, controller: RcloneController, onQuit: () -> Unit) 
             existingNames = state.clouds.map { it.name }.toSet(),
             oauthUrl = state.oauthUrl,
             onDismiss = { addingCloud = false },
+            onCancel = { controller.cancelAddCloud() },
             onCreate = { name, type, parameters, secrets, onResult ->
                 controller.addCloud(name, type, parameters, secrets) { error ->
                     if (error == null) addingCloud = false

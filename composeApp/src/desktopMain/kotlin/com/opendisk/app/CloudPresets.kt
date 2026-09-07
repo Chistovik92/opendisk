@@ -45,6 +45,28 @@ data class CloudPreset(
 val CloudPreset.asksWhichAccount: Boolean
     get() = oauth && "auth_url" in fixed
 
+/**
+ * Похоже ли значение на идентификатор приложения Google.
+ *
+ * Проверка нужна до того, как открывать браузер. Иначе неверное значение
+ * выясняется только на странице Google — она отвечает «Доступ заблокирован,
+ * ошибка 401: invalid_client, The OAuth client was not found», а приложение
+ * при этом остаётся ждать подтверждения, которого уже не будет.
+ *
+ * Пустое значение допустимо: это означает «взять встроенный идентификатор
+ * rclone» — медленный, но рабочий.
+ *
+ * Google выдаёт идентификаторы вида `202264815644.apps.googleusercontent.com`;
+ * окончание одинаковое у всех, по нему и отличаем от опечатки, номера проекта
+ * или случайно вставленного секрета.
+ */
+fun looksLikeGoogleClientId(value: String): Boolean {
+    val trimmed = value.trim()
+    return trimmed.isEmpty() || trimmed.endsWith(GOOGLE_CLIENT_ID_SUFFIX)
+}
+
+const val GOOGLE_CLIENT_ID_SUFFIX = ".apps.googleusercontent.com"
+
 data class PresetField(
     val key: String,
     val label: String,

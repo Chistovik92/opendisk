@@ -9,6 +9,7 @@ import com.opendisk.bridge.RcloneRcException
 import com.opendisk.bridge.StaleRcloneCleanup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
@@ -383,14 +384,19 @@ class RcloneController(
         onDone: (String?) -> Unit,
     ) {
         val api = client ?: return
-        scope.launch {
+        addCloudJob = scope.launch {
             // Для OAuth-облаков rclone держит запрос открытым, пока пользователь
             // подтверждает доступ, и печатает ссылку в свой вывод. Подхватываем
             // её, чтобы показать, если браузер не открылся сам.
             val linkWatcher = launch { watchForOauthLink() }
             try {
+                // Пробелы по краям обрезаем обязательно. Идентификаторы и ключи
+                // вставляют из браузера, а оттуда они приезжают то с пробелом,
+                // то с переводом строки — и сервис отвечает так, будто значение
+                // неверное. Разглядеть невидимый символ в поле нельзя.
                 val prepared = parameters.mapValues { (key, value) ->
-                    if (key in secretKeys && value.isNotEmpty()) api.obscure(value) else value
+                    val trimmed = value.trim()
+                    if (key in secretKeys && trimmed.isNotEmpty()) api.obscure(trimmed) else trimmed
                 }
                 api.createRemote(name, type, prepared.filterValues { it.isNotEmpty() })
                 reloadClouds()
@@ -444,7 +450,9 @@ class RcloneController(
         val api = client ?: return
         scope.launch {
             try {
+                // Обрезка та же и по той же причине, что и при добавлении.
                 val prepared = parameters
+                    .mapValues { (_, value) -> value.trim() }
                     .filterValues { it.isNotEmpty() }
                     .mapValues { (key, value) ->
                         if (key in secretKeys) api.obscure(value) else value
@@ -458,6 +466,24 @@ class RcloneController(
                 onDone((e as? RcloneRcException)?.rcloneError ?: e.message ?: strings.saveFailed)
             }
         }
+    }
+
+    /**
+     * Незавершённое добавление облака.
+     *
+     * Держим ссылку ради отмены: при браузерной авторизации запрос висит,
+     * пока пользователь не подтвердит доступ. Если на странице сервиса вышла
+     * ошибка — а Google, например, отвечает «401: invalid_client», — ждать
+     * больше нечего, и человек должен иметь возможность выйти сразу, а не
+     * через таймаут в десять минут.
+     */
+    private var addCloudJob: Job? = null
+
+    /** Прекращает ожидание подтверждения в браузере. */
+    fun cancelAddCloud() {
+        addCloudJob?.cancel()
+        addCloudJob = null
+        _state.update { it.copy(oauthUrl = null) }
     }
 
     /** Ищет в выводе rcd ссылку подтверждения доступа, пока идёт создание облака. */

@@ -557,6 +557,12 @@ class Strings(private val russian: Boolean) {
         "Uses rclone's shared client ID — hence the slow folders. Set your own " +
             "in «Settings» → «Edit connection».",
     )
+    val googleClientIdWrongShape = t(
+        "Не похоже на идентификатор Google: он оканчивается на " +
+            ".apps.googleusercontent.com. Если своего нет — оставьте поле пустым.",
+        "This does not look like a Google client ID: they end with " +
+            ".apps.googleusercontent.com. If you do not have one, leave the field empty.",
+    )
     val fieldGoogleClientId = t("Идентификатор приложения Google", "Google client ID")
     val fieldGoogleClientIdHelp = t(
         "Можно оставить пустым, но диск будет работать в десятки раз медленнее.",
