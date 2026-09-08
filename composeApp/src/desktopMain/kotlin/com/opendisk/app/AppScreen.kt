@@ -252,6 +252,11 @@ private fun ReadyContent(
                     mountAvailable = state.mountAvailable,
                     cacheMode = state.settings[cloud.name]?.cacheMode
                         ?: CloudSettings.DEFAULT_CACHE_MODE,
+                    asNetworkDrive = RcloneController.mountOptionsFor(
+                        name = cloud.name,
+                        mountPoint = cloud.mountPoint.orEmpty(),
+                        settings = state.settings[cloud.name] ?: CloudSettings(),
+                    ).networkMode,
                     onMount = { controller.mount(cloud.name) },
                     onUnmount = { controller.unmount(cloud.name) },
                     onRename = { onRequestRename(cloud.name) },
@@ -268,6 +273,7 @@ private fun CloudRow(
     cloud: CloudUi,
     mountAvailable: Boolean,
     cacheMode: String,
+    asNetworkDrive: Boolean,
     onMount: () -> Unit,
     onUnmount: () -> Unit,
     onRename: () -> Unit,
@@ -289,7 +295,7 @@ private fun CloudRow(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(cloud.name, style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = cloudStatusLine(cloud, cacheMode, strings),
+                        text = cloudStatusLine(cloud, cacheMode, strings, asNetworkDrive),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -337,8 +343,21 @@ private fun CloudRow(
     }
 }
 
-private fun cloudStatusLine(cloud: CloudUi, cacheMode: String, strings: Strings): String {
-    val status = cloud.mountPoint?.let { strings.connectedTo(it) } ?: strings.notConnected
+private fun cloudStatusLine(
+    cloud: CloudUi,
+    cacheMode: String,
+    strings: Strings,
+    asNetworkDrive: Boolean = false,
+): String {
+    // Про сетевой диск говорим прямо в строке состояния.
+    //
+    // Иначе получается так: приложение пишет «подключено к F:», а человек
+    // открывает «Этот компьютер», среди дисков ничего не находит и решает,
+    // что диск не смонтировался. На деле сетевые диски Windows показывает
+    // отдельным разделом, ниже обычных.
+    val status = cloud.mountPoint?.let {
+        if (asNetworkDrive) strings.connectedToNetwork(it) else strings.connectedTo(it)
+    } ?: strings.notConnected
     val space = cloud.about?.describe(strings)
     // Режим кэширования показываем прямо в строке: это то, чем облака между
     // собой отличаются на практике, и лезть в настройки ради проверки неудобно.

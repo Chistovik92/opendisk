@@ -325,7 +325,9 @@ class RcloneControllerTest {
         )
 
         assertTrue(options.networkMode)
-        assertEquals("Яндекс", options.volumeName)
+        // Полный UNC-путь: rclone берёт его как есть, а к простому имени
+        // приписывает свою заглушку «\\server».
+        assertEquals("\\\\OpenDisk\\Яндекс", options.volumeName)
     }
 
     @Test
@@ -408,5 +410,45 @@ class RcloneControllerTest {
 
         assertFalse(RcloneController.googleWithoutClientId(yandex as JsonObject))
         assertFalse(RcloneController.googleWithoutClientId(webdav as JsonObject))
+    }
+
+    /**
+     * Имя тома задаётся полным UNC-путём.
+     *
+     * rclone берёт такой путь как есть, а к простому имени приписывает свою
+     * заглушку — и в проводнике диск подписывался «yandex (\server)».
+     * Понять по такой подписи, чей это диск, невозможно.
+     */
+    @Test
+    fun `network drive is named after the application`() {
+        val options = RcloneController.mountOptionsFor(
+            name = "yandex",
+            mountPoint = "F:",
+            settings = CloudSettings(),
+            osName = "Windows 11",
+        )
+
+        assertEquals("\\\\OpenDisk\\yandex", options.volumeName)
+    }
+
+    /**
+     * Сетевой режим можно выключить.
+     *
+     * В 0.2.6 он появился ради того, чтобы медленное облако не подвешивало
+     * проводник, но заодно перенёс диск в раздел «Сетевые расположения» —
+     * и кто привык искать его среди дисков, там его не находил. Выбор должен
+     * оставаться за пользователем.
+     */
+    @Test
+    fun `user can ask for a plain local drive`() {
+        val options = RcloneController.mountOptionsFor(
+            name = "yandex",
+            mountPoint = "F:",
+            settings = CloudSettings(showAsLocalDrive = true),
+            osName = "Windows 11",
+        )
+
+        assertFalse(options.networkMode)
+        assertNull(options.volumeName)
     }
 }

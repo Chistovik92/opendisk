@@ -53,6 +53,7 @@ fun CloudSettingsDialog(
     var cacheMode by remember { mutableStateOf(current.cacheMode) }
     var mountPoint by remember { mutableStateOf(current.mountPoint.orEmpty()) }
     var mountOnStartup by remember { mutableStateOf(current.mountOnStartup) }
+    var showAsLocalDrive by remember { mutableStateOf(current.showAsLocalDrive) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -93,6 +94,27 @@ fun CloudSettingsDialog(
                     Text(strings.mountOnStartup)
                 }
 
+                // Только Windows: на Linux и macOS такого разделения нет.
+                if (System.getProperty("os.name").lowercase().contains("win")) {
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Checkbox(
+                                checked = showAsLocalDrive,
+                                onCheckedChange = { showAsLocalDrive = it },
+                            )
+                            Text(strings.showAsLocalDrive)
+                        }
+                        Text(
+                            strings.showAsLocalDriveHint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
                 if (isMounted) {
                     Text(
                         strings.settingsApplyOnReconnect,
@@ -117,6 +139,7 @@ fun CloudSettingsDialog(
                             cacheMode = cacheMode,
                             mountPoint = mountPoint.trim().takeIf { it.isNotEmpty() },
                             mountOnStartup = mountOnStartup,
+                            showAsLocalDrive = showAsLocalDrive,
                         ),
                     )
                 },

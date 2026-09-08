@@ -61,6 +61,16 @@ class Strings(private val russian: Boolean) {
     fun connectedTo(mountPoint: String) =
         t("подключено к $mountPoint", "connected at $mountPoint")
 
+    /**
+     * Отдельная строка для сетевого диска — без неё человек открывает
+     * «Этот компьютер», не находит диск среди обычных и решает, что тот
+     * не смонтировался. Windows показывает сетевые диски отдельным разделом.
+     */
+    fun connectedToNetwork(mountPoint: String) = t(
+        "подключено к $mountPoint — в разделе «Сетевые расположения»",
+        "connected at $mountPoint — under «Network locations»",
+    )
+
     fun cacheLabel(mode: String) = t("кэш: $mode", "cache: $mode")
 
     fun errorPrefix(message: String) = t("Ошибка: $message", "Error: $message")
@@ -436,6 +446,20 @@ class Strings(private val russian: Boolean) {
             "как автоподключаемые.",
         "The application starts minimised to the tray and connects the clouds marked " +
             "for automatic connection.",
+    )
+    val showAsLocalDrive = t(
+        "Показывать обычным диском, а не сетевым",
+        "Show as a local drive rather than a network one",
+    )
+    val showAsLocalDriveHint = t(
+        "Обычный диск виден среди C: и D:, но Windows начинает его индексировать " +
+            "и опрашивать при каждом открытии «Этого компьютера» — с медленным " +
+            "облаком это подвешивает проводник. Сетевой такого не вызывает, " +
+            "но лежит ниже, в разделе «Сетевые расположения».",
+        "A local drive sits next to C: and D:, but Windows starts indexing it and " +
+            "polling it every time «This PC» opens — with a slow cloud that freezes " +
+            "Explorer. A network drive avoids this but sits lower, under " +
+            "«Network locations».",
     )
     val autostartUnsupported = t(
         "На этой системе автозапуск пока не поддерживается.",

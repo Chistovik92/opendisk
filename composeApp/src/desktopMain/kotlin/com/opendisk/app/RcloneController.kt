@@ -747,12 +747,16 @@ class RcloneController(
             osName: String = System.getProperty("os.name"),
         ): RcloneClient.MountOptions {
             val windows = osName.lowercase().contains("win")
-            val asNetworkDrive = windows && isWindowsDriveLetter(mountPoint)
+            val asNetworkDrive =
+                windows && isWindowsDriveLetter(mountPoint) && !settings.showAsLocalDrive
             return RcloneClient.MountOptions(
                 vfsCacheMode = settings.cacheMode,
                 networkMode = asNetworkDrive,
-                // Имя тома — то же, что видит пользователь в списке облаков.
-                volumeName = name.takeIf { asNetworkDrive },
+                // Полный UNC-путь, а не просто имя: rclone берёт такой путь
+                // как есть, а к простому имени приписывает свою заглушку —
+                // и в проводнике диск подписывался «yandex (\\server)».
+                // Теперь там «yandex (\\OpenDisk)», и сразу видно, чей это диск.
+                volumeName = """\\OpenDisk\$name""".takeIf { asNetworkDrive },
                 cacheMaxSizeBytes = CACHE_MAX_SIZE_BYTES,
             )
         }
