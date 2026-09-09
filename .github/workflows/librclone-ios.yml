@@ -1,0 +1,147 @@
+name: librclone для iOS
+
+# Собирает rclone в виде библиотеки для iOS (.xcframework) через gomobile.
+#
+# Зачем: на iOS, как и на Android, нельзя запустить `rclone rcd` отдельным
+# процессом и ходить в него по HTTP — система не даёт приложению исполнять свои
+# файлы. Официальный путь тот же: librclone, та же RC API, вызов внутри процесса
+# функцией RcloneRPC(метод, json) -> json. Поэтому слой разбора ответов в
+# rclone-bridge остаётся общим и здесь.
+#
+# Но главная причина запускать это отдельно и первым — проверка. В документации
+# rclone про iOS сказано, что gomobile «должен работать», и этого никто не
+# проверял: сам gomobile у rclone помечен экспериментальным, ломается тихо, а
+# Mac для ручной проверки у разработчиков нет. Раннер GitHub — единственный
+# способ узнать ответ, и узнать его надо до того, как под iOS будет написана
+# хоть строчка интерфейса.
+#
+# Сборка приложения этим не покрывается: File Provider Extension нужно
+# подписывать, а для этого нужна платная программа разработчика Apple.
+# Здесь собирается только ядро — то, поверх чего приложение потом пишется.
+
+on:
+  # Только вручную и по той же причине, что у Android: gomobile не даёт
+  # побайтово одинакового результата, и каждый лишний запуск обесценивал бы
+  # закреплённую контрольную сумму.
+  workflow_dispatch:
+    inputs:
+      overwrite:
+        description: >-
+          Перезаписать уже опубликованную библиотеку той же версии.
+          Понадобится, если поменялись флаги сборки.
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Собрать под iOS можно только на macOS: gomobile зовёт clang из Xcode.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Взять версию rclone из сборки десктопа
+        id: version
+        run: |
+          # Версия одна на все платформы: расхождение между библиотекой на
+          # телефоне и бинарником на компьютере означало бы разные формы
+          # ответов RC API при одном и том же коде разбора.
+          version=$(sed -n 's/^val rcloneVersion = "\(.*\)"/\1/p' composeApp/build.gradle.kts)
+          if [ -z "$version" ]; then
+            echo "не удалось прочитать rcloneVersion из composeApp/build.gradle.kts" >&2
+            exit 1
+          fi
+          echo "версия rclone: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Забрать исходники rclone
+        run: |
+          git clone --depth 1 --branch "v${{ steps.version.outputs.version }}" \
+            https://github.com/rclone/rclone.git rclone-src
+
+      - uses: actions/setup-go@v5
+        with:
+          # Та же версия Go, на которой собирается сам rclone.
+          go-version-file: rclone-src/go.mod
+          cache: false
+
+      - name: Что за Xcode на раннере
+        run: |
+          # В лог намеренно: если сборка упадёт на чём-то из тулчейна, первым
+          # делом смотреть сюда — образы раннеров меняют Xcode без предупреждения.
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Поставить gomobile
+        working-directory: rclone-src
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Собрать .xcframework
+        working-directory: rclone-src
+        run: |
+          set -x
+          go get golang.org/x/mobile/bind
+          gomobile init
+          # ios — устройства (arm64), iossimulator — симулятор на машине
+          # разработчика. Без второго ничего нельзя даже запустить в Xcode.
+          # Версию проставляем явно по той же причине, что и на Android:
+          # в исходниках она записана как "v<версия>-DEV", настоящий номер
+          # подставляют линковщиком, и без этого библиотеку нельзя сверить
+          # с десктопным бинарником — а на сверке держится общий разбор ответов.
+          gomobile bind -v \
+            -target=ios,iossimulator \
+            -ldflags "-s -X github.com/rclone/rclone/fs.Version=v${{ steps.version.outputs.version }}" \
+            -o "$GITHUB_WORKSPACE/Librclone.xcframework" \
+            ./librclone/gomobile
+
+      - name: Что получилось
+        run: |
+          # Ради этого шага стоит смотреть логи: по сгенерированному заголовку
+          # видно, как на самом деле выглядит вызов RcloneRPC из Swift.
+          ls -R Librclone.xcframework | head -50
+          echo "--- заголовок ---"
+          find Librclone.xcframework -name '*.objc.h' -o -name 'Librclone.h' | head -5 |
+            while read -r header; do
+              echo "=== $header ==="
+              sed -n '1,80p' "$header"
+            done
+
+      # Библиотеку нужно откуда-то брать при сборке приложения. Кладём её
+      # в отдельный релиз и качаем по контрольной сумме, ровно как .aar для
+      # Android и как десктопный бинарник rclone. Релиз помечен предварительным,
+      # чтобы не подменять собой последнюю версию приложения.
+      - name: Опубликовать библиотеку
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # .xcframework — это каталог, поэтому в релиз едет архивом.
+          zip -qr Librclone.xcframework.zip Librclone.xcframework
+          sha=$(shasum -a 256 Librclone.xcframework.zip | cut -d' ' -f1)
+          echo "SHA-256: $sha"
+          tag="librclone-ios-v$VERSION"
+          notes="librclone $VERSION, собрана gomobile для iOS (arm64) и симулятора.
+
+          Это не приложение, а библиотека для сборки iOS-клиента OpenDisk.
+
+          SHA-256: \`$sha\`"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if [ "${{ inputs.overwrite }}" != "true" ]; then
+              echo "Библиотека $tag уже опубликована — оставляю как есть."
+              echo "Перезаписать можно запуском с overwrite=true; новая сумма была бы $sha"
+              exit 0
+            fi
+            gh release upload "$tag" Librclone.xcframework.zip --clobber
+            gh release edit "$tag" --notes "$notes"
+          else
+            gh release create "$tag" Librclone.xcframework.zip \
+              --title "librclone $VERSION для iOS" \
+              --notes "$notes" \
+              --prerelease
+          fi
