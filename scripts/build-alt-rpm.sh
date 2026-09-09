@@ -49,7 +49,13 @@ docker run --rm \
         apt-get update -y >/dev/null
         apt-get install -y rpm-build >/dev/null
 
-        top=/tmp/rpm
+        # ALT принципиально не даёт собирать пакеты от root:
+        # «current site policy disallows root to build packages». Это его
+        # политика, а не случайность, и обходить её ключами не нужно —
+        # достаточно собирать от обычного пользователя, как и задумано.
+        useradd -m builder 2>/dev/null || true
+
+        top=/home/builder/rpm
         mkdir -p "$top/BUILD" "$top/RPMS" "$top/SOURCES" "$top/SPECS" "$top/SRPMS"
 
         # Образ приложения кладём в дерево сборки как есть: он самодостаточен,

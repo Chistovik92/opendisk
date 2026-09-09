@@ -13,7 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -248,7 +248,7 @@ private fun ReadyContent(
     state.updateMessage?.let { Banner(it) }
     state.globalError?.let { Banner(strings.errorPrefix(it)) }
 
-    Divider()
+    HorizontalDivider()
 
     if (state.clouds.isEmpty()) {
         CenteredMessage(strings.noCloudsYet)
