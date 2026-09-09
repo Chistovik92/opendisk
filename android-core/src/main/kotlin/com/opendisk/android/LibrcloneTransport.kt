@@ -79,11 +79,28 @@ class LibrcloneTransport private constructor() : RcloneTransport {
          */
         @Synchronized
         fun useConfig(file: File) {
-            check(instance == null) {
-                "путь к конфигу задаётся до первого обращения к rclone"
+            val path = file.absolutePath
+
+            // Повторный вызов с тем же путём — обычное дело, а не ошибка:
+            // экранная модель создаётся заново при каждом повороте экрана,
+            // а процесс остаётся тот же. Раньше здесь стояла проверка
+            // «только до первого обращения», и приложение падало на втором —
+            // поймано инструментальным тестом, где в одном процессе идут
+            // подряд два теста.
+            if (instance != null) {
+                // А вот сменить путь на ходу действительно нельзя: rclone
+                // читает его один раз при инициализации. Промолчать здесь
+                // значило бы работать не с тем конфигом, о котором думает
+                // вызывающий.
+                val current = Os.getenv(CONFIG_ENV)
+                check(current == path) {
+                    "rclone уже запущен с конфигом $current, сменить его на $path нельзя"
+                }
+                return
             }
+
             file.parentFile?.mkdirs()
-            Os.setenv(CONFIG_ENV, file.absolutePath, true)
+            Os.setenv(CONFIG_ENV, path, true)
         }
 
         private const val CONFIG_ENV = "RCLONE_CONFIG"
