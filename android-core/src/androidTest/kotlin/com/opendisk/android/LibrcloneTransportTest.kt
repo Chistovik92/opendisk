@@ -1,8 +1,11 @@
 package com.opendisk.android
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.opendisk.bridge.MountedPaths
+import com.opendisk.bridge.PublicLinkUnsupportedException
 import com.opendisk.bridge.RcloneClient
 import com.opendisk.bridge.RcloneRcException
+import com.opendisk.bridge.RemoteFile
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -11,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -83,6 +87,59 @@ class LibrcloneTransportTest {
         }
 
         assertEquals("такого/метода/нет", failure.endpoint)
+    }
+
+    /**
+     * Ссылки на файлы работают на телефоне тем же кодом, что и на компьютере.
+     *
+     * Ради этого транспорт и вынесен отдельным слоем: [RcloneClient] здесь тот
+     * же самый, что в десктопном приложении, и проверять надо не логику — она
+     * общая и покрыта обычными тестами, — а то, что через librclone эти вызовы
+     * действительно проходят и отвечают той же формой.
+     *
+     * `:memory:` — встроенный бэкенд rclone, живущий в памяти: конфига не
+     * требует и на свежем устройстве работает сразу.
+     */
+    @Test
+    fun fsInfoTellsWhetherTheCloudCanMakeLinks() = runBlocking {
+        val client = RcloneClient(LibrcloneTransport.get())
+
+        val info = client.fsInfo(":memory")
+
+        assertTrue(info.features.isNotEmpty(), "librclone не отдала список возможностей")
+        // Память ссылок не умеет — как и локальный диск, SFTP и FTP.
+        assertFalse(info.supportsPublicLink)
+    }
+
+    @Test
+    fun backendWithoutLinksIsToldApartFromBreakage() = runBlocking {
+        val client = RcloneClient(LibrcloneTransport.get())
+
+        // Отдельное исключение, а не общая ошибка RC: интерфейсу надо сказать
+        // «этот сервис так не умеет», а не «что-то сломалось».
+        val failure = assertFailsWith<PublicLinkUnsupportedException> {
+            client.publicLink(":memory", "файл.txt")
+        }
+
+        assertEquals(":memory", failure.remote)
+    }
+
+    /**
+     * Разбор пути общий с десктопом и работает на Android как есть.
+     *
+     * На телефоне точки монтирования нет — вместо неё будет корень, который
+     * `DocumentsProvider` показывает системным «Файлам», — но раскладывать путь
+     * на облако и путь внутри него придётся ровно так же.
+     */
+    @Test
+    fun pathInsideACloudIsResolvedTheSameWayAsOnDesktop() {
+        val resolved = MountedPaths.resolve(
+            localPath = "/облака/яндекс/Документы/смета.xlsx",
+            mounts = mapOf("яндекс" to "/облака/яндекс"),
+            caseInsensitive = false,
+        )
+
+        assertEquals(RemoteFile("яндекс", "Документы/смета.xlsx"), resolved)
     }
 
     private companion object {

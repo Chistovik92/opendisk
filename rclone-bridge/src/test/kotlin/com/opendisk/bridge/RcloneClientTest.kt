@@ -253,6 +253,111 @@ class RcloneClientTest {
     }
 
     @Test
+    fun `publicLink asks the right cloud for the right file`() = runBlocking {
+        val client = clientRespondingWith("""{"url":"https://disk.yandex.ru/d/abc123"}""")
+
+        val url = client.publicLink("яндекс", "Отчёты/март.pdf")
+
+        assertEquals("https://disk.yandex.ru/d/abc123", url)
+        val body = lastRequestBody()
+        // Двоеточие обязательно: без него rclone принял бы имя облака за путь.
+        assertContains(body, "\"fs\":\"яндекс:\"")
+        assertContains(body, "\"remote\":\"Отчёты/март.pdf\"")
+        assertEquals("$BASE_URL/operations/publiclink", requests.last().url.toString())
+    }
+
+    @Test
+    fun `publicLink does not send expire and unlink unless asked`() = runBlocking {
+        val client = clientRespondingWith("""{"url":"https://example/x"}""")
+
+        client.publicLink("диск", "файл.txt")
+
+        val body = lastRequestBody()
+        // Пустой `expire` rclone разбирает как длительность и отвечает ошибкой,
+        // а `unlink:false` — это уже другая операция, а не «просто ссылка».
+        assertFalse(body.contains("expire"), "в запрос попал срок, которого не задавали")
+        assertFalse(body.contains("unlink"), "в запрос попал отзыв ссылки")
+    }
+
+    @Test
+    fun `publicLink passes expiry and revocation through`() = runBlocking {
+        val client = clientRespondingWith("""{"url":""}""")
+
+        client.publicLink("диск", "файл.txt", expire = "24h", unlink = true)
+
+        val body = lastRequestBody()
+        assertContains(body, "\"expire\":\"24h\"")
+        assertContains(body, "\"unlink\":true")
+    }
+
+    @Test
+    fun `backend without links is told apart from a real failure`() = runBlocking {
+        val engine = MockEngine { request ->
+            requests += request
+            respondError(
+                status = HttpStatusCode.InternalServerError,
+                content = """{"error":"sftp://host doesn't support public links","status":500}""",
+            )
+        }
+        val client = RcloneClient(BASE_URL, httpClient(engine))
+
+        // Не поломка, а свойство бэкенда: у SFTP, FTP и WebDAV публичных ссылок
+        // нет в самом протоколе. Показывать это как ошибку было бы неправдой.
+        val failure = assertFailsWith<PublicLinkUnsupportedException> {
+            client.publicLink("сервер", "файл.txt")
+        }
+
+        assertEquals("сервер", failure.remote)
+    }
+
+    @Test
+    fun `other errors from publiclink stay ordinary errors`() = runBlocking {
+        val engine = MockEngine { request ->
+            requests += request
+            respondError(
+                status = HttpStatusCode.InternalServerError,
+                content = """{"error":"object not found","status":500}""",
+            )
+        }
+        val client = RcloneClient(BASE_URL, httpClient(engine))
+
+        val failure = assertFailsWith<RcloneRcException> {
+            client.publicLink("яндекс", "нет-такого.txt")
+        }
+
+        assertEquals("object not found", failure.rcloneError)
+    }
+
+    @Test
+    fun `fsInfo reports whether the cloud can make links`() = runBlocking {
+        val client = clientRespondingWith(
+            """{"Name":"yandex","Features":{"About":true,"PublicLink":true,"Purge":false}}""",
+        )
+
+        val info = client.fsInfo("яндекс")
+
+        assertTrue(info.supportsPublicLink)
+        assertEquals("yandex", info.name)
+        assertContains(lastRequestBody(), "\"fs\":\"яндекс:\"")
+        assertEquals("$BASE_URL/operations/fsinfo", requests.last().url.toString())
+    }
+
+    @Test
+    fun `cloud without the links feature is not offered them`() = runBlocking {
+        val client = clientRespondingWith("""{"Name":"sftp","Features":{"About":true}}""")
+
+        // Отсутствие ключа и `false` — одно и то же: ссылок нет.
+        assertFalse(client.fsInfo("сервер").supportsPublicLink)
+    }
+
+    @Test
+    fun `fsInfo survives a backend that reports no features at all`() = runBlocking {
+        val client = clientRespondingWith("{}")
+
+        assertFalse(client.fsInfo("странное").supportsPublicLink)
+    }
+
+    @Test
     fun `non-json error body is passed through as is`() {
         assertEquals("404 page not found", extractError("404 page not found"))
         assertEquals("пустой ответ", extractError("   "))

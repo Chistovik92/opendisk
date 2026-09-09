@@ -44,9 +44,37 @@ data class CloudUi(
     val warning: String? = null,
     /** Идёт операция — блокируем кнопки, чтобы не запустить её дважды. */
     val busy: Boolean = false,
+    /**
+     * Умеет ли облако выдавать публичные ссылки на файлы.
+     *
+     * Спрашивается у самого rclone (`operations/fsinfo`), а не выводится из типа
+     * облака: кнопку, которая заведомо приведёт к «этот бэкенд так не умеет»,
+     * лучше не показывать вовсе.
+     */
+    val supportsLinks: Boolean = false,
 ) {
     val isMounted: Boolean get() = mountPoint != null
 }
+
+/**
+ * Ссылка на файл: что показывать в диалоге.
+ *
+ * Отдельным состоянием, а не полем облака, потому что диалог один на всё
+ * приложение и живёт своей жизнью — от выбора файла до копирования адреса.
+ */
+data class FileLinkState(
+    /** Облако, на диске которого лежит файл. Может не совпадать с тем, с чьей кнопки начали. */
+    val cloud: String,
+    /** Путь внутри облака — то, что видит сервис. */
+    val remotePath: String,
+    /** Путь, по которому файл выбрали. Показываем его: человек узнаёт файл именно так. */
+    val localPath: String,
+    val url: String? = null,
+    val error: String? = null,
+    val busy: Boolean = false,
+    /** Ссылка отозвана: файл на месте, публичный адрес больше не работает. */
+    val revoked: Boolean = false,
+)
 
 data class UiState(
     val session: SessionState = SessionState.Starting,
@@ -91,6 +119,8 @@ data class UiState(
      * обновления нет или сеть недоступна.
      */
     val updateMessage: String? = null,
+    /** Открытый диалог ссылки на файл; null — диалога нет. */
+    val fileLink: FileLinkState? = null,
 ) {
     val mountAvailable: Boolean get() = mount is MountSupport.Status.Available
 }

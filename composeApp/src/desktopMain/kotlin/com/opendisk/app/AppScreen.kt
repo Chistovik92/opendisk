@@ -89,6 +89,14 @@ fun AppScreen(state: UiState, controller: RcloneController, onQuit: () -> Unit) 
         )
     }
 
+    state.fileLink?.let { link ->
+        FileLinkDialog(
+            link = link,
+            controller = controller,
+            onDismiss = controller::dismissLink,
+        )
+    }
+
     if (showingAbout) {
         AboutDialog(
             state = state,
@@ -262,6 +270,15 @@ private fun ReadyContent(
                     onRename = { onRequestRename(cloud.name) },
                     onSettings = { onRequestSettings(cloud.name) },
                     onDelete = { onRequestDelete(cloud.name) },
+                    onLink = {
+                        // Диалог открывается на диске этого облака, но выбрать
+                        // можно и файл с соседнего подключённого — облако
+                        // определится по самому пути.
+                        chooseFileOnDrive(
+                            startIn = controller.mountPointOf(cloud.name),
+                            title = strings.linkChooseFile,
+                        )?.let(controller::createLink)
+                    },
                 )
             }
         }
@@ -279,6 +296,7 @@ private fun CloudRow(
     onRename: () -> Unit,
     onSettings: () -> Unit,
     onDelete: () -> Unit,
+    onLink: () -> Unit,
 ) {
     val strings = LocalStrings.current
 
@@ -311,6 +329,14 @@ private fun CloudRow(
                     } else {
                         Button(onClick = onMount, enabled = mountAvailable) {
                             Text(strings.connect)
+                        }
+                    }
+                    // Только у подключённого диска и только там, где сервис
+                    // ссылки вообще умеет: кнопка, которая заведомо приведёт
+                    // к отказу, хуже отсутствующей.
+                    if (cloud.isMounted && cloud.supportsLinks) {
+                        TextButton(onClick = onLink, enabled = !cloud.busy) {
+                            Text(strings.linkFile)
                         }
                     }
                     TextButton(onClick = onSettings, enabled = !cloud.busy) {

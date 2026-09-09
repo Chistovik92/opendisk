@@ -75,6 +75,64 @@ class Strings(private val russian: Boolean) {
 
     fun errorPrefix(message: String) = t("Ошибка: $message", "Error: $message")
 
+    // --- Ссылки на файлы ----------------------------------------------------
+
+    val linkFile = t("Ссылка на файл", "File link")
+    val linkDialogTitle = t("Ссылка на скачивание", "Download link")
+    val linkChooseFile = t(
+        "Выберите файл на подключённом диске",
+        "Choose a file on a connected drive",
+    )
+    val linkAsking = t("Спрашиваю ссылку у облака...", "Asking the cloud for a link...")
+    val linkCopy = t("Копировать", "Copy")
+    val linkCopied = t("Скопировано в буфер обмена", "Copied to the clipboard")
+    val linkRevoke = t("Отозвать ссылку", "Revoke link")
+
+    /**
+     * Главное, что нужно сказать про ссылку: её выдал сервис, а не мы, и
+     * работает она у любого, кто её получит. Человек, нажимающий «Копировать»,
+     * должен понимать, что именно он сейчас кому-то отправит.
+     */
+    val linkExplanation = t(
+        "Ссылку выдал сам сервис. Файл по ней скачает любой, у кого она есть, " +
+            "без входа в аккаунт.",
+        "The link comes from the service itself. Anyone who has it can download " +
+            "the file without signing in.",
+    )
+    val linkRevoked = t(
+        "Ссылка отозвана: файл остался на месте, но по прежнему адресу больше " +
+            "не скачивается.",
+        "Link revoked: the file stays where it was, but the old address no longer " +
+            "downloads it.",
+    )
+
+    /** Из какого облака ссылка. Диск мог оказаться не тем, с кнопки которого начали. */
+    fun linkFromCloud(cloud: String, path: String) = t(
+        "Облако «$cloud», файл $path",
+        "Cloud «$cloud», file $path",
+    )
+
+    val linkFileNotOnDisk = t(
+        "Этот файл лежит не на подключённом облачном диске, а на обычном. " +
+            "Ссылку выдаёт то облако, в котором файл хранится, — сначала " +
+            "загрузите файл на диск облака.",
+        "This file is on an ordinary drive, not on a connected cloud drive. " +
+            "The link is issued by the cloud that stores the file — upload it " +
+            "to the cloud drive first.",
+    )
+
+    fun linkNotSupported(cloud: String) = t(
+        "Облако «$cloud» не умеет выдавать ссылки: у его протокола нет такого " +
+            "понятия. Ссылки есть у Яндекс.Диска, Google Диска, Dropbox, OneDrive; " +
+            "у SFTP, FTP и обычного WebDAV — нет.",
+        "Cloud «$cloud» cannot issue links: its protocol has no such notion. " +
+            "Yandex.Disk, Google Drive, Dropbox and OneDrive can; SFTP, FTP and " +
+            "plain WebDAV cannot.",
+    )
+
+    val linkFailed = t("Не удалось получить ссылку", "Could not get the link")
+    val linkRevokeFailed = t("Не удалось отозвать ссылку", "Could not revoke the link")
+
     // --- Место на облаке ----------------------------------------------------
 
     fun usedOf(used: String, total: String) =

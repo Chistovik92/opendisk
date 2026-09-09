@@ -312,6 +312,75 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
     suspend fun about(remoteName: String): AboutInfo =
         call("operations/about", buildJsonObject { put("fs", "$remoteName:") })
 
+    // --- Ссылки на файлы ----------------------------------------------------
+
+    /**
+     * Что умеет бэкенд конкретного облака.
+     *
+     * Спрашиваем rclone, а не смотрим на тип облака в конфиге: список
+     * возможностей у бэкендов меняется от версии к версии, и зашитая в код
+     * таблица «кто умеет ссылки» устаревала бы молча. Здесь же она приезжает
+     * от того самого rclone, который потом будет ссылку и выдавать.
+     */
+    @Serializable
+    data class FsInfo(
+        @SerialName("Name") val name: String = "",
+        /**
+         * Возможности бэкенда. У rclone это `map[string]bool` целиком, поэтому
+         * разбирается картой, а не набором полей: перечислять полсотни флагов
+         * ради одного смысла нет.
+         */
+        @SerialName("Features") val features: Map<String, Boolean> = emptyMap(),
+    ) {
+        /** Умеет ли облако выдавать публичные ссылки на скачивание. */
+        val supportsPublicLink: Boolean get() = features[PUBLIC_LINK_FEATURE] == true
+    }
+
+    suspend fun fsInfo(remoteName: String): FsInfo =
+        call("operations/fsinfo", buildJsonObject { put("fs", "$remoteName:") })
+
+    @Serializable
+    private data class PublicLinkResponse(val url: String = "")
+
+    /**
+     * Просит облако выдать ссылку на скачивание файла.
+     *
+     * Ссылку делает сам сервис — Яндекс.Диск, Google Drive, Dropbox, — а не
+     * OpenDisk: только у сервиса есть публичный адрес, по которому файл отдаётся
+     * тому, у кого нет ни аккаунта, ни приложения. Наше дело — знать, на каком
+     * диске лежит файл ([MountedPaths.resolve]), и спросить у нужного облака.
+     *
+     * @param remotePath путь внутри облака, без имени облака и ведущего слэша.
+     * @param expire срок жизни ссылки в формате длительности rclone («24h»,
+     *        «7d»). null — как решит сам сервис; у большинства это «навсегда».
+     * @param unlink наоборот, отозвать ранее выданную ссылку. Файл при этом
+     *        остаётся на месте, перестаёт работать только публичный адрес.
+     *
+     * @throws PublicLinkUnsupportedException если бэкенд не умеет ссылок вовсе.
+     */
+    suspend fun publicLink(
+        remoteName: String,
+        remotePath: String,
+        expire: String? = null,
+        unlink: Boolean = false,
+    ): String = try {
+        val response: PublicLinkResponse = call(
+            "operations/publiclink",
+            buildJsonObject {
+                put("fs", "$remoteName:")
+                put("remote", remotePath)
+                expire?.let { put("expire", it) }
+                if (unlink) put("unlink", true)
+            },
+        )
+        response.url
+    } catch (e: RcloneRcException) {
+        if (e.rcloneError.contains(PUBLIC_LINK_UNSUPPORTED_MARKER, ignoreCase = true)) {
+            throw PublicLinkUnsupportedException(remoteName, e)
+        }
+        throw e
+    }
+
     /**
      * Ограничение скорости. rclone умеет ограничивать только глобально —
      * на все переносы сразу, а не по отдельным облакам.
@@ -437,5 +506,15 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
          * и в случае неверного — обе ситуации для нас одинаковы.
          */
         private const val DECRYPT_FAILURE_MARKER = "unable to decrypt configuration"
+
+        /** Ключ в `Features` из `operations/fsinfo`, отвечающий за ссылки. */
+        internal const val PUBLIC_LINK_FEATURE = "PublicLink"
+
+        /**
+         * Фрагмент, по которому опознаём бэкенд без поддержки ссылок. rclone
+         * отвечает «<облако> doesn't support public links» — текст один и тот
+         * же для всех таких бэкендов, а отдельного кода ошибки у RC API нет.
+         */
+        private const val PUBLIC_LINK_UNSUPPORTED_MARKER = "doesn't support public links"
     }
 }

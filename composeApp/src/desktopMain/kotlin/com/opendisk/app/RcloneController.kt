@@ -1,6 +1,8 @@
 package com.opendisk.app
 
 import com.opendisk.bridge.MountSupport
+import com.opendisk.bridge.MountedPaths
+import com.opendisk.bridge.PublicLinkUnsupportedException
 import com.opendisk.bridge.RcloneClient
 import com.opendisk.bridge.RcloneConfigFile
 import com.opendisk.bridge.RcloneConfigLockedException
@@ -367,6 +369,14 @@ class RcloneController(
                 val about = runCatching { api.about(name) }.getOrNull() ?: return@forEach
                 updateCloud(name) { it.copy(about = about) }
             }
+
+            // Умеет ли облако ссылки — спрашиваем там же и так же осторожно.
+            // Ответ нужен до того, как человек нажмёт кнопку: показывать её,
+            // зная, что бэкенд так не умеет, значит обещать несбыточное.
+            names.forEach { name ->
+                val info = runCatching { api.fsInfo(name) }.getOrNull() ?: return@forEach
+                updateCloud(name) { it.copy(supportsLinks = info.supportsPublicLink) }
+            }
         } catch (e: RcloneRcException) {
             _state.update { it.copy(globalError = e.rcloneError) }
         }
@@ -599,6 +609,106 @@ class RcloneController(
             } catch (e: RcloneRcException) {
                 updateCloud(name) { it.copy(busy = false, error = e.rcloneError) }
             }
+        }
+    }
+
+    // --- Ссылки на файлы ----------------------------------------------------
+
+    /**
+     * Где открывать файловый диалог для облака: на его диске.
+     *
+     * null означает, что облако не подключено и открывать нечего — кнопка
+     * ссылки в этом случае и не показывается.
+     */
+    fun mountPointOf(cloudName: String): String? =
+        state.value.clouds.firstOrNull { it.name == cloudName }?.mountPoint
+
+    /**
+     * Просит у облака ссылку на скачивание выбранного файла.
+     *
+     * Облако определяется по самому пути, а не по кнопке, с которой начали:
+     * в файловом диалоге можно уйти на соседний подключённый диск, и ссылку
+     * должен выдавать тот сервис, который этот файл действительно держит.
+     * Иначе получилась бы ссылка на файл, которого в облаке нет.
+     */
+    fun createLink(localPath: String) {
+        val api = client ?: return
+        val resolved = MountedPaths.resolve(localPath, ourMounts.toMap())
+
+        if (resolved == null) {
+            // Не сбой, а понятная ситуация: выбрали файл с обычного диска.
+            _state.update {
+                it.copy(
+                    fileLink = FileLinkState(
+                        cloud = "",
+                        remotePath = "",
+                        localPath = localPath,
+                        error = strings.linkFileNotOnDisk,
+                    ),
+                )
+            }
+            return
+        }
+
+        _state.update {
+            it.copy(
+                fileLink = FileLinkState(
+                    cloud = resolved.remote,
+                    remotePath = resolved.path,
+                    localPath = localPath,
+                    busy = true,
+                ),
+            )
+        }
+
+        scope.launch {
+            try {
+                val url = api.publicLink(resolved.remote, resolved.path)
+                updateLink { it.copy(url = url, busy = false) }
+            } catch (e: PublicLinkUnsupportedException) {
+                updateLink { it.copy(busy = false, error = strings.linkNotSupported(e.remote)) }
+            } catch (e: Exception) {
+                val message = (e as? RcloneRcException)?.rcloneError ?: e.message
+                updateLink { it.copy(busy = false, error = message ?: strings.linkFailed) }
+            }
+        }
+    }
+
+    /**
+     * Отзывает выданную ссылку.
+     *
+     * Сделать файл публичным легко, и обратный ход должен быть таким же —
+     * иначе единственный способ закрыть доступ это лезть на сайт сервиса.
+     * Сам файл остаётся на месте, перестаёт работать только адрес.
+     */
+    fun revokeLink() {
+        val api = client ?: return
+        val link = state.value.fileLink ?: return
+        if (link.url == null) return
+
+        scope.launch {
+            updateLink { it.copy(busy = true, error = null) }
+            try {
+                api.publicLink(link.cloud, link.remotePath, unlink = true)
+                updateLink { it.copy(busy = false, url = null, revoked = true) }
+            } catch (e: Exception) {
+                val message = (e as? RcloneRcException)?.rcloneError ?: e.message
+                updateLink { it.copy(busy = false, error = message ?: strings.linkRevokeFailed) }
+            }
+        }
+    }
+
+    fun dismissLink() {
+        _state.update { it.copy(fileLink = null) }
+    }
+
+    /**
+     * Обновляет диалог ссылки, если он всё ещё открыт. Пользователь мог закрыть
+     * его, не дожидаясь ответа сервиса, — тогда обновлять нечего.
+     */
+    private fun updateLink(transform: (FileLinkState) -> FileLinkState) {
+        _state.update { current ->
+            current.copy(fileLink = current.fileLink?.let(transform))
         }
     }
 

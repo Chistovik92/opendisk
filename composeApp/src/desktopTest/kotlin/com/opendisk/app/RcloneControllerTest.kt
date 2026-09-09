@@ -248,6 +248,111 @@ class RcloneControllerTest {
     private fun passwordLine(config: String): String =
         config.lineSequence().first { it.trimStart().startsWith("pass") }.trim()
 
+    /**
+     * Умеет ли облако ссылки — спрашиваем у самого rclone, а не по типу облака
+     * из таблицы в коде. Локальный бэкенд не умеет, и кнопки быть не должно.
+     */
+    @Test
+    fun `cloud that cannot make links does not offer them`() {
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
+
+        val controller = controllerFor(tempConfig("[disk]\ntype = local\n"))
+        controller.start()
+
+        // Возможности приезжают отдельным запросом после списка облаков,
+        // поэтому ждём именно ответ про место — он идёт тем же чередом.
+        val ready = awaitState(controller) { state ->
+            state.session == SessionState.Ready && state.clouds.isNotEmpty()
+        }
+
+        assertFalse(
+            ready.clouds.single().supportsLinks,
+            "локальный бэкенд ссылок не умеет, а приложение считает, что умеет",
+        )
+    }
+
+    /**
+     * Файл выбрали не на облачном диске.
+     *
+     * Ссылку выдаёт то облако, где файл лежит, — у файла с обычного диска
+     * такого облака нет, и сказать об этом надо понятно, а не молчать.
+     */
+    @Test
+    fun `file outside every mounted drive is explained, not swallowed`() {
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
+
+        val controller = controllerFor(tempConfig("[disk]\ntype = local\n"))
+        controller.start()
+        awaitState(controller) { it.session == SessionState.Ready }
+
+        val ordinary = File(createTempDirectory("не-облако").toFile(), "файл.txt")
+        ordinary.writeText("обычный файл")
+        controller.createLink(ordinary.absolutePath)
+
+        val state = awaitState(controller) { it.fileLink != null }
+        val link = state.fileLink!!
+        assertNull(link.url)
+        assertEquals("", link.cloud, "облако не должно было найтись")
+        assertContains(link.error.orEmpty(), "не на подключённом")
+
+        controller.dismissLink()
+        assertNull(awaitState(controller) { it.fileLink == null }.fileLink)
+    }
+
+    /**
+     * Ссылку просим у того облака, на диске которого лежит файл.
+     *
+     * Проверяется вся цепочка: местный путь на смонтированном диске
+     * раскладывается обратно на облако и путь внутри него, запрос уходит
+     * настоящему rclone, а отказ бэкенда доходит до экрана как объяснение,
+     * а не как «ошибка 500». Локальный бэкенд ссылок не умеет — и именно это
+     * и должно быть написано, с правильно определённым облаком.
+     */
+    @Test
+    fun `link is asked from the cloud that holds the file`() {
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
+        assumeTrue(MountSupport.check() is MountSupport.Status.Available, "нет WinFsp/FUSE")
+
+        val data = createTempDirectory("cloud-data").toFile()
+        File(data, "отчёт.txt").writeText("содержимое", Charsets.UTF_8)
+
+        val controller = controllerFor(tempConfig(""))
+        controller.start()
+        awaitState(controller) { it.session == SessionState.Ready }
+
+        val creation = CompletableDeferred<String?>()
+        controller.addCloud(
+            name = "данные",
+            type = "alias",
+            parameters = mapOf("remote" to data.absolutePath),
+            secretKeys = emptySet(),
+        ) { creation.complete(it) }
+        assertNull(runBlocking { withTimeout(20_000) { creation.await() } })
+        awaitState(controller) { state -> state.clouds.any { it.name == "данные" } }
+
+        val mountPoint = RcloneController.defaultMountPoint("данные")
+        settings.update("данные", CloudSettings(mountPoint = mountPoint))
+        controller.mount("данные")
+        awaitState(controller, timeoutMillis = 40_000) { state ->
+            state.clouds.firstOrNull { it.name == "данные" }?.isMounted == true
+        }
+
+        controller.createLink(File(mountPoint, "отчёт.txt").absolutePath)
+
+        val link = awaitState(controller, timeoutMillis = 40_000) {
+            it.fileLink?.busy == false
+        }.fileLink!!
+
+        // Главное: облако определилось по пути, и путь внутри облака — тот самый.
+        assertEquals("данные", link.cloud)
+        assertEquals("отчёт.txt", link.remotePath)
+        // Локальный бэкенд ссылок не умеет, и это должно быть сказано словами.
+        assertNull(link.url)
+        assertContains(link.error.orEmpty(), "не умеет выдавать ссылки")
+
+        controller.unmount("данные")
+    }
+
     @Test
     fun `encrypted config asks for a password and unlocks with the right one`() {
         assumeTrue(RcloneProcess.locate() != null, "rclone не найден")

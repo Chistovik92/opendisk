@@ -424,7 +424,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.3.1"
+            packageVersion = "0.4.0"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -469,7 +469,7 @@ compose.desktop {
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.3.1"
+                packageVersion = "1.4.0"
             }
         }
     }
