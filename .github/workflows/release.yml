@@ -281,8 +281,15 @@ jobs:
           #
           # Поэтому чужое создание считаем удачей: релиз есть, а кто его
           # создал — неважно.
+          #
+          # Создаём черновиком. Публикует релиз отдельная работа `publish`,
+          # и только убедившись, что установщики собраны под все платформы:
+          # на 0.4.0 тесты упали на Linux и macOS, а Windows дошёл до конца и
+          # опубликовал релиз с одним лишь MSI. Скрипт установки на Linux берёт
+          # последний релиз — и для него это выглядело как «пакета нет».
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "OpenDisk $tag" --prerelease --notes "Сборка $tag" ||
+            gh release create "$tag" --title "OpenDisk $tag" --prerelease --draft \
+              --notes "Сборка $tag" ||
               gh release view "$tag" >/dev/null 2>&1 ||
               { echo "релиз $tag не создан и не найден" >&2; exit 1; }
           fi
@@ -315,8 +322,47 @@ jobs:
           cat "$sums"
 
           gh release upload "$tag" $files "$sums" --clobber
-          # Релиз может оказаться черновиком: если тег когда-то удаляли,
-          # GitHub переводит связанный с ним релиз в черновики, а
-          # `gh release view` черновики видит — то есть проверка выше его
-          # находит и релиз молча остаётся невидимым для пользователей.
+
+  # Публикация — отдельно от сборки и после всех трёх платформ сразу.
+  #
+  # Пока это делала каждая сборка сама, релиз становился видимым от первой
+  # дошедшей до конца. На 0.4.0 так и вышло: Linux и macOS упали на тестах,
+  # Windows дошёл — и наружу уехал релиз, в котором из установщиков был только
+  # MSI. `needs` здесь и есть требование «все платформы или ничего»: если хоть
+  # одна сборка упала, эта работа не запустится, релиз останется черновиком и
+  # пользователи его просто не увидят.
+  publish:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Проверить, что собрались все платформы, и опубликовать
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          assets=$(gh release view "$tag" --json assets -q '.assets[].name')
+          echo "В релизе $tag сейчас:"; echo "$assets" | sed 's/^/  /'
+
+          # Каждый установщик проверяется по расширению, а не по полному имени:
+          # версия в имени своя у каждой платформы (у .dmg мажорная единица,
+          # потому что macOS не принимает ноль), и захардкодить их значило бы
+          # ломать проверку при каждом выпуске.
+          missing=""
+          for kind in .msi .deb .rpm .AppImage .dmg \
+                      SHA256SUMS-Windows SHA256SUMS-Linux SHA256SUMS-macOS; do
+            echo "$assets" | grep -q -- "$kind" || missing="$missing $kind"
+          done
+
+          if [ -n "$missing" ]; then
+            echo "В релизе не хватает:$missing" >&2
+            echo "Релиз оставлен черновиком — неполный выпуск наружу не уходит." >&2
+            exit 1
+          fi
+
+          # Только теперь релиз становится видимым.
           gh release edit "$tag" --draft=false
+          echo "Релиз $tag опубликован: установщики есть под все платформы."
