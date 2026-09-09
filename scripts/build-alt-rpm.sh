@@ -55,6 +55,12 @@ docker run --rm \
         # достаточно собирать от обычного пользователя, как и задумано.
         useradd -m builder 2>/dev/null || true
 
+        # В ALT sudo настроен строго и root в sudoers не входит: «root is not
+        # in the sudoers file». Разрешаем явно — контейнер одноразовый и живёт
+        # ровно одну сборку, наружу это не выходит. Через su было бы проще,
+        # но его в минимальном образе нет вовсе.
+        echo "root ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
         top=/home/builder/rpm
         mkdir -p "$top/BUILD" "$top/RPMS" "$top/SOURCES" "$top/SPECS" "$top/SRPMS"
 
