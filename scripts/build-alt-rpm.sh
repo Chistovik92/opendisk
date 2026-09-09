@@ -79,14 +79,14 @@ Group: Networking/File transfer
 URL: https://github.com/Chistovik92/opendisk
 BuildArch: x86_64
 
-# Приложение приезжает со своей JRE и своим rclone, поэтому из системы ему
-# нужен только FUSE — без него облака не подключить как диск. Имя пакета
-# именно ALT-овское: в Debian он fuse3, здесь — libfuse3.
+# The app ships its own JRE and rclone, so the only thing it needs from the
+# system is FUSE. The package name is the ALT one: fuse3 in Debian, libfuse3
+# here.
 Requires: libfuse3
 
-# Внутри лежит готовый образ JVM: файлы без исходников, с чужими RPATH и без
-# отладочной информации. Проверки ALT, рассчитанные на пакеты, собранные из
-# исходников в этой же системе, на нём срабатывают вхолостую.
+# Inside is a ready JVM image: files without sources, with foreign RPATHs and
+# without debug info. ALT checks meant for packages built from sources in the
+# same system fire on it for nothing.
 %define _unpackaged_files_terminate_build 0
 %define __find_requires %nil
 %set_verify_elf_method unresolved=relaxed,rpath=relaxed
@@ -108,14 +108,14 @@ cat > %buildroot%_datadir/applications/opendisk.desktop <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=OpenDisk
-Comment=Облачные диски
+Comment=Cloud drives
 Exec=/opt/opendisk/bin/OpenDisk
 Icon=opendisk
 Terminal=false
 Categories=Utility;FileTools;
 DESKTOP
 
-# Значок берём из самого образа: jpackage кладёт его рядом с приложением.
+# Take the icon from the image itself: jpackage puts it next to the app.
 icon=\$(find %buildroot/opt/opendisk -name "*.png" | head -n 1)
 if [ -n "\$icon" ]; then
     mkdir -p %buildroot%_datadir/pixmaps
@@ -130,8 +130,13 @@ fi
 
 %changelog
 * Mon Jan 01 2026 OpenDisk contributors <noreply@example.com> $VERSION-alt1
-- Сборка для ALT Linux и Simply Linux
+- Build for ALT Linux and Simply Linux
 SPEC
+
+        # Диагностика на будущее: если rpmbuild снова скажет «это не spec»,
+        # первым делом надо знать, что в файле вообще оказалось.
+        echo "spec: $(wc -c < "$top/SPECS/opendisk.spec") байт, первые строки:"
+        head -4 "$top/SPECS/opendisk.spec"
 
         # Всё дерево сборки должно принадлежать тому, кто собирает: rpmbuild
         # пишет и в BUILD, и в RPMS.
