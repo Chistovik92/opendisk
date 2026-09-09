@@ -98,12 +98,13 @@ dependencies {
 // а предусловие — файл должен лежать в локальном репозитории до того, как
 // Gradle начнёт разрешать зависимости. Поэтому цепляем ко всему, что так или
 // иначе трогает classpath.
+// Перечислять префиксы имён оказалось бесполезным занятием: список задач AGP
+// длинный, и каждый раз находилась ещё одна, которая тоже трогает classpath
+// (сначала collectReleaseDependencies, потом checkDebugAndroidTestDuplicateClasses).
+// Проще сказать правду: этому модулю библиотека нужна для чего угодно, кроме
+// уборки за собой.
 tasks.configureEach {
-    if (name.startsWith("compile") || name.startsWith("assemble") ||
-        name.startsWith("bundle") || name.startsWith("merge") ||
-        name.startsWith("collect") || name.startsWith("lint") ||
-        name.startsWith("generate")
-    ) {
+    if (!name.startsWith("clean")) {
         dependsOn(":android-core:downloadLibrclone")
     }
 }

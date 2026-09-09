@@ -47,7 +47,7 @@ docker run --rm \
     /bin/sh -eu -c '
         # rpm-build в базовом образе ALT не стоит.
         apt-get update -y >/dev/null
-        apt-get install -y rpm-build >/dev/null
+        apt-get install -y rpm-build sudo >/dev/null
 
         # ALT принципиально не даёт собирать пакеты от root:
         # «current site policy disallows root to build packages». Это его
@@ -92,7 +92,7 @@ OpenDisk mounts cloud storage as a local virtual drive using rclone.
 
 %install
 mkdir -p %buildroot/opt/opendisk
-cp -a /tmp/rpm/BUILD/opendisk/. %buildroot/opt/opendisk/
+cp -a $top/BUILD/opendisk/. %buildroot/opt/opendisk/
 
 mkdir -p %buildroot%_bindir
 ln -s /opt/opendisk/bin/OpenDisk %buildroot%_bindir/opendisk
@@ -131,7 +131,7 @@ SPEC
         # пишет и в BUILD, и в RPMS.
         chown -R builder:builder /home/builder
 
-        su builder -c "rpmbuild --define \"_topdir $top\" -bb \"$top/SPECS/opendisk.spec\""
+        sudo -u builder rpmbuild --define "_topdir $top" -bb "$top/SPECS/opendisk.spec"
 
         mkdir -p /src/composeApp/build/distributions
         find "$top/RPMS" -name "*.rpm" -exec cp {} /src/composeApp/build/distributions/ \;
