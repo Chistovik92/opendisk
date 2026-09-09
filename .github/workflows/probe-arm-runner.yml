@@ -1,0 +1,55 @@
+name: Разведка: ARM-раннер Windows
+
+# Одноразовая проверка перед тем, как завязывать на ARM выпуск релиза.
+#
+# Вопрос простой и дорогой в цене ошибки: есть ли у этого репозитория
+# ARM-раннер Windows и какая на нём JDK. Если раннера нет, задача не падает,
+# а бесконечно висит в очереди — и вместе с ней повис бы весь релиз, потому
+# что публикация ждёт все платформы сразу.
+#
+# Поэтому сначала спрашиваем отдельно и дёшево, а уже потом чиним матрицу.
+# После того как ответ получен, workflow можно удалить.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-11-arm
+    timeout-minutes: 10
+    steps:
+      - name: Что это за машина
+        shell: pwsh
+        run: |
+          Write-Output "PROCESSOR_ARCHITECTURE = $env:PROCESSOR_ARCHITECTURE"
+          Write-Output "OS = $((Get-CimInstance Win32_OperatingSystem).Caption)"
+
+      # Главный вопрос после самого раннера: есть ли JDK 17 под ARM64.
+      # Temurin её под Windows/AArch64 не выпускает, поэтому пробуем Liberica.
+      - name: JDK 17 под ARM64
+        id: jdk
+        continue-on-error: true
+        uses: actions/setup-java@v4
+        with:
+          distribution: liberica
+          java-version: '17'
+          architecture: aarch64
+
+      - name: Что за JDK получилась
+        if: steps.jdk.outcome == 'success'
+        shell: pwsh
+        run: |
+          java -version
+          Write-Output "os.arch = $(java -XshowSettings:properties -version 2>&1 | Select-String 'os.arch')"
+
+      - name: Итог
+        shell: pwsh
+        run: |
+          if ("${{ steps.jdk.outcome }}" -eq "success") {
+            Write-Output "ARM-раннер есть, JDK 17 под ARM64 ставится — матрицу можно расширять."
+          } else {
+            Write-Output "ARM-раннер есть, но JDK 17 под ARM64 не встала — нужен другой поставщик."
+          }
