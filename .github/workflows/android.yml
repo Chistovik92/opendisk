@@ -12,6 +12,7 @@ on:
   push:
     paths:
       - 'android-core/**'
+      - 'android-app/**'
       - 'rclone-bridge/**'
       - '.github/workflows/android.yml'
 
@@ -42,7 +43,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Собрать модуль
-        run: ./gradlew -Popendisk.android=true :android-core:assembleDebugAndroidTest --no-daemon
+        run: ./gradlew -Popendisk.android=true :android-core:assembleDebugAndroidTest :android-app:assembleDebugAndroidTest --no-daemon
 
       - name: Инструментальные тесты
         uses: reactivecircus/android-emulator-runner@v2
@@ -53,11 +54,13 @@ jobs:
           target: default
           # Библиотека большая, старт с холодной загрузкой заметно дольше.
           disable-animations: true
-          script: ./gradlew -Popendisk.android=true :android-core:connectedDebugAndroidTest --no-daemon
+          script: ./gradlew -Popendisk.android=true :android-core:connectedDebugAndroidTest :android-app:connectedDebugAndroidTest --no-daemon
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: android-test-results
-          path: android-core/build/reports/androidTests/
+          path: |
+            android-core/build/reports/androidTests/
+            android-app/build/reports/androidTests/
           retention-days: 14

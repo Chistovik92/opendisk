@@ -45,4 +45,5 @@ val androidRequested = startParameter.projectProperties["opendisk.android"] == "
 
 if (androidRequested) {
     include(":android-core")
+    include(":android-app")
 }

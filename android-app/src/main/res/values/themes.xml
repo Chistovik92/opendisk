@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Тема берётся из самой системы, а не из библиотеки компонентов.
+
+  Всё, что видно на экране, рисует Compose со своей темой Material 3;
+  системная нужна ровно для одного — чтобы окно активности не мигало
+  чужим фоном до первого кадра. Тянуть ради этого com.google.android.material
+  было бы лишней зависимостью в несколько мегабайт.
+-->
+<resources>
+    <style name="Theme.OpenDisk" parent="@android:style/Theme.Material.Light.NoActionBar" />
+</resources>

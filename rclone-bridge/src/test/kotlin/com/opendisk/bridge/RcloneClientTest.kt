@@ -253,6 +253,53 @@ class RcloneClientTest {
     }
 
     @Test
+    fun `list returns folders first and then files by name`() = runBlocking {
+        val client = clientRespondingWith(
+            """{"list":[
+                {"Path":"отчёт.pdf","Name":"отчёт.pdf","Size":1024,"IsDir":false},
+                {"Path":"Яблоки","Name":"Яблоки","Size":-1,"IsDir":true},
+                {"Path":"акт.doc","Name":"акт.doc","Size":512,"IsDir":false},
+                {"Path":"архив","Name":"архив","Size":-1,"IsDir":true}
+            ]}""",
+        )
+
+        val entries = client.list("яндекс", "Документы")
+
+        // Папки вперёд, внутри групп — по алфавиту. rclone порядок не
+        // гарантирует, а на экране он должен быть предсказуемым.
+        assertEquals(
+            listOf("архив", "Яблоки", "акт.doc", "отчёт.pdf"),
+            entries.map { it.name },
+        )
+        assertTrue(entries.first().isDir)
+
+        val body = lastRequestBody()
+        assertContains(body, "\"fs\":\"яндекс:\"")
+        assertContains(body, "\"remote\":\"Документы\"")
+        assertEquals("$BASE_URL/operations/list", requests.last().url.toString())
+    }
+
+    @Test
+    fun `list of the root asks for an empty path`() = runBlocking {
+        val client = clientRespondingWith("""{"list":[]}""")
+
+        assertEquals(emptyList(), client.list("диск"))
+
+        assertContains(lastRequestBody(), "\"remote\":\"\"")
+    }
+
+    @Test
+    fun `folder size stays unknown instead of pretending to be zero`() = runBlocking {
+        val client = clientRespondingWith(
+            """{"list":[{"Path":"папка","Name":"папка","Size":-1,"IsDir":true}]}""",
+        )
+
+        // rclone отдаёт -1 — это «неизвестно», а не «пусто». Подменять его
+        // нулём значило бы показать человеку неверный размер.
+        assertEquals(-1, client.list("диск").single().size)
+    }
+
+    @Test
     fun `publicLink asks the right cloud for the right file`() = runBlocking {
         val client = clientRespondingWith("""{"url":"https://disk.yandex.ru/d/abc123"}""")
 

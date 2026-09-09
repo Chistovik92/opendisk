@@ -385,6 +385,73 @@ jobs:
 
           gh release upload "$tag" $files "$sums" --clobber
 
+  # Android собирается отдельной работой, а не строкой матрицы: у него нет
+  # ничего общего с десктопной упаковкой — ни jpackage, ни WiX, ни FUSE,
+  # а вместо одного установщика получается несколько apk по архитектурам.
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          architecture: x64
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Собрать apk
+        run: ./gradlew -Popendisk.android=true :android-app:assembleRelease --no-daemon
+
+      # Имена от AGP («android-app-arm64-v8a-release.apk») ничего не говорят
+      # человеку, который скачивает файл со страницы релиза.
+      - name: Назвать apk по-человечески
+        run: |
+          version=$(sed -n 's/^ *version = "\(.*\)"/\1/p' build.gradle.kts | head -1)
+          out=android-app/build/outputs/apk/release
+          mkdir -p build/android
+
+          # arm64 — все актуальные телефоны. universal — запасной вариант для
+          # тех, кто не знает архитектуру своего устройства: он вдвое больше,
+          # зато встанет куда угодно.
+          cp "$out/android-app-arm64-v8a-release.apk" "build/android/OpenDisk-$version-arm64.apk"
+          cp "$out/android-app-universal-release.apk" "build/android/OpenDisk-$version-universal.apk"
+          ls -la build/android/
+
+      - name: Артефакты сборки
+        uses: actions/upload-artifact@v4
+        with:
+          name: opendisk-Android
+          path: build/android/*.apk
+          if-no-files-found: error
+
+      - name: Выложить в релиз
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          # Тот же довод, что и у десктопных сборок: релиз создаёт тот, кто
+          # успел первым, и чужое создание считаем удачей.
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "OpenDisk $tag" --prerelease --draft \
+              --notes "Сборка $tag" ||
+              gh release view "$tag" >/dev/null 2>&1 ||
+              { echo "релиз $tag не создан и не найден" >&2; exit 1; }
+          fi
+
+          sums=SHA256SUMS-Android
+          : > "$sums"
+          for file in build/android/*.apk; do
+            (cd "$(dirname "$file")" && sha256sum "$(basename "$file")") >> "$GITHUB_WORKSPACE/$sums"
+          done
+          cat "$sums"
+
+          gh release upload "$tag" build/android/*.apk "$sums" --clobber
+
   # Публикация — отдельно от сборки и после всех трёх платформ сразу.
   #
   # Пока это делала каждая сборка сама, релиз становился видимым от первой
@@ -394,7 +461,7 @@ jobs:
   # одна сборка упала, эта работа не запустится, релиз останется черновиком и
   # пользователи его просто не увидят.
   publish:
-    needs: package
+    needs: [package, android]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -428,7 +495,8 @@ jobs:
               -x64.dmg -arm64.dmg \
               SHA256SUMS-Windows-x64 SHA256SUMS-Windows-arm64 \
               SHA256SUMS-Linux \
-              SHA256SUMS-macOS-x64 SHA256SUMS-macOS-arm64; do
+              SHA256SUMS-macOS-x64 SHA256SUMS-macOS-arm64 \
+              -arm64.apk -universal.apk SHA256SUMS-Android; do
             echo "$assets" | grep -q -- "$kind" || missing="$missing $kind"
           done
 

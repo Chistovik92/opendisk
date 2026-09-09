@@ -127,7 +127,11 @@ fi
 - Сборка для ALT Linux и Simply Linux
 SPEC
 
-        rpmbuild --define "_topdir $top" -bb "$top/SPECS/opendisk.spec"
+        # Всё дерево сборки должно принадлежать тому, кто собирает: rpmbuild
+        # пишет и в BUILD, и в RPMS.
+        chown -R builder:builder /home/builder
+
+        su builder -c "rpmbuild --define \"_topdir $top\" -bb \"$top/SPECS/opendisk.spec\""
 
         mkdir -p /src/composeApp/build/distributions
         find "$top/RPMS" -name "*.rpm" -exec cp {} /src/composeApp/build/distributions/ \;

@@ -312,6 +312,49 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
     suspend fun about(remoteName: String): AboutInfo =
         call("operations/about", buildJsonObject { put("fs", "$remoteName:") })
 
+    // --- Содержимое облака --------------------------------------------------
+
+    /**
+     * Файл или папка внутри облака.
+     *
+     * Поля названы как в ответе rclone, чтобы не расходиться с его
+     * документацией. Размер у папок rclone отдаёт как -1 — считать это нулём
+     * было бы враньём, поэтому оставляем как есть и не показываем.
+     */
+    @Serializable
+    data class Entry(
+        @SerialName("Path") val path: String = "",
+        @SerialName("Name") val name: String = "",
+        @SerialName("Size") val size: Long = -1,
+        @SerialName("IsDir") val isDir: Boolean = false,
+        @SerialName("ModTime") val modTime: String = "",
+    )
+
+    @Serializable
+    private data class ListResponse(val list: List<Entry> = emptyList())
+
+    /**
+     * Содержимое папки в облаке.
+     *
+     * Без рекурсии намеренно: на большом облаке обход целиком — это десятки
+     * тысяч запросов, а нужен всегда один уровень, тот, который человек сейчас
+     * видит на экране.
+     *
+     * @param remotePath путь внутри облака; пустая строка — корень.
+     */
+    suspend fun list(remoteName: String, remotePath: String = ""): List<Entry> {
+        val response: ListResponse = call(
+            "operations/list",
+            buildJsonObject {
+                put("fs", "$remoteName:")
+                put("remote", remotePath)
+            },
+        )
+        // Папки вперёд, дальше по алфавиту — так же, как в любом файловом
+        // менеджере. rclone порядок не гарантирует.
+        return response.list.sortedWith(compareByDescending<Entry> { it.isDir }.thenBy { it.name.lowercase() })
+    }
+
     // --- Ссылки на файлы ----------------------------------------------------
 
     /**

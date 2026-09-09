@@ -1,5 +1,6 @@
 package com.opendisk.android
 
+import android.system.Os
 import com.opendisk.bridge.RcloneTransport
 import com.opendisk.bridge.encodeRcloneRequest
 import com.opendisk.bridge.parseRcloneResponse
@@ -7,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import org.rclone.gomobile.Gomobile
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -62,6 +64,29 @@ class LibrcloneTransport private constructor() : RcloneTransport {
 
     companion object {
         private val initialized = AtomicBoolean(false)
+
+        /**
+         * Куда rclone положит свой конфиг с облаками.
+         *
+         * Задавать обязательно и до первого обращения к [get]. Умолчание
+         * rclone — `$HOME/.config/rclone/rclone.conf`, а на Android HOME
+         * указывает в место, куда приложению писать нельзя: конфиг молча
+         * не сохранялся бы, и добавленное облако исчезало при перезапуске.
+         *
+         * Через переменную окружения, потому что настройка читается внутри Go
+         * при инициализации, а не передаётся вызовом: RC API умеет менять
+         * почти всё, кроме пути к собственному конфигу.
+         */
+        @Synchronized
+        fun useConfig(file: File) {
+            check(instance == null) {
+                "путь к конфигу задаётся до первого обращения к rclone"
+            }
+            file.parentFile?.mkdirs()
+            Os.setenv(CONFIG_ENV, file.absolutePath, true)
+        }
+
+        private const val CONFIG_ENV = "RCLONE_CONFIG"
 
         @Volatile
         private var instance: LibrcloneTransport? = null
