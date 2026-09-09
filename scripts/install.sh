@@ -34,22 +34,92 @@ fi
 
 arch="$(uname -m)"
 case "$arch" in
-    x86_64|amd64) ;;
-    *) fail "поддерживается только x86_64, а у вас $arch.
-Сборок под другие архитектуры пока нет — см. https://github.com/$REPO/releases" ;;
+    x86_64|amd64) arch_deb="amd64"; arch_rpm="x86_64"; arch_appimage="x86_64" ;;
+    *) fail "под Linux пока собирается только x86_64, а у вас $arch.
+Сборки под ARM есть для Windows и macOS — см. https://github.com/$REPO/releases" ;;
 esac
 
-# Формат пакета выбираем по тому, что реально есть в системе, а не по
-# названию дистрибутива: производных у Debian и Fedora слишком много.
-if command -v apt-get >/dev/null 2>&1 || command -v dpkg >/dev/null 2>&1; then
-    format="deb"
-elif command -v dnf >/dev/null 2>&1 || command -v zypper >/dev/null 2>&1 ||
-     command -v yum >/dev/null 2>&1 || command -v rpm >/dev/null 2>&1; then
-    format="rpm"
+# --- Какой дистрибутив ------------------------------------------------------
+#
+# Пакетного менеджера мало. У ALT Linux (и Simply Linux, который на нём
+# построен) есть и rpm, и своя система имён зависимостей: пакет, собранный для
+# Fedora, там либо не ставится, либо тянет не то. Ровно поэтому дистрибутив
+# определяется отдельно от формата пакета.
+#
+# /etc/os-release — стандарт systemd, есть во всех живых дистрибутивах.
+# ID_LIKE перечисляет предков: у Ubuntu это debian, у Rocky — rhel fedora.
+#
+# Пути вынесены в переменные, чтобы определение дистрибутива можно было
+# прогнать на файлах настоящих систем, не имея самих систем под рукой:
+# scripts/test-install-detection.sh делает ровно это.
+os_release="${OPENDISK_OS_RELEASE:-/etc/os-release}"
+alt_marker="${OPENDISK_ALT_MARKER:-/etc/altlinux-release}"
+
+# Читаем в подоболочке, а не через обычный `.` в текущей.
+#
+# os-release определяет среди прочего VERSION — а у нас это уже версия
+# OpenDisk, выбранная выше. Обычное сование затёрло бы её версией
+# дистрибутива, и скрипт пошёл бы искать релиз «22.04.3 LTS».
+read_os_release() {
+    [ -r "$os_release" ] || return 0
+    # shellcheck disable=SC1090,SC1091
+    ( . "$os_release" >/dev/null 2>&1; eval "printf '%s' \"\${$1:-}\"" )
+}
+
+distro_id="$(read_os_release ID)"
+distro_like="$(read_os_release ID_LIKE)"
+distro_name="$(read_os_release PRETTY_NAME)"
+[ -n "$distro_name" ] || distro_name="$(read_os_release NAME)"
+
+# ALT определяется первым и по нескольким приметам сразу: у продуктов на его
+# основе ID бывает и altlinux, и собственный (Simply Linux, Альт Рабочая
+# станция), а /etc/altlinux-release есть у всех.
+is_alt=no
+case "$distro_id $distro_like" in
+    *altlinux*|*alt-*|*simply*) is_alt=yes ;;
+esac
+if [ -e "$alt_marker" ]; then is_alt=yes; fi
+
+if [ "$is_alt" = yes ]; then
+    family="altlinux"
 else
-    fail "не нашёл ни apt/dpkg, ни dnf/yum/zypper/rpm.
-Скачайте пакет вручную: https://github.com/$REPO/releases"
+    case "$distro_id" in
+        debian|ubuntu|linuxmint|astra|elementary|pop|devuan|kali|raspbian) family="debian" ;;
+        fedora|rhel|centos|rocky|almalinux|ol|redos|rosa) family="rpm" ;;
+        opensuse*|sles|suse) family="rpm" ;;
+        *)
+            # Незнакомый дистрибутив — смотрим, на что он похож.
+            case "$distro_like" in
+                *debian*|*ubuntu*) family="debian" ;;
+                *rhel*|*fedora*|*suse*|*mandriva*) family="rpm" ;;
+                *)
+                    # os-release не помог: последний рубеж — что стоит в системе.
+                    if command -v apt-get >/dev/null 2>&1 || command -v dpkg >/dev/null 2>&1; then
+                        family="debian"
+                    elif command -v dnf >/dev/null 2>&1 || command -v zypper >/dev/null 2>&1 ||
+                         command -v yum >/dev/null 2>&1 || command -v rpm >/dev/null 2>&1; then
+                        family="rpm"
+                    else
+                        family="unknown"
+                    fi
+                    ;;
+            esac
+            ;;
+    esac
 fi
+
+case "$family" in
+    debian)   format="deb" ;;
+    altlinux) format="rpm-alt" ;;
+    rpm)      format="rpm" ;;
+    *)
+        # Ни deb, ни rpm — но приложение всё равно можно запустить: AppImage
+        # ни от какого пакетного менеджера не зависит.
+        format="appimage"
+        ;;
+esac
+
+say "Система: ${distro_name:-неизвестная} ($arch) — ставлю вариант «$format»"
 
 if [ "$(id -u)" -eq 0 ]; then
     sudo=""
@@ -85,11 +155,28 @@ fi
 
 number="${VERSION#v}"
 case "$format" in
-    deb) asset="opendisk_${number}-1_amd64.deb" ;;
-    rpm) asset="opendisk-${number}-1.x86_64.rpm" ;;
+    deb)      asset="opendisk_${number}-1_${arch_deb}.deb" ;;
+    # Своя сборка под ALT: у неё другие имена зависимостей, и пакет для Fedora
+    # там либо не ставится, либо тянет не то. Суффикс alt1 — принятая в ALT
+    # пометка релиза сборки.
+    rpm-alt)  asset="opendisk-${number}-alt1.${arch_rpm}.rpm" ;;
+    rpm)      asset="opendisk-${number}-1.${arch_rpm}.rpm" ;;
+    appimage) asset="OpenDisk-${number}-${arch_appimage}.AppImage" ;;
 esac
 
-say "Ставлю OpenDisk $VERSION ($format)"
+# Посмотреть, что скрипт выберет, ничего не устанавливая:
+#
+#   OPENDISK_DRY_RUN=1 OPENDISK_VERSION=v0.5.0 sh install.sh
+#
+# Нужно и само по себе — «а что вообще поставится на эту машину?» — и для
+# проверки выбора пакета на файлах чужих дистрибутивов, см.
+# scripts/test-install-detection.sh.
+if [ -n "${OPENDISK_DRY_RUN:-}" ]; then
+    printf 'family=%s format=%s asset=%s\n' "$family" "$format" "$asset"
+    exit 0
+fi
+
+say "Ставлю OpenDisk $VERSION ($asset)"
 
 # --- Скачивание -------------------------------------------------------------
 
@@ -99,10 +186,27 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 
 base="https://github.com/$REPO/releases/download/$VERSION"
 say "Скачиваю $asset..."
-download "$base/$asset" "$tmp/$asset" ||
-    fail "не удалось скачать $base/$asset
-Возможно, для этой версии нет пакета $format. Список файлов:
+if ! download "$base/$asset" "$tmp/$asset"; then
+    # Подходящего пакета в этом релизе нет.
+    #
+    # Так бывает у старых версий, где сборки под этот дистрибутив ещё не было.
+    # Сдаваться рано: AppImage не зависит ни от какого пакетного менеджера и
+    # работает везде — это честный запасной вариант, а не заглушка. Но сказать
+    # об этом надо прямо, чтобы человек понимал, что получил.
+    if [ "$format" != "appimage" ]; then
+        say "В релизе $VERSION нет пакета «$format» — пробую AppImage."
+        format="appimage"
+        asset="OpenDisk-${number}-${arch_appimage}.AppImage"
+        download "$base/$asset" "$tmp/$asset" ||
+            fail "не удалось скачать ни пакет для вашего дистрибутива, ни AppImage.
+Посмотрите, что есть в релизе:
 https://github.com/$REPO/releases/tag/$VERSION"
+    else
+        fail "не удалось скачать $base/$asset
+Список файлов релиза:
+https://github.com/$REPO/releases/tag/$VERSION"
+    fi
+fi
 
 # Контрольную сумму проверяем, если она опубликована: у старых релизов её нет,
 # и это не повод отказываться ставить.
@@ -124,12 +228,24 @@ fi
 # --- Установка --------------------------------------------------------------
 
 say "Устанавливаю (потребуются права администратора)..."
-if [ "$format" = "deb" ]; then
+if [ "$format" = "appimage" ]; then
+    # AppImage — не пакет: ставить нечего, надо просто положить файл и сделать
+    # его исполняемым. Пакетный менеджер здесь не участвует вовсе, поэтому этот
+    # путь и работает там, где ни deb, ни rpm не подходят.
+    $sudo install -m 0755 "$tmp/$asset" /usr/local/bin/OpenDisk
+elif [ "$format" = "deb" ]; then
     if command -v apt-get >/dev/null 2>&1; then
         # apt умеет доставить зависимости, dpkg — нет.
         $sudo apt-get install -y "$tmp/$asset"
     else
         $sudo dpkg -i "$tmp/$asset"
+    fi
+elif [ "$format" = "rpm-alt" ]; then
+    # В ALT пакетный менеджер — apt поверх rpm, и зависимости доставляет он же.
+    if command -v apt-get >/dev/null 2>&1; then
+        $sudo apt-get install -y "$tmp/$asset"
+    else
+        $sudo rpm -Uvh "$tmp/$asset"
     fi
 else
     if command -v dnf >/dev/null 2>&1; then
@@ -165,13 +281,18 @@ if [ ! -e /dev/fuse ]; then
     fi
 fi
 
-if [ "$format" = "deb" ]; then
-    remove_command="apt-get remove opendisk"
-else
-    remove_command="rpm -e opendisk"
-fi
+case "$format" in
+    deb|rpm-alt) remove_command="apt-get remove opendisk" ;;
+    appimage)    remove_command="rm /usr/local/bin/OpenDisk" ;;
+    *)           remove_command="rpm -e opendisk" ;;
+esac
 
 say ""
-say "Запуск: найдите OpenDisk в меню приложений"
-say "        или запустите /opt/opendisk/bin/OpenDisk"
+if [ "$format" = "appimage" ]; then
+    say "Запуск: OpenDisk (файл лежит в /usr/local/bin)"
+    say "        ярлыка в меню нет: AppImage ставится мимо пакетного менеджера"
+else
+    say "Запуск: найдите OpenDisk в меню приложений"
+    say "        или запустите /opt/opendisk/bin/OpenDisk"
+fi
 say "Удалить: $sudo $remove_command"

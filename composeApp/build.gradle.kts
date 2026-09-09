@@ -70,6 +70,7 @@ val rcloneVersion = "1.75.1"
 // сверяйте с https://downloads.rclone.org/v<version>/SHA256SUMS
 val rcloneChecksums = mapOf(
     "windows-amd64" to "200eb602c126d82aa38b51e0f6b9ae837473ff99b51278d3f6f837574c494d6e",
+    "windows-arm64" to "c3c6cd0424dd49076ad179c30c3f9e5cde2c004ec07ea9fe6911f23e32eafe0f",
     "linux-amd64" to "982b5aa772841168f8e380f139e9e787b2a105403e32b94da8676a0e1c0a13ab",
     "linux-arm64" to "03f2504174034b6d004152ed7369251c9a9ec1f7e0836eda420f5c7a5ec0dff9",
     "osx-amd64" to "29253d0288b8fbbac46baad6e5f6add6cb01d462c79f10805bbd4631c4cdf82c",
@@ -353,6 +354,79 @@ val packageWixMsi by tasks.registering {
         )
 
         logger.lifecycle("Установщик собран: ${msi.absolutePath}")
+    }
+}
+
+/**
+ * Архитектура сборки в том виде, в каком она попадает в имя установщика.
+ *
+ * jpackage и Compose собирают только под ту машину, на которой идут, поэтому
+ * достаточно посмотреть на неё саму: под ARM собирает ARM-раннер.
+ */
+val installerArch: String = when (System.getProperty("os.arch").lowercase()) {
+    "aarch64", "arm64" -> "arm64"
+    else -> "x64"
+}
+
+val packageWixExe by tasks.registering {
+    group = "compose desktop"
+    description = "Собирает .exe: обёртку Burn поверх нашего MSI"
+
+    dependsOn(packageWixMsi, ":unzipWix")
+
+    val bundleWxs = layout.projectDirectory.file("wix/Bundle.wxs")
+    val licenseRtf = layout.projectDirectory.file("wix/License.rtf")
+    val iconFile = layout.projectDirectory.file("icons/opendisk.ico")
+    val version = project.version.toString()
+    val arch = installerArch
+    val tools = wixDir
+    val work = layout.buildDirectory.dir("wixBundleBuild")
+    val output = wixOutputDir
+
+    inputs.file(bundleWxs)
+    inputs.file(licenseRtf)
+    inputs.property("version", version)
+    inputs.property("arch", arch)
+    outputs.file(output.map { it.file("OpenDisk-$version-$arch.exe") })
+
+    doLast {
+        val toolsDir = tools.get().asFile
+        val workDir = work.get().asFile
+        workDir.deleteRecursively()
+        workDir.mkdirs()
+
+        val msi = File(output.get().asFile, "OpenDisk-$version.msi")
+        check(msi.isFile) { "MSI для обёртки не собран: $msi" }
+
+        runWixTool(
+            File(toolsDir, "candle.exe").absolutePath,
+            "-nologo",
+            // Загрузчик Burn всегда 32-битный — он лишь распаковывает и
+            // запускает MSI, и на любой Windows это работает. Разрядность
+            // самого приложения задаётся тем, что лежит внутри MSI.
+            "-arch", "x86",
+            "-dVersion=$version",
+            "-dLicenseRtf=${licenseRtf.asFile.absolutePath}",
+            "-dIconFile=${iconFile.asFile.absolutePath}",
+            "-dMsiFile=${msi.absolutePath}",
+            "-ext", "WixBalExtension",
+            "-out", workDir.absolutePath + File.separator,
+            bundleWxs.asFile.absolutePath,
+        )
+
+        val exe = File(output.get().asFile, "OpenDisk-$version-$arch.exe")
+        runWixTool(
+            File(toolsDir, "light.exe").absolutePath,
+            "-nologo",
+            // Тот же довод, что и у MSI: без явной культуры строки установщика
+            // собираются в кодовой странице 1252 и кириллица всё ломает.
+            "-cultures:ru-ru",
+            "-ext", "WixBalExtension",
+            "-out", exe.absolutePath,
+            File(workDir, "Bundle.wixobj").absolutePath,
+        )
+
+        logger.lifecycle("Установщик .exe собран: ${exe.absolutePath}")
     }
 }
 

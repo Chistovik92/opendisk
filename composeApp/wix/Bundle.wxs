@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Установщик OpenDisk в виде .exe.
+
+  Это обёртка Burn поверх нашего же MSI, а не другой установщик. MSI никуда не
+  делся: в нём вся выстраданная логика — закрытие работающего приложения при
+  обновлении, стабильные GUID-ы компонентов, уборка за собой при удалении, — и
+  переписывать её ради смены расширения файла было бы напрасным риском. Здесь
+  MSI просто уезжает внутрь .exe и ставится молча, а всё, что видит человек,
+  показывает Burn.
+
+  Зачем вообще .exe: MSI Windows и браузеры встречают куда подозрительнее, а
+  привычный «установщик» для большинства — именно exe.
+
+  Что перенесено на уровень Burn, потому что UI у MSI при таком запуске не
+  показывается:
+    - лицензия,
+    - выбор каталога установки (кнопка «Options»),
+    - галка «запустить после установки» — она появляется из-за LaunchTarget.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:bal="http://schemas.microsoft.com/wix/BalExtension">
+
+  <Bundle Name="OpenDisk"
+          Version="$(var.Version)"
+          Manufacturer="OpenDisk contributors"
+          IconSourceFile="$(var.IconFile)"
+          UpgradeCode="C9C80990-757B-4949-B2F7-7192E6281B4F">
+
+    <!--
+      Каталог установки выбирается здесь, а не в MSI: его собственный диалог
+      выбора при установке из пакета не показывается. Значение уезжает в MSI
+      свойством INSTALLDIR — тем самым, которым он и пользуется.
+
+      Завершающий слэш обязателен: INSTALLDIR у Windows Installer — каталог,
+      и без слэша пути вида [INSTALLDIR]OpenDisk.exe склеились бы неправильно.
+    -->
+    <Variable Name="InstallFolder"
+              Type="string"
+              Value="[ProgramFiles64Folder]OpenDisk\"
+              bal:Overridable="yes" />
+
+    <!--
+      Из-за этой переменной на последней странице появляется галка запуска.
+      Ради неё всё и затевалось в 0.3.0: после установки приложение должно
+      запускаться само, а не искаться в меню.
+    -->
+    <Variable Name="LaunchTarget" Value="[InstallFolder]OpenDisk.exe" />
+
+    <!--
+      Готовый загрузчик WiX, а не своя тема: язык окна выбирается ключом
+      -cultures у light, и русский среди них уже есть — своё оформление
+      означало бы свой перевод всех строк и свою же ответственность за него.
+    -->
+    <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.RtfLicense">
+      <bal:WixStandardBootstrapperApplication
+          LicenseFile="$(var.LicenseRtf)"
+          ShowVersion="yes" />
+    </BootstrapperApplicationRef>
+
+    <Chain>
+      <!--
+        Vital и Permanent по умолчанию: пакет один, и если он не поставился,
+        ставить дальше нечего. DisplayInternalUI не включаем намеренно —
+        два окна установщика подряд выглядели бы поломкой.
+      -->
+      <MsiPackage Id="OpenDiskMsi"
+                  SourceFile="$(var.MsiFile)"
+                  Compressed="yes"
+                  DisplayInternalUI="no"
+                  Vital="yes">
+        <MsiProperty Name="INSTALLDIR" Value="[InstallFolder]" />
+      </MsiPackage>
+    </Chain>
+  </Bundle>
+</Wix>
