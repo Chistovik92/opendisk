@@ -23,28 +23,58 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows: .exe, а не .msi.
+          #
+          # Это обёртка Burn поверх нашего же MSI — вся логика установщика
+          # (закрытие работающего приложения, стабильные GUID-ы, уборка при
+          # удалении) осталась в нём, наружу уезжает exe. См. wix/Bundle.wxs.
           - os: windows-latest
-            name: Windows
-            # Свой установщик на WiX, а не jpackage: только он умеет закрывать
-            # работающее приложение при обновлении. См. composeApp/wix/Product.wxs.
-            tasks: packageWixMsi
-            artifacts: composeApp/build/distributions/*.msi
+            name: Windows-x64
+            jdk: temurin
+            jdkArch: x64
+            tasks: packageWixExe
+            artifacts: composeApp/build/distributions/*.exe
+          # ARM-раннер Windows проверен отдельно перед тем, как заводить сюда:
+          # он существует, и JDK 17 под aarch64 на нём ставится — но только
+          # не Temurin, у него сборок под Windows/AArch64 нет.
+          - os: windows-11-arm
+            name: Windows-arm64
+            jdk: liberica
+            jdkArch: aarch64
+            tasks: packageWixExe
+            artifacts: composeApp/build/distributions/*.exe
           # 22.04, а не latest: на 24.04 jpackage прописывает зависимости
           # с суффиксом t64 (libasound2t64, libpng16-16t64) — таких пакетов нет
-          # ни в Debian 12, ни в Ubuntu 22.04, ни в ALT, и установка там просто
+          # ни в Debian 12, ни в Ubuntu 22.04, и установка там просто
           # не проходит. Пакеты 24.04 объявляют Provides на старые имена,
           # поэтому сборка на 22.04 ставится и туда, и сюда.
           - os: ubuntu-22.04
             name: Linux
+            jdk: temurin
+            jdkArch: x64
             tasks: packageDeb packageRpm createDistributable
             artifacts: |
               composeApp/build/compose/binaries/main/deb/*.deb
               composeApp/build/compose/binaries/main/rpm/*.rpm
               composeApp/build/distributions/*.AppImage
+              composeApp/build/distributions/*.rpm
           # macOS собирается, но никем не проверялась: Mac для проверки нет.
           # Пакет всё равно полезнее, чем его отсутствие.
+          #
+          # Две архитектуры, потому что Mac бывают и те, и другие: macos-13 —
+          # последний раннер на Intel, macos-latest — Apple Silicon.
+          - os: macos-13
+            name: macOS-x64
+            arch: x64
+            jdk: temurin
+            jdkArch: x64
+            tasks: packageDmg
+            artifacts: composeApp/build/compose/binaries/main/dmg/*.dmg
           - os: macos-latest
-            name: macOS
+            name: macOS-arm64
+            arch: arm64
+            jdk: temurin
+            jdkArch: aarch64
             tasks: packageDmg
             artifacts: composeApp/build/compose/binaries/main/dmg/*.dmg
 
@@ -57,8 +87,13 @@ jobs:
       - name: JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          # Архитектура задаётся явно для каждой платформы, а не угадывается:
+          # на Apple Silicon и на ARM-раннере Windows умолчание привело бы
+          # к x64-сборке JDK под эмуляцией, а собранное ею приложение было бы
+          # x64 при ARM-овом имени файла.
+          distribution: ${{ matrix.jdk }}
           java-version: '17'
+          architecture: ${{ matrix.jdkArch }}
 
       - name: Кэш Gradle
         uses: actions/cache@v4
@@ -258,6 +293,33 @@ jobs:
             *) echo "ОШИБКА: rclone в AppImage не исполняемый" >&2; exit 1 ;;
           esac
 
+      # Отдельный пакет для ALT Linux и Simply Linux.
+      #
+      # ALT — не производная Fedora и не совместим с ней по именам пакетов и
+      # зависимостей, поэтому rpm от jpackage там либо не ставится, либо тянет
+      # не то. Собираем в контейнере самого ALT: только у него правильные
+      # rpmbuild и генератор зависимостей. Java внутри не нужна — образ
+      # приложения со своей JRE уже собран этой сборкой.
+      - name: Пакет для ALT Linux
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          version=$(sed -n 's/^ *version = "\(.*\)"/\1/p' build.gradle.kts | head -1)
+          sh scripts/build-alt-rpm.sh "$version"
+
+      # У обеих сборок macOS jpackage выдаёт файл с одним и тем же именем,
+      # и в релизе они затёрли бы друг друга. Разводим по архитектурам —
+      # человеку с Intel-маком нужен свой файл, а не «повезёт-не-повезёт».
+      - name: Развести .dmg по архитектурам
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          dmg=$(ls composeApp/build/compose/binaries/main/dmg/*.dmg)
+          base=$(basename "$dmg" .dmg)
+          case "$base" in
+            *-x64|*-arm64) echo "уже с архитектурой: $base"; exit 0 ;;
+          esac
+          mv "$dmg" "composeApp/build/compose/binaries/main/dmg/${base}-${{ matrix.arch }}.dmg"
+          ls -la composeApp/build/compose/binaries/main/dmg/
+
       - name: Артефакты сборки
         uses: actions/upload-artifact@v4
         with:
@@ -303,7 +365,7 @@ jobs:
             composeApp/build/compose/binaries/main/rpm \
             composeApp/build/compose/binaries/main/dmg \
             -maxdepth 1 -type f \
-            \( -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \
+            \( -name '*.exe' -o -name '*.deb' -o -name '*.rpm' \
                -o -name '*.dmg' -o -name '*.AppImage' \) \
             2>/dev/null || true)
           if [ -z "$files" ]; then
@@ -347,13 +409,26 @@ jobs:
           assets=$(gh release view "$tag" --json assets -q '.assets[].name')
           echo "В релизе $tag сейчас:"; echo "$assets" | sed 's/^/  /'
 
-          # Каждый установщик проверяется по расширению, а не по полному имени:
-          # версия в имени своя у каждой платформы (у .dmg мажорная единица,
-          # потому что macOS не принимает ноль), и захардкодить их значило бы
-          # ломать проверку при каждом выпуске.
+          # Проверяем по хвосту имени, а не по полному: версия в имени своя
+          # у каждой платформы (у .dmg мажорная единица, потому что macOS
+          # не принимает ноль), и полные имена пришлось бы править каждый выпуск.
+          #
+          # Архитектуры перечислены отдельно намеренно. Проверки «есть хоть
+          # один .exe» не хватает: если упадёт только ARM-сборка, релиз
+          # с одним x64 прошёл бы как полный — а человек с ARM-ноутбуком
+          # остался бы ни с чем.
+          #
+          # Оба rpm тоже разведены: alt1 — сборка для ALT и Simply Linux,
+          # у которых свои имена зависимостей, а -1 — для Fedora и прочих.
+          # Один вместо другого поставить нельзя.
           missing=""
-          for kind in .msi .deb .rpm .AppImage .dmg \
-                      SHA256SUMS-Windows SHA256SUMS-Linux SHA256SUMS-macOS; do
+          for kind in \
+              -x64.exe -arm64.exe \
+              _amd64.deb -1.x86_64.rpm alt1.x86_64.rpm -x86_64.AppImage \
+              -x64.dmg -arm64.dmg \
+              SHA256SUMS-Windows-x64 SHA256SUMS-Windows-arm64 \
+              SHA256SUMS-Linux \
+              SHA256SUMS-macOS-x64 SHA256SUMS-macOS-arm64; do
             echo "$assets" | grep -q -- "$kind" || missing="$missing $kind"
           done
 
