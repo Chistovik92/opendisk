@@ -249,6 +249,17 @@ class RcloneControllerTest {
         config.lineSequence().first { it.trimStart().startsWith("pass") }.trim()
 
     /**
+     * Строки на том языке, который выберет сам контроллер.
+     *
+     * Сверять сообщения с русским текстом напрямую нельзя: приложение
+     * двуязычное, язык по умолчанию берётся из системы, и на англоязычной
+     * машине те же самые сообщения приходят по-английски. Именно на этом
+     * тесты ссылок упали в CI, пройдя на машине разработчика.
+     */
+    private fun expectedStrings(): Strings =
+        Strings.of(Language.fromCode(settings.global().language))
+
+    /**
      * Умеет ли облако ссылки — спрашиваем у самого rclone, а не по типу облака
      * из таблицы в коде. Локальный бэкенд не умеет, и кнопки быть не должно.
      */
@@ -293,7 +304,7 @@ class RcloneControllerTest {
         val link = state.fileLink!!
         assertNull(link.url)
         assertEquals("", link.cloud, "облако не должно было найтись")
-        assertContains(link.error.orEmpty(), "не на подключённом")
+        assertEquals(expectedStrings().linkFileNotOnDisk, link.error)
 
         controller.dismissLink()
         assertNull(awaitState(controller) { it.fileLink == null }.fileLink)
@@ -348,7 +359,7 @@ class RcloneControllerTest {
         assertEquals("отчёт.txt", link.remotePath)
         // Локальный бэкенд ссылок не умеет, и это должно быть сказано словами.
         assertNull(link.url)
-        assertContains(link.error.orEmpty(), "не умеет выдавать ссылки")
+        assertEquals(expectedStrings().linkNotSupported("данные"), link.error)
 
         controller.unmount("данные")
     }
