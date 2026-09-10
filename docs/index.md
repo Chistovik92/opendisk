@@ -22,8 +22,8 @@ description: Открытый клиент облачных дисков для 
 
 | Система | Файл |
 |---|---|
-| Windows 10/11, обычный компьютер | `OpenDisk-*-x64.exe` |
-| Windows 11 на ARM (Snapdragon и подобные) | `OpenDisk-*-arm64.exe` |
+| Windows 10/11 | `OpenDisk-*-x64.exe` |
+| Windows 11 на ARM (Snapdragon и подобные) | пока `OpenDisk-*-x64.exe` под эмуляцией — своя сборка вернётся в 0.5.3 |
 | Debian, Ubuntu, Mint, Astra | `opendisk_*_amd64.deb` |
 | ALT Linux, Simply Linux | `opendisk-*-alt1.x86_64.rpm` |
 | Fedora, RHEL, RED OS, openSUSE | `opendisk-*-1.x86_64.rpm` |
@@ -33,7 +33,7 @@ description: Открытый клиент облачных дисков для 
 | Android | `OpenDisk-*-arm64.apk` или `-universal.apk` |
 
 Каждый установщик перед выпуском ставится на настоящую систему: Windows
-x64 и ARM — с обновлением со старых версий, запуском и удалением; Linux —
+— с обновлением со старых версий, запуском и удалением; Linux —
 в чистых Debian, Ubuntu, Fedora, openSUSE и ALT тем самым скриптом, что
 ниже; Android — на эмуляторе.
 

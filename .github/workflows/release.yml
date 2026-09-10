@@ -34,15 +34,24 @@ jobs:
             jdkArch: x64
             tasks: packageWixExe
             artifacts: composeApp/build/distributions/*.exe
-          # ARM-раннер Windows проверен отдельно перед тем, как заводить сюда:
-          # он существует, и JDK 17 под aarch64 на нём ставится — но только
-          # не Temurin, у него сборок под Windows/AArch64 нет.
-          - os: windows-11-arm
-            name: Windows-arm64
-            jdk: liberica
-            jdkArch: aarch64
-            tasks: packageWixExe
-            artifacts: composeApp/build/distributions/*.exe
+          # Windows на ARM в 0.5.2 не выпускается — вернётся в 0.5.3.
+          #
+          # Сборка собирается, но на ARM-раннере её лаунчер не завершался даже
+          # с --cleanup, а обновление поверх 0.5.0 висело, пока его ждал
+          # установщик. Сломана ли сборка или это сеанс раннера, висящий на
+          # экране первой настройки Windows, — выясняется пробой запуска
+          # (scripts/probe-windows-launch.ps1). Непроверенный установщик
+          # выпускать не стали.
+          #
+          # ARM-раннер Windows существует, и JDK 17 под aarch64 на нём ставится
+          # — но только не Temurin, у него сборок под Windows/AArch64 нет.
+          #
+          # - os: windows-11-arm
+          #   name: Windows-arm64
+          #   jdk: liberica
+          #   jdkArch: aarch64
+          #   tasks: packageWixExe
+          #   artifacts: composeApp/build/distributions/*.exe
           # 22.04, а не latest: на 24.04 jpackage прописывает зависимости
           # с суффиксом t64 (libasound2t64, libpng16-16t64) — таких пакетов нет
           # ни в Debian 12, ни в Ubuntu 22.04, и установка там просто
@@ -558,12 +567,16 @@ jobs:
           # --cleanup и ждут его, а он в таком сеансе не завершается. Остаются
           # чистая установка и проба запуска, которая отличает поломку сборки
           # от особенности раннера (scripts/probe-windows-launch.ps1).
-          - os: windows-11-arm
-            arch: arm64
-            jdk: liberica
-            jdkArch: aarch64
-            requireAppStart: 'false'
-            upgradeChain: 'false'
+          #
+          # В 0.5.2 ARM-сборки нет (см. матрицу сборки выше) — вернуть вместе
+          # с ней в 0.5.3:
+          #
+          # - os: windows-11-arm
+          #   arch: arm64
+          #   jdk: liberica
+          #   jdkArch: aarch64
+          #   requireAppStart: 'false'
+          #   upgradeChain: 'false'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -738,10 +751,10 @@ jobs:
           # Один вместо другого поставить нельзя.
           missing=""
           for kind in \
-              -x64.exe -arm64.exe \
+              -x64.exe \
               _amd64.deb -1.x86_64.rpm alt1.x86_64.rpm -x86_64.AppImage \
               -x64.dmg -arm64.dmg \
-              SHA256SUMS-Windows-x64 SHA256SUMS-Windows-arm64 \
+              SHA256SUMS-Windows-x64 \
               SHA256SUMS-Linux \
               SHA256SUMS-macOS-x64 SHA256SUMS-macOS-arm64 \
               -arm64.apk -universal.apk SHA256SUMS-Android; do
