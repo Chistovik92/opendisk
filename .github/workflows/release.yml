@@ -420,9 +420,17 @@ jobs:
           OPENDISK_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           OPENDISK_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          # Переводы строк из значений секретов вычищаем. Секрет, заведённый
+          # из Windows PowerShell, приезжает с хвостом \r\n: base64 -d на \r
+          # отвечает «invalid input», а пароль с \r просто не подходит к
+          # ключу. Ровно так и упала первая сборка с ключом.
+          clean() { printf '%s' "$1" | tr -d '\r\n'; }
           if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            clean "$KEYSTORE_BASE64" | tr -d ' ' | base64 -d > "$RUNNER_TEMP/release.keystore"
             export OPENDISK_ANDROID_KEYSTORE="$RUNNER_TEMP/release.keystore"
+            export OPENDISK_ANDROID_KEYSTORE_PASSWORD="$(clean "$OPENDISK_ANDROID_KEYSTORE_PASSWORD")"
+            export OPENDISK_ANDROID_KEY_ALIAS="$(clean "$OPENDISK_ANDROID_KEY_ALIAS")"
+            export OPENDISK_ANDROID_KEY_PASSWORD="$(clean "$OPENDISK_ANDROID_KEY_PASSWORD")"
             echo "apk подписывается ключом издателя"
           else
             echo "::warning::Ключа подписи Android нет в секретах: apk подписан отладочным ключом, и поверх прошлой версии он не встанет."
