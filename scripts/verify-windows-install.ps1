@@ -44,12 +44,39 @@ function Show-Entries {
     $rows | Format-Table -AutoSize | Out-String | Write-Host
 }
 
+# Журналы установщика — главное, что нужно при разборе провала. Burn пишет их
+# в %TEMP% сам, без ключей: и свой (OpenDisk_<время>.log), и журнал MSI внутри
+# (OpenDisk_<время>_000_OpenDiskMsi.log). Без них причину пришлось бы угадывать:
+# на раннере они остаются, а раннер после работы исчезает.
+function Show-InstallerLogs {
+    $logs = @(Get-ChildItem $env:TEMP -Filter 'OpenDisk_*.log' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime | Select-Object -Last 4)
+    if ($logs.Count -eq 0) { Write-Host '  (журналов установщика в %TEMP% нет)' }
+    foreach ($log in $logs) {
+        Write-Host ''
+        Write-Host "--- $($log.Name), последние строки ---"
+        Get-Content -LiteralPath $log.FullName -Tail 80 | Write-Host
+    }
+
+    # Замены, отложенные до перезагрузки. Если они есть, установщик считал
+    # файлы занятыми и вернул 3010, а Burn после этого может отказываться
+    # от следующей операции до перезагрузки.
+    $pending = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' `
+        -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations
+    if ($pending) {
+        Write-Host ''
+        Write-Host 'Отложенные до перезагрузки замены файлов:'
+        $pending | Where-Object { $_ } | Write-Host
+    }
+}
+
 function Fail([string]$message) {
     Write-Host ''
     Write-Host 'Записи OpenDisk в реестре:'
     Show-Entries
     Get-Process OpenDisk, rclone -ErrorAction SilentlyContinue |
         Format-Table Name, Id, StartTime, Path -AutoSize | Out-String | Write-Host
+    Show-InstallerLogs
     throw "ПРОВЕРКА НЕ ПРОШЛА: $message"
 }
 
@@ -103,6 +130,7 @@ Write-Host "=== 4. Обновление тем же сценарием, что �
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scripts 'install-update.ps1') `
     -Installer $Installer -Launcher $launcher
 $code = $LASTEXITCODE
+Write-Host "код установщика: $code"
 if ($code -notin 0, 3010) { Fail "установщик завершился с кодом $code" }
 Assert-SingleVisible $ExpectedVersion
 
@@ -128,6 +156,7 @@ Get-Process OpenDisk, rclone | Format-Table Name, Id, StartTime, Path -AutoSize 
 Write-Host '=== 6. Удаление тем же сценарием, что и в приложении ==='
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scripts 'uninstall-opendisk.ps1') -Wait
 $code = $LASTEXITCODE
+Write-Host "код удаления: $code"
 if ($code -notin 0, 3010) { Fail "удаление завершилось с кодом $code" }
 
 if (-not (Wait-For { @(Get-Entries).Count -eq 0 } 60)) {
