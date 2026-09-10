@@ -331,6 +331,18 @@ jobs:
           path: ${{ matrix.artifacts }}
           if-no-files-found: error
 
+      # Сам MSI в выпуск не идёт — он внутри .exe, — но нужен проверке: из него
+      # без установки достаются файлы, чтобы проверить запуск приложения
+      # отдельно от установщика.
+      - name: MSI для проверки запуска
+        if: startsWith(matrix.os, 'windows')
+        uses: actions/upload-artifact@v7
+        with:
+          name: opendisk-${{ matrix.name }}-msi
+          path: composeApp/build/distributions/*.msi
+          if-no-files-found: error
+          retention-days: 7
+
       # Файлы попадают в релиз по тегу; сам релиз создаётся, если его ещё нет.
       - name: Выложить в релиз
         if: startsWith(github.ref, 'refs/tags/v')
@@ -530,16 +542,28 @@ jobs:
         include:
           - os: windows-latest
             arch: x64
+            jdk: temurin
+            jdkArch: x64
             requireAppStart: 'true'
+            upgradeChain: 'true'
           # На ARM-раннере интерактивный сеанс висит на экране первой
           # настройки Windows (видно на снимке экрана из проверки), и
           # программы с окнами там не работают как следует. Установка,
           # обновление и удаление проверяются строго; запуск приложения —
           # предупреждением. Не проверенный здесь запуск ARM-сборки честно
           # оговорён в заметках к выпуску.
+          #
+          # По той же причине там не пройти ни обновление с прошлой версии,
+          # ни удаление: оба вызывают лаунчер старой или текущей версии с
+          # --cleanup и ждут его, а он в таком сеансе не завершается. Остаются
+          # чистая установка и проба запуска, которая отличает поломку сборки
+          # от особенности раннера (scripts/probe-windows-launch.ps1).
           - os: windows-11-arm
             arch: arm64
+            jdk: liberica
+            jdkArch: aarch64
             requireAppStart: 'false'
+            upgradeChain: 'false'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -548,6 +572,29 @@ jobs:
         with:
           name: opendisk-Windows-${{ matrix.arch }}
           path: built
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: opendisk-Windows-${{ matrix.arch }}-msi
+          path: msi
+
+      - name: JDK для сравнения
+        uses: actions/setup-java@v6
+        with:
+          distribution: ${{ matrix.jdk }}
+          java-version: '17'
+          architecture: ${{ matrix.jdkArch }}
+
+      # Запускается ли приложение само по себе, без установщика: из MSI без
+      # установки достаются файлы и запускаются с --cleanup тремя способами.
+      # Так отличается поломка сборки от машины, на которой программы с
+      # графической подсистемой не стартуют вовсе.
+      - name: Приложение запускается — отдельно от установщика
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem msi -Recurse -Filter '*.msi' | Select-Object -First 1
+          ./scripts/probe-windows-launch.ps1 -Msi $msi.FullName -JavaHome $env:JAVA_HOME `
+            -Strict ('${{ matrix.requireAppStart }}' -eq 'true')
 
       - name: Установка, обновление, запуск, удаление
         shell: pwsh
@@ -577,9 +624,10 @@ jobs:
           $exePath = Join-Path $PWD "prev\$($exe.name)"
           Invoke-WebRequest $exe.browser_download_url -OutFile $exePath
 
-          ./scripts/verify-windows-install.ps1 -Installer $installer.FullName -ExpectedVersion $version `
-            -PreviousMsi $msiPath -PreviousExe $exePath `
-            -RequireAppStart ('${{ matrix.requireAppStart }}' -eq 'true')
+          $chain = '${{ matrix.upgradeChain }}' -eq 'true'
+          $previous = if ($chain) { @{ PreviousMsi = $msiPath; PreviousExe = $exePath } } else { @{} }
+          ./scripts/verify-windows-install.ps1 -Installer $installer.FullName -ExpectedVersion $version @previous `
+            -RequireAppStart ('${{ matrix.requireAppStart }}' -eq 'true') -TestUninstall $chain
 
       # Снимки экрана: приложение пишет причину сбоя в своё окно, а не в лог.
       # Всегда, а не только при провале: снимок бывает и при предупреждении.

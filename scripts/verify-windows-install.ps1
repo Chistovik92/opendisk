@@ -29,7 +29,12 @@ param(
     # там толком не работают — установщик в режиме с окном прогресса повисал
     # бесконечно. Установка, обновление и удаление от окон не зависят и
     # проверяются строго везде; запуск приложения там — предупреждение.
-    [bool]$RequireAppStart = $true
+    [bool]$RequireAppStart = $true,
+    # Проверять удаление. На ARM-раннере его не пройти: удаление вызывает
+    # лаунчер приложения с --cleanup и ждёт его, а программы графической
+    # подсистемы там не завершаются (см. scripts/probe-windows-launch.ps1).
+    # MSI у обеих архитектур один и тот же, удаление проверяется на x64.
+    [bool]$TestUninstall = $true
 )
 
 $ErrorActionPreference = 'Stop'
@@ -222,6 +227,13 @@ if (-not (Wait-For $fresh 120)) {
     Start-Sleep -Seconds 10
     if (-not (& $fresh)) { Fail 'приложение упало вскоре после запуска' }
     Get-Process OpenDisk, rclone | Format-Table Name, Id, StartTime, Path -AutoSize | Out-String | Write-Host
+}
+
+if (-not $TestUninstall) {
+    Write-Host '::warning::удаление на этой машине не проверяется — оно проверено на x64 с тем же MSI'
+    Write-Host ''
+    Write-Host "Проверено: установка $ExpectedVersion."
+    exit 0
 }
 
 Write-Host '=== 6. Удаление тем же сценарием, что и в приложении ==='
