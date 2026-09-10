@@ -74,7 +74,8 @@ fi
 if [ "$1" -ge 2 ]; then
     rm -f /run/opendisk-restart.user /run/opendisk-restart.env
     for pid in $(pgrep -f "^/opt/opendisk/bin/OpenDisk" 2>/dev/null); do
-        stat -c %U "/proc/$pid" > /run/opendisk-restart.user 2>/dev/null || continue
+        # %%U, not %U: rpm expands macros inside scriptlets too.
+        stat -c %%U "/proc/$pid" > /run/opendisk-restart.user 2>/dev/null || continue
         tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null |
             grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR)=' \
             > /run/opendisk-restart.env 2>/dev/null || true
@@ -94,11 +95,17 @@ if [ "$1" -ge 2 ]; then
     pkill -TERM -f "^/opt/opendisk/lib/app/resources/rclone" 2>/dev/null || true
 fi
 
-%posttrans
-# Bring the app back if we closed it for the upgrade. %posttrans runs last,
-# when the new files are in place. Same user, same session - otherwise there
-# is nowhere to open the window. Best effort: if it fails, the user starts
-# the app by hand, which is unpleasant but not broken.
+%post
+# Bring the app back if we closed it for the upgrade: the new files are in
+# place by now. Same user, same session - otherwise there is nowhere to open
+# the window. Best effort: if it fails, the user starts the app by hand, which
+# is unpleasant but not broken.
+#
+# %post, not %posttrans as in the Fedora package: ALT's rpm branch has no
+# %posttrans at all ("Macro %posttrans not found"). Fedora needs it only
+# because the old jpackage package's %preun removes the menu entry after the
+# new %post; the ALT package ships its .desktop file directly and has no
+# such %preun, so %post is enough.
 if [ -s /run/opendisk-restart.user ]; then
     od_user=$(cat /run/opendisk-restart.user)
     {
