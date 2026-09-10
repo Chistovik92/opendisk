@@ -437,21 +437,28 @@ jobs:
           fi
           ./gradlew -Popendisk.android=true :android-app:assembleRelease --no-daemon
 
-      # Чем apk подписан на самом деле — в лог, и проверка: если ключ
-      # издателя заведён, отладочной подписи быть не должно. Иначе сборка
-      # могла бы молча вернуться к ней, и обновления поверх снова перестали
-      # бы вставать — а заметили бы это только пользователи.
+      # Чем apk подписан на самом деле — в лог, и проверка, что именно тем
+      # самым ключом издателя.
+      #
+      # Ключ — постоянная «личность» приложения: Android ставит обновление
+      # поверх, только если подпись та же. Поэтому недостаточно запретить
+      # отладочную подпись — нужна ровно эта. Подмени кто-нибудь секрет
+      # другим ключом, выпуск обязан упасть здесь, а не выйти apk, который
+      # у всех откажется вставать. Отпечаток публичный, прятать его незачем.
       - name: Проверить подпись apk
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          EXPECTED_CERT_SHA256: 1f8e8c5da197c3fd0c91426042caaf02f761ce30b7771dac53885448cbd9399b
         run: |
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
-          "$apksigner" verify --print-certs \
-            android-app/build/outputs/apk/release/android-app-arm64-v8a-release.apk | tee certs.txt
-          if [ -n "$KEYSTORE_BASE64" ] && grep -q 'Android Debug' certs.txt; then
-            echo "ключ издателя заведён, а apk подписан отладочным" >&2
-            exit 1
-          fi
+          for apk in android-app/build/outputs/apk/release/*.apk; do
+            echo "== $apk"
+            "$apksigner" verify --print-certs "$apk" | tee certs.txt
+            if [ -n "$KEYSTORE_BASE64" ] && ! grep -q "SHA-256 digest: $EXPECTED_CERT_SHA256" certs.txt; then
+              echo "$apk подписан не ключом издателя OpenDisk" >&2
+              exit 1
+            fi
+          done
 
       # Имена от AGP («android-app-arm64-v8a-release.apk») ничего не говорят
       # человеку, который скачивает файл со страницы релиза.
