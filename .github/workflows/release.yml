@@ -517,6 +517,9 @@ jobs:
   verify-windows:
     name: Проверка установки — Windows ${{ matrix.arch }}
     needs: package
+    # Зависший установщик должен ронять проверку, а не держать раннер шесть
+    # часов: так и было, когда обновление на ARM ждало ответа в диалоге.
+    timeout-minutes: 40
     # Не ждать успеха всей матрицы: упади Linux, проверка Windows иначе
     # просто пропускалась бы, и о её результате не узнать до следующего
     # прогона. Если своего установщика нет, работа упадёт на скачивании.
@@ -527,8 +530,16 @@ jobs:
         include:
           - os: windows-latest
             arch: x64
+            requireAppStart: 'true'
+          # На ARM-раннере интерактивный сеанс висит на экране первой
+          # настройки Windows (видно на снимке экрана из проверки), и
+          # программы с окнами там не работают как следует. Установка,
+          # обновление и удаление проверяются строго; запуск приложения —
+          # предупреждением. Не проверенный здесь запуск ARM-сборки честно
+          # оговорён в заметках к выпуску.
           - os: windows-11-arm
             arch: arm64
+            requireAppStart: 'false'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -567,7 +578,8 @@ jobs:
           Invoke-WebRequest $exe.browser_download_url -OutFile $exePath
 
           ./scripts/verify-windows-install.ps1 -Installer $installer.FullName -ExpectedVersion $version `
-            -PreviousMsi $msiPath -PreviousExe $exePath
+            -PreviousMsi $msiPath -PreviousExe $exePath `
+            -RequireAppStart ('${{ matrix.requireAppStart }}' -eq 'true')
 
       # Снимки экрана: приложение пишет причину сбоя в своё окно, а не в лог.
       # Всегда, а не только при провале: снимок бывает и при предупреждении.
@@ -587,6 +599,7 @@ jobs:
   verify-linux:
     name: Проверка установки — ${{ matrix.image }}
     needs: package
+    timeout-minutes: 30
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     strategy:

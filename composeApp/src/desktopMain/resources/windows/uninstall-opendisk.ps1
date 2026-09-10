@@ -14,13 +14,20 @@
 # обновления (UpgradeCode в wix/Bundle.wxs) и запускаем её кэшированную копию,
 # которую Burn хранит ровно для удаления.
 #
-# Коды выхода: 0 — удаление запущено (или завершено, с -Wait), 2 — удалять
-# нечего, прочие — ошибка самого удаления.
+# Удаление запускается только после выхода приложения — по той же причине,
+# что и обновление (см. install-update.ps1): иначе его файлы заняты, Windows
+# откладывает их удаление до перезагрузки, и от приложения остаются следы.
+#
+# Коды выхода: 0 — удаление прошло (или запущено, без -Wait), 2 — удалять
+# нечего, 1223 — отказ в правах администратора, прочие — ошибка удаления.
 
 param(
-    # Дождаться конца удаления. Приложению это не нужно — установщик сам
-    # закроет его, — а проверке в CI нужно.
-    [switch]$Wait
+    # Дождаться конца удаления. Приложению это не нужно — оно к тому моменту
+    # уже вышло, — а проверке в CI нужно.
+    [switch]$Wait,
+    # Номер процесса приложения, попросившего удаление, и каталог установки.
+    [int]$WaitForPid = 0,
+    [string]$AppDir
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,36 +42,55 @@ $roots = @(
 )
 $entries = @($roots | ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue })
 
-# Установка из .exe (0.5.0 и новее).
+# Сначала — что удалять. Если нечего, сказать это надо сразу, пока
+# приложение ещё работает и может показать сообщение.
+$command = $null
 $bundle = $entries |
     Where-Object { $_.BundleUpgradeCode -contains $BundleUpgradeCode } |
     Select-Object -First 1
-
 if ($bundle -and $bundle.BundleCachePath -and (Test-Path -LiteralPath $bundle.BundleCachePath)) {
-    $process = Start-Process -FilePath $bundle.BundleCachePath `
-        -ArgumentList '/uninstall', '/passive', '/norestart' `
-        -Verb RunAs -PassThru -Wait:$Wait
-    if ($Wait) { exit $process.ExitCode }
-    exit 0
+    # Установка из .exe (0.5.0 и новее).
+    $command = @{ File = $bundle.BundleCachePath; Arguments = @('/uninstall', '/passive', '/norestart') }
+} else {
+    # Установка из .msi (0.4.x и раньше). Берём только код продукта — видимая
+    # запись MSI такие версии и оставляли.
+    $msi = $entries |
+        Where-Object {
+            $_.DisplayName -eq 'OpenDisk' -and
+            $_.SystemComponent -ne 1 -and
+            $_.UninstallString -match '\{[0-9A-Fa-f-]{36}\}'
+        } |
+        Select-Object -First 1
+    if ($msi) {
+        $productCode = [regex]::Match($msi.UninstallString, '\{[0-9A-Fa-f-]{36}\}').Value
+        $command = @{ File = 'msiexec'; Arguments = @('/x', $productCode, '/qb', '/norestart') }
+    }
+}
+if (-not $command) { exit 2 }
+
+# Дожидаемся выхода приложения и добиваем оставшееся — только своё, по пути
+# в каталоге установки: чужой rclone с тем же именем трогать нельзя.
+if ($WaitForPid -gt 0) {
+    $app = Get-Process -Id $WaitForPid -ErrorAction SilentlyContinue
+    if ($app) { $null = $app.WaitForExit(60000) }
+}
+if ($AppDir) {
+    Get-Process OpenDisk, rclone -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($AppDir, [StringComparison]::OrdinalIgnoreCase) } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
 }
 
-# Установка из .msi (0.4.x и раньше). Берём только код продукта — видимая
-# запись MSI такие версии и оставляли.
-$msi = $entries |
-    Where-Object {
-        $_.DisplayName -eq 'OpenDisk' -and
-        $_.SystemComponent -ne 1 -and
-        $_.UninstallString -match '\{[0-9A-Fa-f-]{36}\}'
-    } |
-    Select-Object -First 1
-
-if ($msi) {
-    $productCode = [regex]::Match($msi.UninstallString, '\{[0-9A-Fa-f-]{36}\}').Value
-    $process = Start-Process -FilePath msiexec `
-        -ArgumentList '/x', $productCode, '/qb', '/norestart' `
+try {
+    $process = Start-Process -FilePath $command.File -ArgumentList $command.Arguments `
         -Verb RunAs -PassThru -Wait:$Wait
-    if ($Wait) { exit $process.ExitCode }
-    exit 0
+} catch {
+    # Отказ в правах: удаления не будет. Приложение к этому моменту уже вышло
+    # — возвращаем его, чтобы человек не остался ни с программой, ни без неё.
+    $launcher = if ($AppDir) { Join-Path $AppDir 'OpenDisk.exe' } else { $null }
+    if ($launcher -and (Test-Path -LiteralPath $launcher)) { Start-Process -FilePath $launcher }
+    exit 1223
 }
 
-exit 2
+if ($Wait) { exit $process.ExitCode }
+exit 0

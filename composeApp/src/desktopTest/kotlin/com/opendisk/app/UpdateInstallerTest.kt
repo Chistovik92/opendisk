@@ -105,6 +105,26 @@ class UpdateInstallerTest {
     }
 
     @Test
+    fun `the script waits for this very process to exit before installing`() {
+        val script = UpdateInstaller.installScript("""C:\t\a.exe""", null, ownPid = 4242)
+
+        // Пока приложение работает, его файлы заняты: установщик откладывал
+        // их удаление до перезагрузки, возвращал 3010, и после этого Burn
+        // не брался ни за удаление, ни за следующее обновление.
+        assertTrue(script.contains("-WaitForPid '4242'"))
+        assertTrue(script.contains("WaitForExit"), "сценарий обязан дождаться выхода приложения")
+    }
+
+    @Test
+    fun `leftovers are stopped by path, never by name alone`() {
+        val script = PowerShellScript.load("install-update.ps1")
+
+        // Чужой rclone, запущенный человеком отдельно, называется так же.
+        // Гасить можно только процессы из каталога установки.
+        assertTrue(script.contains("StartsWith(\$AppDir"))
+    }
+
+    @Test
     fun `comments are stripped before the script goes on the command line`() {
         val script = PowerShellScript.load("install-update.ps1")
 

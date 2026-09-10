@@ -22,7 +22,14 @@ param(
     [Parameter(Mandatory = $true)][string]$Installer,
     [Parameter(Mandatory = $true)][string]$ExpectedVersion,
     [string]$PreviousMsi,
-    [string]$PreviousExe
+    [string]$PreviousExe,
+    # Требовать, чтобы приложение после обновления запустилось и подняло rclone.
+    # На ARM-раннере GitHub интерактивный сеанс висит на экране первой настройки
+    # Windows («Choose privacy settings», видно на снимке), и программы с окнами
+    # там толком не работают — установщик в режиме с окном прогресса повисал
+    # бесконечно. Установка, обновление и удаление от окон не зависят и
+    # проверяются строго везде; запуск приложения там — предупреждение.
+    [bool]$RequireAppStart = $true
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,9 +82,12 @@ function Show-InstallerLogs {
 function Show-BundledRclone {
     $rclone = Join-Path $env:ProgramFiles 'OpenDisk\app\resources\rclone.exe'
     if (-not (Test-Path -LiteralPath $rclone)) { Write-Host "  встроенного rclone нет: $rclone"; return }
-    $out = & $rclone version 2>&1 | Select-Object -First 4
-    Write-Host "  встроенный rclone, код $LASTEXITCODE`:"
-    $out | ForEach-Object { Write-Host "    $_" }
+    # Сначала весь вывод, потом код: Select-Object -First прерывает конвейер,
+    # и $LASTEXITCODE оставался бы от предыдущей команды.
+    $out = @(& $rclone version 2>&1)
+    $rcloneCode = $LASTEXITCODE
+    Write-Host "  встроенный rclone, код $rcloneCode`:"
+    $out | Select-Object -First 4 | ForEach-Object { Write-Host "    $_" }
 }
 
 # Снимок экрана. Приложение показывает причину сбоя в своём окне — например,
@@ -166,12 +176,28 @@ if (Test-Path -LiteralPath $launcher) {
 }
 $beforeUpdate = Get-Date
 
+# Запуск сценария так, как это делает приложение: он получает номер процесса
+# приложения и ждёт его выхода. Приложение в жизни выходит само сразу после
+# запуска сценария; здесь его закрываем мы — старая версия этого не умеет.
+function Invoke-AsTheApp([string]$script, [string]$arguments, $app) {
+    $runner = Start-Process powershell -PassThru -ArgumentList `
+        "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $scripts $script)`" $arguments"
+    Start-Sleep -Seconds 3
+    if ($app -and -not $app.HasExited) { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue }
+    # Предел, а не бесконечное ожидание: зависший установщик должен ронять
+    # проверку, а не держать раннер до конца его жизни.
+    if (-not $runner.WaitForExit(600000)) { Fail "сценарий $script не завершился за 10 минут" }
+    return $runner.ExitCode
+}
+
 Write-Host "=== 4. Обновление тем же сценарием, что и в приложении: $Installer ==="
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scripts 'install-update.ps1') `
-    -Installer $Installer -Launcher $launcher
-$code = $LASTEXITCODE
+$appPid = if ($old) { $old.Id } else { 0 }
+$code = Invoke-AsTheApp 'install-update.ps1' `
+    "-Installer `"$Installer`" -Launcher `"$launcher`" -WaitForPid $appPid" $old
 Write-Host "код установщика: $code"
-if ($code -notin 0, 3010) { Fail "установщик завершился с кодом $code" }
+# 3010 больше не годится: он и означал, что файлы прошлой версии были заняты
+# и остались до перезагрузки, — ровно то, что исправлялось.
+if ($code -ne 0) { Fail "установщик завершился с кодом $code" }
 Assert-SingleVisible $ExpectedVersion
 
 if ($old) {
@@ -186,18 +212,29 @@ $fresh = {
     $app -and $rclone
 }
 if (-not (Wait-For $fresh 120)) {
-    Fail 'после обновления приложение не запустилось само или не подняло rclone'
+    if ($RequireAppStart) { Fail 'после обновления приложение не запустилось само или не подняло rclone' }
+    Write-Host '::warning::после обновления приложение не подняло rclone — на этом раннере запуск программ с окном проверить нельзя, см. снимок экрана'
+    Get-Process OpenDisk -ErrorAction SilentlyContinue |
+        Format-Table Name, Id, StartTime, Responding, Path -AutoSize | Out-String | Write-Host
+    Save-Screenshot 'after-update-without-rclone'
+} else {
+    # Живо ли оно через несколько секунд — падение при старте тоже падение.
+    Start-Sleep -Seconds 10
+    if (-not (& $fresh)) { Fail 'приложение упало вскоре после запуска' }
+    Get-Process OpenDisk, rclone | Format-Table Name, Id, StartTime, Path -AutoSize | Out-String | Write-Host
 }
-# Живо ли оно через несколько секунд — падение при старте тоже падение.
-Start-Sleep -Seconds 10
-if (-not (& $fresh)) { Fail 'приложение упало вскоре после запуска' }
-Get-Process OpenDisk, rclone | Format-Table Name, Id, StartTime, Path -AutoSize | Out-String | Write-Host
 
 Write-Host '=== 6. Удаление тем же сценарием, что и в приложении ==='
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scripts 'uninstall-opendisk.ps1') -Wait
-$code = $LASTEXITCODE
+$app = Get-Process OpenDisk -ErrorAction SilentlyContinue |
+    Where-Object { $_.StartTime -gt $beforeUpdate } | Sort-Object StartTime | Select-Object -First 1
+$appDir = Split-Path -Parent $launcher
+# Приложения может и не быть (на ARM-раннере) — тогда ждать нечего, а
+# добивать остатки по каталогу установки сценарий будет всё равно.
+$appId = if ($app) { $app.Id } else { 0 }
+$code = Invoke-AsTheApp 'uninstall-opendisk.ps1' `
+    "-Wait -WaitForPid $appId -AppDir `"$appDir`"" $app
 Write-Host "код удаления: $code"
-if ($code -notin 0, 3010) { Fail "удаление завершилось с кодом $code" }
+if ($code -ne 0) { Fail "удаление завершилось с кодом $code" }
 
 if (-not (Wait-For { @(Get-Entries).Count -eq 0 } 60)) {
     Fail 'после удаления в «Программах и компонентах» осталась запись'

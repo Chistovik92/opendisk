@@ -129,16 +129,28 @@ object Cleanup {
      * скрытый MSI: приложение удалялось, а в «Программах и компонентах»
      * оставалась запись-сирота.
      *
-     * Ждём только сам сценарий, это секунды: установщик он запускает и
-     * отпускает, а тот потом сам закроет OpenDisk (`util:CloseApplication`).
+     * Сценарий ждёт выхода приложения и только потом запускает удаление:
+     * пока оно работает, его файлы заняты, и Windows откладывает их удаление
+     * до перезагрузки. Поэтому после `true` приложение должно выйти — это
+     * забота вызывающего.
      *
-     * @return false, если удаление не запустилось: удалять нечего или
-     *         человек отказал в правах администратора.
+     * @return false, если удаление не запустится: удалять нечего (сценарий
+     *         говорит об этом сразу, пока приложение ещё может показать
+     *         сообщение) или не поднялся сам PowerShell.
      */
     fun startSelfUninstall(): Boolean = runCatching {
         val process = PowerShellScript.start(
-            PowerShellScript.invocation(PowerShellScript.load("uninstall-opendisk.ps1")),
+            PowerShellScript.invocation(
+                PowerShellScript.load("uninstall-opendisk.ps1"),
+                mapOf(
+                    "WaitForPid" to ProcessHandle.current().pid().toString(),
+                    "AppDir" to Autostart.launcherPath()?.let { File(it).parent },
+                ),
+            ),
         )
-        process.waitFor(TIMEOUT_MINUTES, TimeUnit.MINUTES) && process.exitValue() == 0
+        !process.waitFor(LAUNCH_CHECK_SECONDS, TimeUnit.SECONDS)
     }.getOrDefault(false)
+
+    /** Сколько ждём, не завершился ли сценарий сразу — «удалять нечего». */
+    private const val LAUNCH_CHECK_SECONDS = 5L
 }

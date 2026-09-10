@@ -262,10 +262,10 @@ class Strings(private val russian: Boolean) {
     val removeApp = t("Удалить OpenDisk", "Remove OpenDisk")
     val removeAppTitle = t("Удаление OpenDisk", "Removing OpenDisk")
     val removeStartFailed = t(
-        "Удаление не запустилось — возможно, не были выданы права администратора. " +
-            "Диски уже отключены: перезапустите OpenDisk, чтобы продолжить работу.",
-        "Removal did not start — administrator rights may have been refused. " +
-            "Drives are already disconnected: restart OpenDisk to keep working.",
+        "Удаление не запустилось: установка OpenDisk в системе не найдена. " +
+            "Диски уже отключены — перезапустите OpenDisk, чтобы продолжить работу.",
+        "Removal did not start: the OpenDisk installation was not found in the system. " +
+            "Drives are already disconnected — restart OpenDisk to keep working.",
     )
     val removeAppIntro = t(
         "Свои файлы — настройки, служебные записи, автозапуск — приложение уберёт " +

@@ -101,35 +101,48 @@ class UpdateInstaller(private val httpClient: HttpClient) {
         }
 
         /**
-         * Запускает установщик и говорит, начал ли он работу.
+         * Запускает сценарий обновления и говорит, начал ли он работу.
          *
          * Сам сценарий — windows/install-update.ps1: его же запускает CI на
          * настоящей установке, так что проверяется ровно то, что выполнится
          * здесь.
          *
-         * Ждём не конца установки, а короткое время. Установщик сам закроет
-         * приложение, дожидаться его отсюда бессмысленно. А вот если сценарий
-         * успел завершиться с ошибкой — человек отказал в правах
-         * администратора, — это надо сказать, а не делать вид, что обновление
-         * пошло. Раньше такой отказ выглядел как успех.
+         * Сценарий ждёт выхода приложения и только потом ставит обновление,
+         * поэтому его конца отсюда не дождаться — да и незачем. Проверяем
+         * одно: он не упал сразу же. Выйти приложению после этого — забота
+         * вызывающего ([RcloneController.installUpdate]).
          */
         internal fun launchInstaller(installer: File): Boolean = runCatching {
             val process = PowerShellScript.start(installScript(installer.absolutePath, Autostart.launcherPath()))
-            val finished = process.waitFor(LAUNCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            !finished || process.exitValue() in SUCCESS_CODES
+            !process.waitFor(LAUNCH_CHECK_SECONDS, TimeUnit.SECONDS)
         }.getOrDefault(false)
 
-        /** Команда запуска windows/install-update.ps1 с путями установщика и приложения. */
-        internal fun installScript(absolutePath: String, launcher: String? = null): String =
+        /**
+         * Команда запуска windows/install-update.ps1: путь установщика,
+         * приложения и номер своего процесса — его выхода сценарий дождётся,
+         * прежде чем ставить. Пока приложение работает, его файлы заняты,
+         * и установщик откладывает их удаление до перезагрузки (код 3010).
+         */
+        internal fun installScript(
+            absolutePath: String,
+            launcher: String? = null,
+            ownPid: Long = ProcessHandle.current().pid(),
+        ): String =
             PowerShellScript.invocation(
                 PowerShellScript.load("install-update.ps1"),
-                mapOf("Installer" to absolutePath, "Launcher" to launcher),
+                mapOf(
+                    "Installer" to absolutePath,
+                    "Launcher" to launcher,
+                    "WaitForPid" to ownPid.toString(),
+                ),
             )
 
-        /** 3010 — «установлено, нужна перезагрузка»: файлы на месте, это успех. */
-        private val SUCCESS_CODES = setOf(0, 3010)
+        /**
+         * Сколько ждём, не упал ли сценарий сразу. Упасть он может только на
+         * разборе или на старте PowerShell — это доли секунды.
+         */
+        private const val LAUNCH_CHECK_SECONDS = 5L
 
         private const val SHA256_HEX_LENGTH = 64
-        private const val LAUNCH_TIMEOUT_SECONDS = 60L
     }
 }

@@ -68,6 +68,7 @@ fun AppScreen(state: UiState, controller: RcloneController, onQuit: () -> Unit) 
                     onRequestSettings = { cloudToConfigure = it },
                     onAppSettings = { showingAppSettings = true },
                     onAbout = { showingAbout = true },
+                    onQuit = onQuit,
                 )
             }
         }
@@ -217,6 +218,7 @@ private fun ReadyContent(
     onRequestSettings: (String) -> Unit,
     onAppSettings: () -> Unit,
     onAbout: () -> Unit,
+    onQuit: () -> Unit,
 ) {
     val strings = LocalStrings.current
 
@@ -242,7 +244,9 @@ private fun ReadyContent(
         UpdateBanner(
             update = update,
             downloading = state.updateInProgress,
-            onInstall = { controller.installUpdate() },
+            // После запуска сценария обновления приложение выходит само: пока
+            // оно работает, установщик не может удалить файлы прошлой версии.
+            onInstall = { controller.installUpdate(onFinished = onQuit) },
         )
     }
     state.updateMessage?.let { Banner(it) }
