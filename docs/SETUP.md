@@ -23,10 +23,20 @@ Gradle wrapper (`gradlew`, `gradlew.bat`, `gradle/wrapper/`) лежит в ре�
 ## Сборка установщика под Windows
 
 ```bash
-./gradlew :composeApp:packageWixMsi
+./gradlew :composeApp:packageWixExe
 ```
 
-Результат — `composeApp/build/distributions/OpenDisk-<версия>.msi`.
+Результат — `composeApp/build/distributions/OpenDisk-<версия>-<архитектура>.exe`,
+где архитектура — та, на которой идёт сборка (`x64` или `arm64`).
+
+Это обёртка Burn ([composeApp/wix/Bundle.wxs](../composeApp/wix/Bundle.wxs))
+поверх MSI, который собирает задача `packageWixMsi` и который уезжает внутрь
+exe. Сам по себе MSI с 0.5.0 не выпускается, но вся логика установки живёт
+в нём: обёртка только показывает окно и передаёт каталог.
+
+Сценарии PowerShell, которыми приложение ставит обновление и удаляет себя,
+лежат файлами в `composeApp/src/desktopMain/resources/windows/`. Их же
+запускает CI на настоящей установке — `scripts/verify-windows-install.ps1`.
 
 Установщик описан своим файлом [composeApp/wix/Product.wxs](../composeApp/wix/Product.wxs),
 а не генерируется jpackage. Причина одна: jpackage не умеет закрывать работающее

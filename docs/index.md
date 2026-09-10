@@ -22,11 +22,20 @@ description: Открытый клиент облачных дисков для 
 
 | Система | Файл |
 |---|---|
-| Windows 10/11, 64 бита | `OpenDisk-*.msi` |
-| Debian, Ubuntu, ALT и производные | `opendisk_*_amd64.deb` |
-| Fedora, RHEL, openSUSE и производные | `opendisk-*.x86_64.rpm` |
-| Любой Linux | `OpenDisk-*-x86_64.AppImage` |
-| macOS | `OpenDisk-*.dmg` — **не проверялся** |
+| Windows 10/11, обычный компьютер | `OpenDisk-*-x64.exe` |
+| Windows 11 на ARM (Snapdragon и подобные) | `OpenDisk-*-arm64.exe` |
+| Debian, Ubuntu, Mint, Astra | `opendisk_*_amd64.deb` |
+| ALT Linux, Simply Linux | `opendisk-*-alt1.x86_64.rpm` |
+| Fedora, RHEL, RED OS, openSUSE | `opendisk-*-1.x86_64.rpm` |
+| Любой другой Linux | `OpenDisk-*-x86_64.AppImage` |
+| macOS на Apple Silicon | `OpenDisk-*-arm64.dmg` — **не проверялся** |
+| macOS на Intel | `OpenDisk-*-x64.dmg` — **не проверялся** |
+| Android | `OpenDisk-*-arm64.apk` или `-universal.apk` |
+
+Каждый установщик перед выпуском ставится на настоящую систему: Windows
+x64 и ARM — с обновлением со старых версий, запуском и удалением; Linux —
+в чистых Debian, Ubuntu, Fedora, openSUSE и ALT тем самым скриптом, что
+ниже; Android — на эмуляторе.
 
 ### Linux одной командой
 
@@ -34,7 +43,7 @@ description: Открытый клиент облачных дисков для 
 curl -fsSL https://raw.githubusercontent.com/Chistovik92/opendisk/main/scripts/install.sh | sh
 ```
 
-Скрипт определит пакетный менеджер, скачает подходящий пакет, сверит
+Скрипт определит дистрибутив, скачает пакет именно под него, сверит
 контрольную сумму и установит.
 
 ## Что умеет

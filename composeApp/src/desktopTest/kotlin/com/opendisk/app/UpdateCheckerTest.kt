@@ -9,9 +9,10 @@ import kotlin.test.assertTrue
 /**
  * Разбор списка выпусков GitHub.
  *
- * Здесь три вещи, на которых легко ошибиться молча — проверка обновлений
- * просто перестанет находить обновления, и понять это можно будет только
- * по жалобе «а почему оно не обновляется».
+ * Здесь несколько вещей, на которых легко ошибиться молча — проверка обновлений
+ * просто перестанет находить установщик, и понять это можно будет только
+ * по жалобе «а почему оно не обновляется». Ровно так и вышло в 0.5.0: выпуски
+ * перешли на .exe, а здесь искался .msi.
  */
 class UpdateCheckerTest {
 
@@ -44,23 +45,58 @@ class UpdateCheckerTest {
         // В том же репозитории лежат выпуски librclone. Без фильтра приложение
         // однажды предложило бы «обновиться» до версии rclone.
         assertFalse(UpdateChecker.isAppTag("librclone-v1.75.1"))
+        assertFalse(UpdateChecker.isAppTag("librclone-ios-v1.75.1"))
         assertTrue(UpdateChecker.isAppTag("v0.2.5"))
         assertFalse(UpdateChecker.isAppTag("0.2.5"))
     }
 
     @Test
-    fun `newest application release is picked, library releases ignored`() {
-        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.1.25", "Windows 11")
+    fun `x64 machine gets the x64 installer and its checksums`() {
+        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", "Windows 11", "amd64")
 
-        assertEquals("0.2.5", update?.version)
-        assertEquals("OpenDisk-0.2.5.msi", update?.assetName)
-        assertEquals("https://example.invalid/OpenDisk-0.2.5.msi", update?.assetUrl)
-        assertEquals("https://example.invalid/SHA256SUMS-Windows", update?.checksumsUrl)
+        assertEquals("0.5.2", update?.version)
+        assertEquals("OpenDisk-0.5.2-x64.exe", update?.assetName)
+        assertEquals("https://example.invalid/OpenDisk-0.5.2-x64.exe", update?.assetUrl)
+        assertEquals("https://example.invalid/SHA256SUMS-Windows-x64", update?.checksumsUrl)
+    }
+
+    @Test
+    fun `arm machine gets the arm installer and its checksums`() {
+        // Установщик другой архитектуры встал бы, но работал бы под эмуляцией —
+        // или не встал бы вовсе. Путать их нельзя.
+        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", "Windows 11", "aarch64")
+
+        assertEquals("OpenDisk-0.5.2-arm64.exe", update?.assetName)
+        assertEquals("https://example.invalid/SHA256SUMS-Windows-arm64", update?.checksumsUrl)
+    }
+
+    @Test
+    fun `release without a matching installer is offered as a page, not installed`() {
+        // Выпуск в старом формате, только с .msi. Показать обновление надо,
+        // а ставить нечего — остаётся ссылка на страницу.
+        val json = """
+            [{"tag_name":"v0.6.0","html_url":"https://example.invalid/0.6.0","draft":false,
+              "assets":[{"name":"OpenDisk-0.6.0.msi","browser_download_url":"https://example.invalid/x.msi"}]}]
+        """.trimIndent()
+
+        val update = UpdateChecker.newestUpdate(json, "0.5.2", "Windows 11", "amd64")
+
+        assertEquals("0.6.0", update?.version)
+        assertNull(update?.assetUrl)
+        assertEquals("https://example.invalid/0.6.0", update?.pageUrl)
+    }
+
+    @Test
+    fun `installer arch follows the names in the releases`() {
+        assertEquals("x64", UpdateChecker.installerArch("amd64"))
+        assertEquals("x64", UpdateChecker.installerArch("x86_64"))
+        assertEquals("arm64", UpdateChecker.installerArch("aarch64"))
+        assertEquals("arm64", UpdateChecker.installerArch("ARM64"))
     }
 
     @Test
     fun `nothing to update when the installed version is the newest`() {
-        assertNull(UpdateChecker.newestUpdate(RELEASES_JSON, "0.2.5", "Windows 11"))
+        assertNull(UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.2", "Windows 11"))
         assertNull(UpdateChecker.newestUpdate(RELEASES_JSON, "1.0.0", "Windows 11"))
     }
 
@@ -78,13 +114,13 @@ class UpdateCheckerTest {
 
     @Test
     fun `outside windows there is no package to install automatically`() {
-        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.1.25", "Linux")
+        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", "Linux")
 
         // Обновление показать нужно, но ставить пакет за пользователя нельзя:
         // на Linux это дело пакетного менеджера. Остаётся ссылка на страницу.
-        assertEquals("0.2.5", update?.version)
+        assertEquals("0.5.2", update?.version)
         assertNull(update?.assetUrl)
-        assertEquals("https://example.invalid/0.2.5", update?.pageUrl)
+        assertEquals("https://example.invalid/0.5.2", update?.pageUrl)
     }
 
     @Test
@@ -98,23 +134,26 @@ class UpdateCheckerTest {
         val RELEASES_JSON = """
             [
               {
-                "tag_name": "librclone-v1.75.1",
+                "tag_name": "librclone-ios-v1.75.1",
                 "html_url": "https://example.invalid/librclone",
                 "draft": false,
-                "assets": [{"name":"librclone.aar","browser_download_url":"https://example.invalid/librclone.aar"}]
+                "assets": [{"name":"Librclone.xcframework.zip","browser_download_url":"https://example.invalid/x.zip"}]
               },
               {
-                "tag_name": "v0.2.5",
-                "html_url": "https://example.invalid/0.2.5",
+                "tag_name": "v0.5.2",
+                "html_url": "https://example.invalid/0.5.2",
                 "draft": false,
                 "assets": [
-                  {"name":"OpenDisk-0.2.5.msi","browser_download_url":"https://example.invalid/OpenDisk-0.2.5.msi"},
-                  {"name":"SHA256SUMS-Windows","browser_download_url":"https://example.invalid/SHA256SUMS-Windows"}
+                  {"name":"OpenDisk-0.5.2-x64.exe","browser_download_url":"https://example.invalid/OpenDisk-0.5.2-x64.exe"},
+                  {"name":"OpenDisk-0.5.2-arm64.exe","browser_download_url":"https://example.invalid/OpenDisk-0.5.2-arm64.exe"},
+                  {"name":"OpenDisk-0.5.2-x86_64.AppImage","browser_download_url":"https://example.invalid/x.AppImage"},
+                  {"name":"SHA256SUMS-Windows-x64","browser_download_url":"https://example.invalid/SHA256SUMS-Windows-x64"},
+                  {"name":"SHA256SUMS-Windows-arm64","browser_download_url":"https://example.invalid/SHA256SUMS-Windows-arm64"}
                 ]
               },
               {
-                "tag_name": "v0.2.4",
-                "html_url": "https://example.invalid/0.2.4",
+                "tag_name": "v0.5.0",
+                "html_url": "https://example.invalid/0.5.0",
                 "draft": false,
                 "assets": []
               }

@@ -67,6 +67,9 @@ data class MobileState(
  */
 class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
+    /** Строки на языке системы — для сообщений, которые собирает сама модель. */
+    val strings: MobileStrings = MobileStrings.system()
+
     private val _state = MutableStateFlow(MobileState())
     val state: StateFlow<MobileState> = _state.asStateFlow()
 
@@ -161,8 +164,7 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                 updateLink {
                     it.copy(
                         busy = false,
-                        error = "Облако «${e.remote}» не умеет выдавать ссылки: " +
-                            "у его протокола нет такого понятия.",
+                        error = strings.linkNotSupported(e.remote),
                     )
                 }
             } catch (e: Exception) {
@@ -238,23 +240,27 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         (e as? RcloneRcException)?.rcloneError ?: e.message ?: e::class.simpleName.orEmpty()
 }
 
-/** Человекочитаемый размер. rclone отдаёт байты. */
-fun formatBytes(bytes: Long): String {
+/**
+ * Человекочитаемый размер. rclone отдаёт байты.
+ *
+ * Отрицательный — «неизвестно»: так rclone отдаёт размер папок. Показывать
+ * вместо него ноль значило бы соврать.
+ */
+fun formatBytes(bytes: Long, strings: MobileStrings): String {
     if (bytes < 0) return ""
-    if (bytes < 1024) return "$bytes Б"
-    val units = listOf("КБ", "МБ", "ГБ", "ТБ", "ПБ")
+    if (bytes < 1024) return "$bytes ${strings.bytes}"
     var value = bytes.toDouble() / 1024
     var index = 0
-    while (value >= 1024 && index < units.lastIndex) {
+    while (value >= 1024 && index < strings.sizeUnits.lastIndex) {
         value /= 1024
         index++
     }
-    return String.format("%.1f %s", value, units[index])
+    return String.format("%.1f %s", value, strings.sizeUnits[index])
 }
 
 /** «занято 1,6 ТБ из 1,8 ТБ» или пусто, если бэкенд ничего не сообщил. */
-fun RcloneClient.AboutInfo.describe(): String {
-    val used = used ?: return total?.let { "всего ${formatBytes(it)}" }.orEmpty()
-    val total = total ?: return "занято ${formatBytes(used)}"
-    return "занято ${formatBytes(used)} из ${formatBytes(total)}"
+fun RcloneClient.AboutInfo.describe(strings: MobileStrings): String {
+    val used = used ?: return total?.let { strings.totalOnly(formatBytes(it, strings)) }.orEmpty()
+    val total = total ?: return strings.usedOnly(formatBytes(used, strings))
+    return strings.usedOf(formatBytes(used, strings), formatBytes(total, strings))
 }

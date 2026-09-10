@@ -17,9 +17,6 @@ import org.junit.runner.RunWith
  * ста мегабайт кода), проинициализировать её, задать свой путь к конфигу и
  * успешно сходить в RC API за списком облаков. Любая из этих ступеней
  * ломается тихо и только на настоящем Android — на JVM их попросту нет.
- *
- * Именно поэтому он инструментальный, а не обычный: подменять здесь нечего,
- * весь смысл в том, что всё это происходит по-настоящему.
  */
 @RunWith(AndroidJUnit4::class)
 class MainActivityTest {
@@ -27,14 +24,23 @@ class MainActivityTest {
     @get:Rule
     val rule = createAndroidComposeRule<MainActivity>()
 
+    /**
+     * Строки на том языке, который выберет само приложение.
+     *
+     * Сверять с русским текстом напрямую нельзя: с 0.5.2 приложение
+     * двуязычное, язык берётся из системы, а эмулятор в CI англоязычный.
+     * Ровно на этом в 0.4.0 упали тесты десктопа — второй раз наступать
+     * незачем.
+     */
+    private val strings = MobileStrings.system()
+
     @Test
     fun appStartsAndFinishesLoadingRclone() {
         // Первый запуск распаковывает нативную библиотеку, и на эмуляторе это
         // занимает секунды, а не миллисекунды. Ждём по признаку, а не по
-        // таймауту: заголовок появляется сразу, а надпись про запуск уходит
-        // только когда rclone готов.
+        // таймауту: надпись про запуск уходит только когда rclone готов.
         rule.waitUntil(timeoutMillis = STARTUP_TIMEOUT_MILLIS) {
-            rule.onAllNodesWithText(STARTING).fetchSemanticsNodes().isEmpty()
+            rule.onAllNodesWithText(strings.starting).fetchSemanticsNodes().isEmpty()
         }
 
         rule.onNodeWithText("OpenDisk").assertIsDisplayed()
@@ -43,18 +49,15 @@ class MainActivityTest {
     @Test
     fun freshInstallInvitesToAddTheFirstCloud() {
         rule.waitUntil(timeoutMillis = STARTUP_TIMEOUT_MILLIS) {
-            rule.onAllNodesWithText(STARTING).fetchSemanticsNodes().isEmpty()
+            rule.onAllNodesWithText(strings.starting).fetchSemanticsNodes().isEmpty()
         }
 
         // Конфига на свежем устройстве нет. Важно, что это не ошибка и не
         // пустой экран, а приглашение: с него начинается любой первый запуск.
-        rule.onNodeWithText(NO_CLOUDS, substring = true).assertIsDisplayed()
+        rule.onNodeWithText(strings.noClouds.lineSequence().first(), substring = true).assertIsDisplayed()
     }
 
     private companion object {
-        const val STARTING = "Запускаю rclone…"
-        const val NO_CLOUDS = "Облаков пока нет"
-
         /**
          * Щедро: на холодном эмуляторе распаковка библиотеки идёт заметно
          * дольше, чем на телефоне, и жёсткий короткий предел давал бы падения,

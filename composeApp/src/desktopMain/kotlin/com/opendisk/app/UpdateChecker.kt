@@ -40,14 +40,18 @@ class UpdateChecker(
      *         либо список не удалось получить. Ошибка сети здесь не повод
      *         беспокоить пользователя: проверка фоновая и необязательная.
      */
-    suspend fun check(currentVersion: String, osName: String = System.getProperty("os.name")): Update? =
+    suspend fun check(
+        currentVersion: String,
+        osName: String = System.getProperty("os.name"),
+        osArch: String = System.getProperty("os.arch"),
+    ): Update? =
         runCatching {
             val response = httpClient.get(releasesUrl) {
                 header("Accept", "application/vnd.github+json")
                 header("User-Agent", USER_AGENT)
             }
             if (!response.status.isSuccess()) return null
-            newestUpdate(response.bodyAsText(), currentVersion, osName)
+            newestUpdate(response.bodyAsText(), currentVersion, osName, osArch)
         }.getOrNull()
 
     @Serializable
@@ -75,7 +79,12 @@ class UpdateChecker(
          * пока именно такие — обновление не нашлось бы никогда. На тех же
          * граблях стоял скрипт установки для Linux.
          */
-        internal fun newestUpdate(json: String, currentVersion: String, osName: String): Update? {
+        internal fun newestUpdate(
+            json: String,
+            currentVersion: String,
+            osName: String,
+            osArch: String = "amd64",
+        ): Update? {
             val releases = runCatching { lenientJson.decodeFromString<List<Release>>(json) }
                 .getOrNull()
                 ?: return null
@@ -95,13 +104,14 @@ class UpdateChecker(
                 }
                 ?: return null
 
-            val asset = assetFor(newest.assets, osName)
+            val asset = assetFor(newest.assets, osName, osArch)
+            val checksums = checksumsNameFor(osName, osArch)
             return Update(
                 version = newest.tagName.removePrefix("v"),
                 pageUrl = newest.htmlUrl,
                 assetUrl = asset?.downloadUrl,
                 assetName = asset?.name,
-                checksumsUrl = newest.assets.firstOrNull { it.name == checksumsNameFor(osName) }?.downloadUrl,
+                checksumsUrl = newest.assets.firstOrNull { it.name == checksums }?.downloadUrl,
             )
         }
 
@@ -116,16 +126,33 @@ class UpdateChecker(
          * закрывать работающее приложение. На Linux пакет зависит от дистрибутива,
          * а ставить его всё равно нужно с правами root через пакетный менеджер —
          * поэтому там открывается страница выпуска.
+         *
+         * С 0.5.0 установщик — `.exe`, и их два, по архитектуре. До 0.5.2 здесь
+         * искался `.msi`, которого в выпусках больше нет, — встроенное
+         * обновление молча перестало ставить что-либо и только открывало
+         * страницу выпуска.
+         *
+         * Архитектура берётся у JVM, а не у системы. На ARM-ноутбуке с x64-сборкой
+         * под эмуляцией JVM видит amd64 — и получает x64-установщик, то есть ту
+         * же сборку, что уже стоит. Переход на родную ARM-сборку — осознанное
+         * решение человека, а не побочный эффект обновления.
          */
-        internal fun assetFor(assets: List<Asset>, osName: String): Asset? {
+        internal fun assetFor(assets: List<Asset>, osName: String, osArch: String): Asset? {
             if (!osName.lowercase().contains("win")) return null
-            return assets.firstOrNull { it.name.endsWith(".msi", ignoreCase = true) }
+            val suffix = "-${installerArch(osArch)}.exe"
+            return assets.firstOrNull { it.name.endsWith(suffix, ignoreCase = true) }
         }
 
-        internal fun checksumsNameFor(osName: String): String = when {
-            osName.lowercase().contains("win") -> "SHA256SUMS-Windows"
-            osName.lowercase().contains("mac") -> "SHA256SUMS-macOS"
+        internal fun checksumsNameFor(osName: String, osArch: String): String = when {
+            osName.lowercase().contains("win") -> "SHA256SUMS-Windows-${installerArch(osArch)}"
+            osName.lowercase().contains("mac") -> "SHA256SUMS-macOS-${installerArch(osArch)}"
             else -> "SHA256SUMS-Linux"
+        }
+
+        /** Архитектура так, как она записана в именах установщиков. */
+        internal fun installerArch(osArch: String): String = when (osArch.lowercase()) {
+            "aarch64", "arm64" -> "arm64"
+            else -> "x64"
         }
 
         fun defaultHttpClient(): HttpClient = HttpClient(CIO) {

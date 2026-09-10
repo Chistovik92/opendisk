@@ -119,39 +119,26 @@ object Cleanup {
     // --- Запуск удаления самого приложения ----------------------------------
 
     /**
-     * Находит команду удаления OpenDisk среди установленных программ.
-     *
-     * Ищем по своему коду обновления (UpgradeCode в composeApp/wix/Product.wxs)
-     * нельзя — в реестре удаления его нет, там код продукта, а он меняется
-     * с каждой версией. Поэтому по названию, как и для WinFsp.
-     */
-    fun findSelfUninstall(): String? = runPowerShell(FIND_SELF_SCRIPT)
-        .lineSequence()
-        .map { it.trim() }
-        .firstOrNull { it.isNotEmpty() }
-
-    /**
      * Запускает удаление приложения.
      *
-     * Ждать нечего: установщик сам закроет OpenDisk (`util:CloseApplication`),
-     * так что дожидаться его из закрываемого процесса бессмысленно.
+     * Сценарий — windows/uninstall-opendisk.ps1, тот же, что гоняет CI на
+     * настоящей установке.
+     *
+     * С 0.5.0 удалять надо через обёртку Burn, а не через MSI внутри неё.
+     * Раньше здесь бралась первая запись «OpenDisk» в реестре, и ею оказывался
+     * скрытый MSI: приложение удалялось, а в «Программах и компонентах»
+     * оставалась запись-сирота.
+     *
+     * Ждём только сам сценарий, это секунды: установщик он запускает и
+     * отпускает, а тот потом сам закроет OpenDisk (`util:CloseApplication`).
+     *
+     * @return false, если удаление не запустилось: удалять нечего или
+     *         человек отказал в правах администратора.
      */
-    fun startSelfUninstall(): Boolean {
-        val command = findSelfUninstall() ?: return false
-        val script = msiUninstallScript(command, wait = false) ?: return false
-        runCatching {
-            val full = "\$ProgressPreference = 'SilentlyContinue'\n$script"
-            val encoded = Base64.getEncoder().encodeToString(full.toByteArray(Charsets.UTF_16LE))
-            ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
-                .start()
-        }.getOrElse { return false }
-        return true
-    }
-
-    private const val FIND_SELF_SCRIPT =
-        "@('HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'," +
-            "'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*') | " +
-            "ForEach-Object { Get-ItemProperty \$_ -ErrorAction SilentlyContinue } | " +
-            "Where-Object { \$_.DisplayName -eq 'OpenDisk' } | " +
-            "ForEach-Object { \$_.UninstallString }"
+    fun startSelfUninstall(): Boolean = runCatching {
+        val process = PowerShellScript.start(
+            PowerShellScript.invocation(PowerShellScript.load("uninstall-opendisk.ps1")),
+        )
+        process.waitFor(TIMEOUT_MINUTES, TimeUnit.MINUTES) && process.exitValue() == 0
+    }.getOrDefault(false)
 }

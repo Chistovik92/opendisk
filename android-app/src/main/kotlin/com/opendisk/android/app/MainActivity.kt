@@ -17,8 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -66,6 +70,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     val state by model.state.collectAsState()
+    val strings = model.strings
+    var cloudToDelete by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = { AppBar(state, model) },
@@ -77,9 +83,9 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when {
-                state.starting -> Centered("Запускаю rclone…", spinner = true)
+                state.starting -> Centered(strings.starting, spinner = true)
                 state.browsing != null -> FolderList(state.browsing!!, model)
-                else -> CloudList(state, model)
+                else -> CloudList(state, model, onDelete = { cloudToDelete = it })
             }
         }
     }
@@ -95,6 +101,18 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
 
     state.link?.let { LinkDialog(it, model) }
     if (state.adding) AddCloudDialog(model)
+
+    cloudToDelete?.let { name ->
+        ConfirmDeleteDialog(
+            cloud = name,
+            strings = strings,
+            onDismiss = { cloudToDelete = null },
+            onConfirm = {
+                model.deleteCloud(name)
+                cloudToDelete = null
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,14 +136,16 @@ private fun AppBar(state: MobileState, model: OpenDiskModel) {
                 TextButton(onClick = {
                     val parent = open.parent
                     if (parent == null) model.closeBrowser() else model.open(open.cloud, parent)
-                }) { Text("Назад") }
+                }) { Text(model.strings.back) }
             }
         },
     )
 }
 
 @Composable
-private fun CloudList(state: MobileState, model: OpenDiskModel) {
+private fun CloudList(state: MobileState, model: OpenDiskModel, onDelete: (String) -> Unit) {
+    val strings = model.strings
+
     state.error?.let { error ->
         Card(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
             Text(error, modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
@@ -134,27 +154,34 @@ private fun CloudList(state: MobileState, model: OpenDiskModel) {
     }
 
     if (state.clouds.isEmpty()) {
-        Centered("Облаков пока нет.\nДобавьте первое кнопкой «+».")
+        Centered(strings.noClouds)
         return
     }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(state.clouds, key = { it.name }) { cloud ->
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { model.open(cloud.name) }
-                    .padding(16.dp),
+                    .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(cloud.name, style = MaterialTheme.typography.titleMedium)
-                val space = cloud.about?.describe().orEmpty()
-                if (space.isNotEmpty()) {
-                    Text(
-                        space,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(cloud.name, style = MaterialTheme.typography.titleMedium)
+                    val space = cloud.about?.describe(strings).orEmpty()
+                    if (space.isNotEmpty()) {
+                        Text(
+                            space,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+                // Кнопкой, а не долгим нажатием: долгое нажатие никто не
+                // находит, а в 0.5.0 удалить облако было нельзя вовсе —
+                // функция в модели была, а до неё не вело ничего.
+                TextButton(onClick = { onDelete(cloud.name) }) { Text(strings.delete) }
             }
             HorizontalDivider()
         }
@@ -163,13 +190,14 @@ private fun CloudList(state: MobileState, model: OpenDiskModel) {
 
 @Composable
 private fun FolderList(open: Browsing, model: OpenDiskModel) {
+    val strings = model.strings
     when {
-        open.loading -> Centered("Читаю папку…", spinner = true)
+        open.loading -> Centered(strings.readingFolder, spinner = true)
         open.error != null -> Centered(open.error)
-        open.entries.isEmpty() -> Centered("Папка пуста")
+        open.entries.isEmpty() -> Centered(strings.emptyFolder)
         else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(open.entries, key = { it.path }) { entry ->
-                EntryRow(entry) {
+                EntryRow(entry, strings) {
                     if (entry.isDir) {
                         model.open(open.cloud, entry.path)
                     } else {
@@ -183,7 +211,7 @@ private fun FolderList(open: Browsing, model: OpenDiskModel) {
 }
 
 @Composable
-private fun EntryRow(entry: RcloneClient.Entry, onClick: () -> Unit) {
+private fun EntryRow(entry: RcloneClient.Entry, strings: MobileStrings, onClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -199,24 +227,25 @@ private fun EntryRow(entry: RcloneClient.Entry, onClick: () -> Unit) {
             )
             if (!entry.isDir) {
                 Text(
-                    formatBytes(entry.size),
+                    formatBytes(entry.size, strings),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        if (!entry.isDir) Text("ссылка", style = MaterialTheme.typography.labelMedium)
+        if (!entry.isDir) Text(strings.linkHint, style = MaterialTheme.typography.labelMedium)
     }
 }
 
 @Composable
 private fun LinkDialog(link: LinkState, model: OpenDiskModel) {
+    val strings = model.strings
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = model::dismissLink,
-        title = { Text("Ссылка на скачивание") },
+        title = { Text(strings.linkTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -225,7 +254,7 @@ private fun LinkDialog(link: LinkState, model: OpenDiskModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 when {
-                    link.busy -> Text("Спрашиваю ссылку у облака…")
+                    link.busy -> Text(strings.linkAsking)
                     link.error != null -> Text(link.error, color = MaterialTheme.colorScheme.error)
                     link.url != null -> {
                         OutlinedTextField(
@@ -235,12 +264,11 @@ private fun LinkDialog(link: LinkState, model: OpenDiskModel) {
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Text(
-                            "Ссылку выдал сам сервис. Файл по ней скачает любой, " +
-                                "у кого она есть, без входа в аккаунт.",
+                            strings.linkExplanation,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (copied) Text("Скопировано", style = MaterialTheme.typography.bodySmall)
+                        if (copied) Text(strings.copied, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -250,16 +278,40 @@ private fun LinkDialog(link: LinkState, model: OpenDiskModel) {
                 Button(onClick = {
                     copyToClipboard(context, url)
                     copied = true
-                }) { Text("Копировать") }
+                }) { Text(strings.copy) }
             }
         },
-        dismissButton = { TextButton(onClick = model::dismissLink) { Text("Закрыть") } },
+        dismissButton = { TextButton(onClick = model::dismissLink) { Text(strings.close) } },
     )
 }
 
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     clipboard?.setPrimaryClip(ClipData.newPlainText("OpenDisk", text))
+}
+
+@Composable
+private fun ConfirmDeleteDialog(
+    cloud: String,
+    strings: MobileStrings,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.deleteTitle(cloud)) },
+        text = { Text(strings.deleteExplanation) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) { Text(strings.delete) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(strings.cancel) } },
+    )
 }
 
 /**
@@ -272,6 +324,7 @@ private fun copyToClipboard(context: Context, text: String) {
  */
 @Composable
 private fun AddCloudDialog(model: OpenDiskModel) {
+    val strings = model.strings
     var name by remember { mutableStateOf("") }
     var type by remember { mutableStateOf("webdav") }
     var url by remember { mutableStateOf("") }
@@ -282,13 +335,13 @@ private fun AddCloudDialog(model: OpenDiskModel) {
 
     AlertDialog(
         onDismissRequest = model::cancelAdding,
-        title = { Text("Новое облако") },
+        title = { Text(strings.newCloud) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Название") },
+                    label = { Text(strings.name) },
                     singleLine = true,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -301,20 +354,24 @@ private fun AddCloudDialog(model: OpenDiskModel) {
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
-                    label = { Text(if (type == "webdav") "Адрес сервера" else "Хост") },
+                    label = { Text(if (type == "webdav") strings.serverAddress else strings.host) },
                     singleLine = true,
                 )
                 OutlinedTextField(
                     value = user,
                     onValueChange = { user = it },
-                    label = { Text("Логин") },
+                    label = { Text(strings.login) },
                     singleLine = true,
                 )
+                // Под маской: в 0.5.0 пароль печатался открытым текстом — на
+                // экране телефона, который видно из-за плеча.
                 OutlinedTextField(
                     value = pass,
                     onValueChange = { pass = it },
-                    label = { Text("Пароль") },
+                    label = { Text(strings.password) },
                     singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -336,9 +393,9 @@ private fun AddCloudDialog(model: OpenDiskModel) {
                         error = failure
                     }
                 },
-            ) { Text(if (busy) "Добавляю…" else "Добавить") }
+            ) { Text(if (busy) strings.adding else strings.add) }
         },
-        dismissButton = { TextButton(onClick = model::cancelAdding) { Text("Отмена") } },
+        dismissButton = { TextButton(onClick = model::cancelAdding) { Text(strings.cancel) } },
     )
 }
 

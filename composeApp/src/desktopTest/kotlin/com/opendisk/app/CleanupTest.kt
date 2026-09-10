@@ -85,6 +85,26 @@ class CleanupTest {
     }
 
     @Test
+    fun `self uninstall looks for the bundle by the same upgrade code the installer has`() {
+        // Сценарий удаления находит обёртку Burn по её коду обновления. Коды
+        // живут в двух файлах, и если их разнести, удаление изнутри приложения
+        // молча перейдёт на запасной путь через MSI — и оставит в «Программах
+        // и компонентах» запись-сироту. Ровно то, что чинилось в 0.5.2.
+        val bundle = File("wix/Bundle.wxs").readText()
+        val upgradeCode = Regex("""UpgradeCode="([0-9A-Fa-f-]{36})"""").find(bundle)!!.groupValues[1]
+
+        val script = PowerShellScript.load("uninstall-opendisk.ps1")
+
+        assertTrue(
+            script.contains("{$upgradeCode}", ignoreCase = true),
+            "в сценарии удаления не тот код обновления, что в wix/Bundle.wxs ($upgradeCode)",
+        )
+        // Запускается кэшированная копия своей обёртки, а не строка из реестра.
+        assertTrue(script.contains("BundleCachePath"))
+        assertTrue(script.contains("'/uninstall'"))
+    }
+
+    @Test
     fun `anything but a product code is refused`() {
         // В UninstallString попадаются произвольные программы с ключами тихого
         // удаления. Запускать это вслепую нельзя — снесёт молча и не то.

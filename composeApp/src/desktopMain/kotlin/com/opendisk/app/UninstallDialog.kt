@@ -122,12 +122,21 @@ fun UninstallDialog(
                         if (removeWinFsp && winFsp != null) {
                             Cleanup.uninstallWinFsp(winFsp)
                         }
-                        message = strings.removeStarted
                         // Само приложение удаляет установщик: он же уберёт
                         // ярлыки и запись в «Программах и компонентах», чего
                         // приложение о себе сделать не может.
-                        Cleanup.startSelfUninstall()
-                        onQuit()
+                        if (Cleanup.startSelfUninstall()) {
+                            message = strings.removeStarted
+                            onQuit()
+                        } else {
+                            // Раньше приложение закрывалось в любом случае, и
+                            // отказ в правах выглядел так: окно исчезло, а
+                            // программа осталась. Диски к этому моменту уже
+                            // отключены — без перезапуска работать нечему,
+                            // и сказать об этом надо прямо.
+                            message = strings.removeStartFailed
+                            busy = false
+                        }
                     }
                 },
             ) {

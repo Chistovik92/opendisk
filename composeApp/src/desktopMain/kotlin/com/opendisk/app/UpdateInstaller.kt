@@ -8,7 +8,6 @@ import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.copyTo
 import java.io.File
 import java.security.MessageDigest
-import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 /**
@@ -102,44 +101,33 @@ class UpdateInstaller(private val httpClient: HttpClient) {
         }
 
         /**
-         * Запускает msiexec с запросом прав администратора.
+         * Запускает установщик и говорит, начал ли он работу.
          *
-         * Через `-EncodedCommand`, как и установщик WinFsp: путь содержит
-         * пробелы, а Java по-своему экранирует кавычки в командной строке —
-         * на этом уже спотыкались и установка WinFsp, и автозапуск.
+         * Сам сценарий — windows/install-update.ps1: его же запускает CI на
+         * настоящей установке, так что проверяется ровно то, что выполнится
+         * здесь.
+         *
+         * Ждём не конца установки, а короткое время. Установщик сам закроет
+         * приложение, дожидаться его отсюда бессмысленно. А вот если сценарий
+         * успел завершиться с ошибкой — человек отказал в правах
+         * администратора, — это надо сказать, а не делать вид, что обновление
+         * пошло. Раньше такой отказ выглядел как успех.
          */
         internal fun launchInstaller(installer: File): Boolean = runCatching {
-            val script = installScript(installer.absolutePath, Autostart.launcherPath())
-            val encoded = Base64.getEncoder()
-                .encodeToString(script.toByteArray(Charsets.UTF_16LE))
-            ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
-                .start()
-                // Ждём только запуск: сам msiexec закроет приложение и будет
-                // работать дальше уже без нас.
-                .waitFor(LAUNCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            val process = PowerShellScript.start(installScript(installer.absolutePath, Autostart.launcherPath()))
+            val finished = process.waitFor(LAUNCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            !finished || process.exitValue() in SUCCESS_CODES
         }.getOrDefault(false)
 
-        /**
-         * Ставит обновление и запускает новую версию.
-         *
-         * Запуск нужен именно здесь. Галка «Запустить OpenDisk» живёт на
-         * последней странице установщика, а обновление изнутри приложения идёт
-         * в сокращённом режиме (`/qb`), где этой страницы нет. Установщик при
-         * этом сам закрывает работающую копию — без явного запуска приложение
-         * после обновления просто исчезло бы с экрана.
-         *
-         * `-Wait` относится к msiexec, а не к нам: запускающий PowerShell прав
-         * администратора не получает, поэтому и приложение стартует от имени
-         * пользователя, а не системы.
-         */
-        internal fun installScript(absolutePath: String, launcher: String? = null): String {
-            val path = absolutePath.replace("'", "''")
-            val install =
-                "Start-Process msiexec -ArgumentList @('/i', '\"$path\"', '/qb') -Verb RunAs -Wait"
-            if (launcher == null) return install
-            val app = launcher.replace("'", "''")
-            return "$install\nif (Test-Path '$app') { Start-Process '$app' }"
-        }
+        /** Команда запуска windows/install-update.ps1 с путями установщика и приложения. */
+        internal fun installScript(absolutePath: String, launcher: String? = null): String =
+            PowerShellScript.invocation(
+                PowerShellScript.load("install-update.ps1"),
+                mapOf("Installer" to absolutePath, "Launcher" to launcher),
+            )
+
+        /** 3010 — «установлено, нужна перезагрузка»: файлы на месте, это успех. */
+        private val SUCCESS_CODES = setOf(0, 3010)
 
         private const val SHA256_HEX_LENGTH = 64
         private const val LAUNCH_TIMEOUT_SECONDS = 60L

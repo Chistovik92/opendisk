@@ -13,7 +13,10 @@ android {
         // 24 — тот же уровень, под который собрана librclone (-androidapi 24).
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
+        // Код версии — из номера: 0.5.2 → 502. Android ставит поверх только
+        // сборку с большим кодом, а в 0.5.0 здесь навсегда стояла единица.
+        versionCode = project.version.toString().split('.').map { it.toInt() }
+            .let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
         versionName = project.version.toString()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -44,13 +47,29 @@ android {
         }
     }
 
+    // Ключ издателя приходит из секретов CI (release.yml) переменными
+    // окружения. В репозиторий он не кладётся ни в каком виде: ключ, лежащий
+    // в открытом репозитории, есть у всех, и любой подписал бы им apk,
+    // который Android молча поставит поверх настоящего OpenDisk.
+    signingConfigs {
+        val keystore = System.getenv("OPENDISK_ANDROID_KEYSTORE")?.let(::File)?.takeIf { it.isFile }
+        if (keystore != null) {
+            create("release") {
+                storeFile = keystore
+                storePassword = System.getenv("OPENDISK_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("OPENDISK_ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("OPENDISK_ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Без подписи ключом разработчика: ключа у проекта нет, а
-            // самоподписанный в репозитории — это ключ, который есть у всех.
-            // Debug-подпись честнее: она сразу говорит, что сборка не из
-            // магазина, и не создаёт видимости доверенной подписи.
-            signingConfig = signingConfigs.getByName("debug")
+            // Без ключа — отладочная подпись. Она у каждой машины своя, и
+            // поверх сборки с другой подписью Android ставить откажется; для
+            // локальной сборки это нормально, для выпуска — нет, и CI об этом
+            // предупреждает.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = false
         }
     }

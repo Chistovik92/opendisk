@@ -86,10 +86,10 @@ jobs:
     name: ${{ matrix.name }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           # Архитектура задаётся явно для каждой платформы, а не угадывается:
           # на Apple Silicon и на ARM-раннере Windows умолчание привело бы
@@ -100,7 +100,7 @@ jobs:
           architecture: ${{ matrix.jdkArch }}
 
       - name: Кэш Gradle
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.gradle/caches
@@ -325,7 +325,7 @@ jobs:
           ls -la composeApp/build/compose/binaries/main/dmg/
 
       - name: Артефакты сборки
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: opendisk-${{ matrix.name }}
           path: ${{ matrix.artifacts }}
@@ -396,19 +396,38 @@ jobs:
     name: Android
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
           architecture: x64
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
+      # Подпись ключом издателя, если он заведён в секретах репозитория.
+      #
+      # Без него apk подписывается отладочным ключом, а тот на каждом раннере
+      # новый: Android откажется ставить такой apk поверх прошлого («конфликт
+      # пакетов»), и обновиться можно только удалив приложение вместе со всеми
+      # настроенными облаками. Так было с 0.5.0.
       - name: Собрать apk
-        run: ./gradlew -Popendisk.android=true :android-app:assembleRelease --no-daemon
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          OPENDISK_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          OPENDISK_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          OPENDISK_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            export OPENDISK_ANDROID_KEYSTORE="$RUNNER_TEMP/release.keystore"
+            echo "apk подписывается ключом издателя"
+          else
+            echo "::warning::Ключа подписи Android нет в секретах: apk подписан отладочным ключом, и поверх прошлой версии он не встанет."
+          fi
+          ./gradlew -Popendisk.android=true :android-app:assembleRelease --no-daemon
 
       # Имена от AGP («android-app-arm64-v8a-release.apk») ничего не говорят
       # человеку, который скачивает файл со страницы релиза.
@@ -426,7 +445,7 @@ jobs:
           ls -la build/android/
 
       - name: Артефакты сборки
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: opendisk-Android
           path: build/android/*.apk
@@ -456,6 +475,123 @@ jobs:
 
           gh release upload "$tag" build/android/*.apk "$sums" --clobber
 
+  # Проверка установщика Windows на настоящей системе, до выпуска.
+  #
+  # Собранный .exe ставится поверх старого .msi и прошлого .exe, обновляется
+  # тем же сценарием, что запускает само приложение, запускается и удаляется —
+  # см. scripts/verify-windows-install.ps1. До 0.5.2 этот путь не проходил
+  # никто, и встроенное обновление с удалением оказались сломаны незаметно.
+  #
+  # На обеих архитектурах: ARM-сборка иначе не запускалась бы нигде вообще.
+  verify-windows:
+    name: Проверка установки — Windows ${{ matrix.arch }}
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: opendisk-Windows-${{ matrix.arch }}
+          path: built
+
+      - name: Установка, обновление, запуск, удаление
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = (Select-String -Path build.gradle.kts -Pattern '^\s*version = "(.*)"').Matches[0].Groups[1].Value
+          $installer = Get-ChildItem built -Recurse -Filter "*-${{ matrix.arch }}.exe" | Select-Object -First 1
+          if (-not $installer) { throw 'собранного установщика нет среди артефактов' }
+
+          # Прошлые установщики — с опубликованных выпусков. Через API, а не gh:
+          # на ARM-раннере GitHub CLI может не оказаться, а PowerShell есть везде.
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; 'User-Agent' = 'opendisk-ci' }
+          $releases = Invoke-RestMethod -Headers $headers "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=30"
+          New-Item -ItemType Directory -Force prev | Out-Null
+
+          # 0.4.1 — последний выпуск с .msi: так стоит OpenDisk у всех, кто
+          # ставил его до 0.5.0.
+          $msi = ($releases | Where-Object tag_name -eq 'v0.4.1').assets | Where-Object name -eq 'OpenDisk-0.4.1.msi'
+          $msiPath = Join-Path $PWD 'prev\OpenDisk-0.4.1.msi'
+          Invoke-WebRequest $msi.browser_download_url -OutFile $msiPath
+
+          $exe = $releases |
+            Where-Object { -not $_.draft -and $_.tag_name -match '^v\d' -and $_.tag_name -ne "v$version" } |
+            ForEach-Object { $_.assets | Where-Object { $_.name -like "*-${{ matrix.arch }}.exe" } } |
+            Select-Object -First 1
+          $exePath = Join-Path $PWD "prev\$($exe.name)"
+          Invoke-WebRequest $exe.browser_download_url -OutFile $exePath
+
+          ./scripts/verify-windows-install.ps1 -Installer $installer.FullName -ExpectedVersion $version `
+            -PreviousMsi $msiPath -PreviousExe $exePath
+
+  # Проверка установки на Linux — тем самым install.sh, которым ставят люди,
+  # в чистых контейнерах дистрибутивов. Заодно проверяется главное свойство
+  # скрипта: на каждом дистрибутиве он выбирает свой пакет — Debian и Ubuntu
+  # получают deb, ALT — свою сборку, а не ту, что для Fedora.
+  verify-linux:
+    name: Проверка установки — ${{ matrix.image }}
+    needs: package
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:12
+            expect: deb
+          - image: ubuntu:22.04
+            expect: deb
+          # На 24.04 зависимости переименованы с суффиксом t64, а deb собран
+          # на 22.04 со старыми именами — проверяем, что Provides их покрывает.
+          - image: ubuntu:24.04
+            expect: deb
+          - image: fedora:41
+            expect: rpm
+          - image: opensuse/leap:15.6
+            expect: rpm
+          - image: alt:p10
+            expect: rpm-alt
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: opendisk-Linux
+          path: built
+
+      - name: Пакеты новой версии и прошлого выпуска
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p new prev
+          find built -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp {} new/ \;
+          # Суммы считаем здесь: SHA256SUMS-Linux публикуется вместе с
+          # релизом, а он к этому моменту ещё черновик.
+          (cd new && sha256sum -- * > SHA256SUMS-Linux)
+          ls -la new
+
+          current=$(sed -n 's/^ *version = "\(.*\)"/\1/p' build.gradle.kts | head -1)
+          prev=$(gh release list --limit 30 --json tagName,isDraft \
+                   --jq '.[] | select(.isDraft | not) | .tagName' |
+                 grep -E '^v[0-9]' | grep -vx "v$current" | head -n 1)
+          echo "обновление проверяется с $prev"
+          gh release download "$prev" -D prev \
+            -p '*.deb' -p '*.rpm' -p '*.AppImage' -p 'SHA256SUMS-Linux'
+
+      - name: Установка в ${{ matrix.image }}
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w ${{ matrix.image }} \
+            sh scripts/verify-linux-install.sh ${{ matrix.expect }} /w/new /w/prev
+
   # Публикация — отдельно от сборки и после всех трёх платформ сразу.
   #
   # Пока это делала каждая сборка сама, релиз становился видимым от первой
@@ -465,7 +601,7 @@ jobs:
   # одна сборка упала, эта работа не запустится, релиз останется черновиком и
   # пользователи его просто не увидят.
   publish:
-    needs: [package, android]
+    needs: [package, android, verify-windows, verify-linux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

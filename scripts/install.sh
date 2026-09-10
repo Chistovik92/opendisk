@@ -4,7 +4,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/Chistovik92/opendisk/main/scripts/install.sh | sh
 #
-# Скрипт определяет пакетный менеджер, скачивает подходящий пакет из релизов
+# Скрипт определяет дистрибутив, скачивает подходящий пакет из релизов
 # GitHub, сверяет контрольную сумму и ставит его. Версию можно задать явно:
 #
 #   OPENDISK_VERSION=v0.1.11 sh install.sh
@@ -22,7 +22,22 @@ fail() { printf 'Ошибка: %s\n' "$*" >&2; exit 1; }
 
 # --- Проверки окружения -----------------------------------------------------
 
-if command -v curl >/dev/null 2>&1; then
+# Установка из уже скачанных файлов, без интернета:
+#
+#   OPENDISK_PACKAGE_DIR=/путь/к/файлам sh install.sh
+#
+# В каталоге должны лежать пакет под эту систему и SHA256SUMS-Linux — то же,
+# что на странице релиза. Так же ставит CI, проверяя пакеты в контейнерах
+# разных дистрибутивов до выпуска: релиз к тому моменту не опубликован,
+# и скачивать неоткуда.
+pkg_dir="${OPENDISK_PACKAGE_DIR:-}"
+
+if [ -n "$pkg_dir" ]; then
+    [ -d "$pkg_dir" ] || fail "нет каталога $pkg_dir"
+    # Имя файла в каталоге то же, что в конце адреса на странице релиза.
+    download() { cp "$pkg_dir/${1##*/}" "$2"; }
+    fetch() { return 1; }
+elif command -v curl >/dev/null 2>&1; then
     download() { curl -fsSL "$1" -o "$2"; }
     fetch() { curl -fsSL "$1"; }
 elif command -v wget >/dev/null 2>&1; then
@@ -131,6 +146,16 @@ fi
 
 # --- Какую версию ставим ----------------------------------------------------
 
+if [ -n "$pkg_dir" ] && [ "$VERSION" = "latest" ]; then
+    # Без интернета спросить последнюю версию не у кого — берём её по именам
+    # файлов в каталоге. sort -V, потому что строкой 0.5.10 меньше 0.5.9.
+    VERSION="$(ls "$pkg_dir" 2>/dev/null |
+        sed -n 's/^opendisk_\([0-9][0-9.]*\)-1_amd64\.deb$/\1/p; s/^OpenDisk-\([0-9][0-9.]*\)-x86_64\.AppImage$/\1/p' |
+        sort -V | tail -n 1)"
+    [ -n "$VERSION" ] || fail "в $pkg_dir не нашлось пакетов OpenDisk"
+    VERSION="v$VERSION"
+fi
+
 if [ "$VERSION" = "latest" ]; then
     say "Узнаю последнюю версию..."
     # Не /releases/latest: этот эндпоинт пропускает предварительные релизы,
@@ -227,6 +252,14 @@ fi
 
 # --- Установка --------------------------------------------------------------
 
+# Списки пакетов на свежей системе бывают пустыми или устаревшими — тогда apt
+# не находит зависимостей и отказывается ставить, хотя пакет в порядке. Первой
+# на это наткнулась проверка в чистом контейнере Debian. Сбой обновления
+# списков не повод бросать установку: чаще всего хватит и тех, что есть.
+refresh_apt() {
+    $sudo apt-get update || say "Не удалось обновить списки пакетов — продолжаю с тем, что есть."
+}
+
 say "Устанавливаю (потребуются права администратора)..."
 if [ "$format" = "appimage" ]; then
     # AppImage — не пакет: ставить нечего, надо просто положить файл и сделать
@@ -236,6 +269,7 @@ if [ "$format" = "appimage" ]; then
 elif [ "$format" = "deb" ]; then
     if command -v apt-get >/dev/null 2>&1; then
         # apt умеет доставить зависимости, dpkg — нет.
+        refresh_apt
         $sudo apt-get install -y "$tmp/$asset"
     else
         $sudo dpkg -i "$tmp/$asset"
@@ -243,6 +277,7 @@ elif [ "$format" = "deb" ]; then
 elif [ "$format" = "rpm-alt" ]; then
     # В ALT пакетный менеджер — apt поверх rpm, и зависимости доставляет он же.
     if command -v apt-get >/dev/null 2>&1; then
+        refresh_apt
         $sudo apt-get install -y "$tmp/$asset"
     else
         $sudo rpm -Uvh "$tmp/$asset"

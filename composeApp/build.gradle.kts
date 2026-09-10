@@ -33,6 +33,9 @@ kotlin {
     // про src/main/kotlin. Раскладка commonMain/desktopMain из docs/ARCHITECTURE.md
     // подключается вручную — иначе исходники молча не компилируются (NO-SOURCE).
     sourceSets["main"].kotlin.srcDirs("src/commonMain/kotlin", "src/desktopMain/kotlin")
+    // Сценарии PowerShell для установки обновления и удаления. Лежат файлами,
+    // чтобы CI проверял на настоящей установке ровно их, а не копию.
+    sourceSets["main"].resources.srcDirs("src/desktopMain/resources")
     sourceSets["test"].kotlin.srcDirs("src/desktopTest/kotlin")
     sourceSets["test"].resources.srcDirs("src/desktopTest/resources")
 }
@@ -498,7 +501,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi, TargetFormat.Dmg)
             packageName = "OpenDisk"
-            packageVersion = "0.5.0"
+            packageVersion = "0.5.2"
             // Только ASCII: WiX собирает MSI в кодовой странице 1252 и падает
             // с LGHT0311 на кириллице в метаданных установщика.
             description = "Open cross-platform client for cloud drives"
@@ -543,7 +546,7 @@ compose.desktop {
             macOS {
                 // macOS не принимает MAJOR = 0 в версии бандла (.dmg),
                 // поэтому для него версия задаётся отдельно
-                packageVersion = "1.5.0"
+                packageVersion = "1.5.2"
             }
         }
     }

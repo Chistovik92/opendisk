@@ -36,7 +36,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Взять версию rclone из сборки десктопа
         id: version
@@ -57,7 +57,7 @@ jobs:
           git clone --depth 1 --branch "v${{ steps.version.outputs.version }}" \
             https://github.com/rclone/rclone.git rclone-src
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # Ту же версию Go, на которой собирается сам rclone — иначе рискуем
           # собирать библиотеку тулчейном, на котором проект не проверялся.

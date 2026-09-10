@@ -40,7 +40,7 @@ jobs:
     # Собрать под iOS можно только на macOS: gomobile зовёт clang из Xcode.
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Взять версию rclone из сборки десктопа
         id: version
@@ -61,7 +61,7 @@ jobs:
           git clone --depth 1 --branch "v${{ steps.version.outputs.version }}" \
             https://github.com/rclone/rclone.git rclone-src
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # Та же версия Go, на которой собирается сам rclone.
           go-version-file: rclone-src/go.mod
