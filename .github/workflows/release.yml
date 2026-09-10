@@ -569,6 +569,17 @@ jobs:
           ./scripts/verify-windows-install.ps1 -Installer $installer.FullName -ExpectedVersion $version `
             -PreviousMsi $msiPath -PreviousExe $exePath
 
+      # Снимки экрана: приложение пишет причину сбоя в своё окно, а не в лог.
+      # Всегда, а не только при провале: снимок бывает и при предупреждении.
+      - name: Снимки экрана
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-windows-${{ matrix.arch }}-screenshots
+          path: verify-screenshots/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Проверка установки на Linux — тем самым install.sh, которым ставят люди,
   # в чистых контейнерах дистрибутивов. Заодно проверяется главное свойство
   # скрипта: на каждом дистрибутиве он выбирает свой пакет — Debian и Ubuntu

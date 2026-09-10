@@ -70,12 +70,44 @@ function Show-InstallerLogs {
     }
 }
 
+# Запускается ли встроенный rclone вообще. Если приложение живо, а rclone нет,
+# первым делом надо понять: не стартовал он или стартовал и сразу умер.
+function Show-BundledRclone {
+    $rclone = Join-Path $env:ProgramFiles 'OpenDisk\app\resources\rclone.exe'
+    if (-not (Test-Path -LiteralPath $rclone)) { Write-Host "  встроенного rclone нет: $rclone"; return }
+    $out = & $rclone version 2>&1 | Select-Object -First 4
+    Write-Host "  встроенный rclone, код $LASTEXITCODE`:"
+    $out | ForEach-Object { Write-Host "    $_" }
+}
+
+# Снимок экрана. Приложение показывает причину сбоя в своём окне — например,
+# «rclone не запустился» с его выводом, — а в лог CI окно не попадает. Снимок
+# уезжает артефактом работы.
+function Save-Screenshot([string]$name) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+        $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+        $dir = Join-Path $PSScriptRoot '..\verify-screenshots'
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        $path = Join-Path $dir "$name.png"
+        $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+        Write-Host "  снимок экрана: $path"
+    } catch {
+        Write-Host "  снимок экрана не получился: $($_.Exception.Message)"
+    }
+}
+
 function Fail([string]$message) {
     Write-Host ''
     Write-Host 'Записи OpenDisk в реестре:'
     Show-Entries
     Get-Process OpenDisk, rclone -ErrorAction SilentlyContinue |
-        Format-Table Name, Id, StartTime, Path -AutoSize | Out-String | Write-Host
+        Format-Table Name, Id, StartTime, Responding, Path -AutoSize | Out-String | Write-Host
+    Show-BundledRclone
+    Save-Screenshot 'failure'
     Show-InstallerLogs
     throw "ПРОВЕРКА НЕ ПРОШЛА: $message"
 }
@@ -121,7 +153,15 @@ $old = $null
 if (Test-Path -LiteralPath $launcher) {
     $old = Start-Process -FilePath $launcher -PassThru
     if (-not (Wait-For { Get-Process rclone -ErrorAction SilentlyContinue } 120)) {
-        Fail 'прошлая версия не запустилась — проверять обновление не на чем'
+        # Не повод бросать проверку: обновление ставится и без работающей
+        # копии, и главное — посмотреть, запускается ли новая версия. Но это
+        # находка про уже выпущенную версию, поэтому выкладываем всё, что
+        # поможет её разобрать.
+        Write-Host '::warning::прошлая версия запустилась, но за две минуты не подняла rclone'
+        Get-Process OpenDisk -ErrorAction SilentlyContinue |
+            Format-Table Name, Id, StartTime, Responding, Path -AutoSize | Out-String | Write-Host
+        Show-BundledRclone
+        Save-Screenshot 'previous-version-without-rclone'
     }
 }
 $beforeUpdate = Get-Date
