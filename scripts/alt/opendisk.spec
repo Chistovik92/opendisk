@@ -74,7 +74,8 @@ fi
 if [ "$1" -ge 2 ]; then
     rm -f /run/opendisk-restart.user /run/opendisk-restart.env
     for pid in $(pgrep -f "^/opt/opendisk/bin/OpenDisk" 2>/dev/null); do
-        # %%U, not %U: rpm expands macros inside scriptlets too.
+        # Doubled percent sign: rpm expands macros inside scriptlets, even in
+        # lines that look like comments - to rpm they are just script text.
         stat -c %%U "/proc/$pid" > /run/opendisk-restart.user 2>/dev/null || continue
         tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null |
             grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR)=' \
@@ -101,11 +102,14 @@ fi
 # the window. Best effort: if it fails, the user starts the app by hand, which
 # is unpleasant but not broken.
 #
-# %post, not %posttrans as in the Fedora package: ALT's rpm branch has no
-# %posttrans at all ("Macro %posttrans not found"). Fedora needs it only
-# because the old jpackage package's %preun removes the menu entry after the
-# new %post; the ALT package ships its .desktop file directly and has no
-# such %preun, so %post is enough.
+# This is the post scriptlet, not posttrans as in the Fedora package: ALT's
+# rpm branch has no posttrans section at all. Fedora needs it only because
+# the old jpackage package's preun scriptlet removes the menu entry after the
+# new post one runs; the ALT package ships its .desktop file directly and has
+# no such preun, so post is enough.
+#
+# No percent signs in these comments: rpm expands macros in scriptlet text,
+# comments included - a mention of a section name here breaks the build.
 if [ -s /run/opendisk-restart.user ]; then
     od_user=$(cat /run/opendisk-restart.user)
     {
