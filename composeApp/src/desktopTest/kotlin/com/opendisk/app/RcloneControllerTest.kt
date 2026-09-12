@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -32,6 +33,23 @@ import kotlin.test.assertTrue
  * ```
  */
 class RcloneControllerTest {
+
+    /**
+     * Второе облако не должно выбрать ту же букву, что и первое.
+     *
+     * Буква появляется среди дисков системы не в тот же миг, когда rclone
+     * ответил «смонтировано», — и при автоподключении нескольких облаков
+     * подряд второе успевало выбрать занятую. Поэтому уже выданные нами
+     * точки исключаются отдельно, а не только по списку дисков.
+     */
+    @Test
+    fun `буква диска не выдаётся дважды`() {
+        if (!System.getProperty("os.name").lowercase().contains("win")) return
+
+        val first = RcloneController.defaultMountPoint("первое")
+        val second = RcloneController.defaultMountPoint("второе", reserved = setOf(first))
+        assertNotEquals(first, second)
+    }
 
     private var controller: RcloneController? = null
 

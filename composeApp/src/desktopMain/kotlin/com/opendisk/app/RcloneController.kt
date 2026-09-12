@@ -578,7 +578,7 @@ class RcloneController(
         val api = client ?: return
         val cloudSettings = settings.forCloud(name)
         val mountPoint = cloudSettings.mountPoint?.takeIf { it.isNotBlank() }
-            ?: defaultMountPoint(name)
+            ?: defaultMountPoint(name, reserved = ourMounts.values.toSet())
 
         updateCloud(name) { it.copy(busy = true, error = null) }
         try {
@@ -915,13 +915,23 @@ class RcloneController(
          * Точка монтирования по умолчанию. На Windows это буква диска, поэтому
          * ищем первую свободную; на остальных ОС — каталог в домашней папке.
          */
-        fun defaultMountPoint(cloudName: String): String {
+        /**
+         * Куда монтировать облако, если пользователь не выбрал сам.
+         *
+         * @param reserved точки, уже занятые нашими подключениями. Их нужно
+         *        исключать отдельно: буква появляется среди дисков системы
+         *        не в тот же миг, когда rclone сообщил об успехе, и при
+         *        автоподключении нескольких облаков подряд второе облако
+         *        успевало выбрать ту же букву, что и первое.
+         */
+        fun defaultMountPoint(cloudName: String, reserved: Set<String> = emptySet()): String {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
             if (!isWindows) {
                 return File(System.getProperty("user.home"), "OpenDisk/$cloudName").path
             }
             // A и B исторически за флоппи, C — системный: начинаем с D.
-            val taken = File.listRoots().map { it.path.first().uppercaseChar() }.toSet()
+            val taken = File.listRoots().map { it.path.first().uppercaseChar() }.toSet() +
+                reserved.mapNotNull { it.trim().firstOrNull()?.uppercaseChar() }
             val free = ('D'..'Z').firstOrNull { it !in taken } ?: 'Z'
             return "$free:"
         }
