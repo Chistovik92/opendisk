@@ -2,7 +2,6 @@ package com.opendisk.app
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
@@ -12,7 +11,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -20,17 +18,16 @@ import androidx.compose.ui.unit.dp
 /**
  * «О приложении»: версия, версия встроенного rclone, пути к файлам и лицензии.
  *
+ * Кнопок здесь нет: «Проверить обновления» и «Удалить OpenDisk» переехали
+ * в настройки приложения. Это окно — справка, а не место, где меняют
+ * установленную программу.
+ *
  * Пути показываем не для красоты — это первое, что спрашивают при разборе
  * проблемы, и искать их по документации неудобно. Содержимое можно выделить
  * и скопировать, чтобы приложить к сообщению об ошибке.
  */
 @Composable
-fun AboutDialog(
-    state: UiState,
-    onDismiss: () -> Unit,
-    onCheckUpdates: () -> Unit,
-    onRemoveApp: () -> Unit,
-) {
+fun AboutDialog(state: UiState, onDismiss: () -> Unit) {
     val strings = LocalStrings.current
 
     AlertDialog(
@@ -49,10 +46,6 @@ fun AboutDialog(
                         Text(AppVersion.current ?: strings.versionUnknown)
                         state.rcloneVersion?.let {
                             Text("${strings.builtOnRclone} $it")
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = onCheckUpdates) { Text(strings.checkNow) }
-                            TextButton(onClick = onRemoveApp) { Text(strings.removeApp) }
                         }
                     }
 

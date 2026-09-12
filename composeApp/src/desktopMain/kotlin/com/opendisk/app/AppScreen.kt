@@ -30,15 +30,26 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.opendisk.bridge.MountSupport
 
+/**
+ * Главный экран.
+ *
+ * Видимость настроек хранится снаружи: открыть их можно не только кнопкой на
+ * экране, но и пунктом меню в трее, а окно при этом может быть спрятано.
+ */
 @Composable
-fun AppScreen(state: UiState, controller: RcloneController, onQuit: () -> Unit) {
+fun AppScreen(
+    state: UiState,
+    controller: RcloneController,
+    onQuit: () -> Unit,
+    showingAppSettings: Boolean,
+    onShowAppSettings: (Boolean) -> Unit,
+) {
     val strings = LocalStrings.current
     var addingCloud by remember { mutableStateOf(false) }
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
     var cloudToRename by remember { mutableStateOf<String?>(null) }
     var cloudToConfigure by remember { mutableStateOf<String?>(null) }
     var cloudToEdit by remember { mutableStateOf<String?>(null) }
-    var showingAppSettings by remember { mutableStateOf(false) }
     var showingAbout by remember { mutableStateOf(false) }
     var removingApp by remember { mutableStateOf(false) }
 
@@ -66,7 +77,7 @@ fun AppScreen(state: UiState, controller: RcloneController, onQuit: () -> Unit) 
                     onRequestDelete = { cloudToDelete = it },
                     onRequestRename = { cloudToRename = it },
                     onRequestSettings = { cloudToConfigure = it },
-                    onAppSettings = { showingAppSettings = true },
+                    onAppSettings = { onShowAppSettings(true) },
                     onAbout = { showingAbout = true },
                     onQuit = onQuit,
                 )
@@ -99,18 +110,7 @@ fun AppScreen(state: UiState, controller: RcloneController, onQuit: () -> Unit) 
     }
 
     if (showingAbout) {
-        AboutDialog(
-            state = state,
-            onDismiss = { showingAbout = false },
-            onCheckUpdates = {
-                showingAbout = false
-                controller.checkForUpdates(manual = true)
-            },
-            onRemoveApp = {
-                showingAbout = false
-                removingApp = true
-            },
-        )
+        AboutDialog(state = state, onDismiss = { showingAbout = false })
     }
 
     if (removingApp) {
@@ -124,10 +124,18 @@ fun AppScreen(state: UiState, controller: RcloneController, onQuit: () -> Unit) 
     if (showingAppSettings) {
         GlobalSettingsDialog(
             current = state.globalSettings,
-            onDismiss = { showingAppSettings = false },
+            onDismiss = { onShowAppSettings(false) },
             onSave = { updated ->
                 controller.updateGlobalSettings(updated)
-                showingAppSettings = false
+                onShowAppSettings(false)
+            },
+            onCheckUpdates = {
+                onShowAppSettings(false)
+                controller.checkForUpdates(manual = true)
+            },
+            onRemoveApp = {
+                onShowAppSettings(false)
+                removingApp = true
             },
         )
     }

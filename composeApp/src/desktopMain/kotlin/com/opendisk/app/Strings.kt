@@ -260,6 +260,12 @@ class Strings(private val russian: Boolean) {
     // --- Удаление приложения --------------------------------------------------
 
     val removeApp = t("Удалить OpenDisk", "Remove OpenDisk")
+    val removeAppHint = t(
+        "Отключит диски и запустит удаление приложения с компьютера. " +
+            "Файлы в самих облаках не трогает.",
+        "Disconnects the drives and starts removing the application from this " +
+            "computer. The files in the clouds themselves are left alone.",
+    )
     val removeAppTitle = t("Удаление OpenDisk", "Removing OpenDisk")
     val removeStartFailed = t(
         "Удаление не запустилось: установка OpenDisk в системе не найдена. " +
@@ -504,6 +510,23 @@ class Strings(private val russian: Boolean) {
         "Смена языка применится сразу.",
         "The language changes immediately.",
     )
+    val theme = t("Оформление", "Appearance")
+    val themeAuto = t("Как в системе", "Same as system")
+    val themeLight = t("Светлое", "Light")
+    val themeDark = t("Тёмное", "Dark")
+    val themeHint = t(
+        "«Как в системе» берёт из неё и светлую или тёмную тему, и цвет " +
+            "выделения — тот же, которым система подсвечивает кнопки.",
+        "«Same as system» takes both the light or dark theme and the accent " +
+            "colour from the system — the same one it highlights buttons with.",
+    )
+
+    /** Разделы диалога настроек: их стало больше, чем помещается без заголовков. */
+    val settingsGeneral = t("Общее", "General")
+    val settingsAppearance = t("Внешний вид", "Appearance")
+    val settingsUpdatesSection = t("Обновления и установка", "Updates and installation")
+    val settingsTransfer = t("Передача данных", "Data transfer")
+
     val runAtLogin = t("Запускать при входе в систему", "Start when I sign in")
     val runAtLoginHint = t(
         "Приложение запустится свёрнутым в трей и подключит облака, отмеченные " +

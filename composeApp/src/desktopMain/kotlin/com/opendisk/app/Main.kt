@@ -21,7 +21,10 @@ import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.withContext
 import java.awt.SystemTray
 
 /**
@@ -62,6 +65,9 @@ fun main(args: Array<String>) {
 /** Флаг запуска свёрнутым — его добавляет автозапуск. */
 const val HIDDEN_FLAG = "--hidden"
 
+/** Как часто переспрашиваем систему про тему и цвет выделения. */
+private const val SYSTEM_LOOK_POLL_MILLIS = 10_000L
+
 /** Флаг уборки за собой — его передаёт установщик при удалении. */
 const val CLEANUP_FLAG = "--cleanup"
 
@@ -73,6 +79,26 @@ private fun runApplication(startHidden: Boolean) = application {
     val strings = Strings.of(Language.fromCode(state.globalSettings.language))
     // Свёрнутым можно стартовать только с треем: иначе окно не вернуть.
     var windowVisible by remember { mutableStateOf(!(startHidden && traySupported)) }
+    // Настройки открываются и из трея, поэтому живут здесь, а не в экране.
+    var showingSettings by remember { mutableStateOf(false) }
+
+    // Тему и цвет выделения система меняет когда угодно — например, по
+    // расписанию «тёмная с заката». Узнать об этом на десктопе можно только
+    // спросив саму систему, поэтому переспрашиваем изредка: смена темы
+    // не то событие, ради которого стоит держать опрос чаще.
+    var systemLook by remember { mutableStateOf(SystemLook()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            systemLook = withContext(Dispatchers.IO) { SystemAppearance.read() }
+            delay(SYSTEM_LOOK_POLL_MILLIS)
+        }
+    }
+    val dark = when (ThemeChoice.fromCode(state.globalSettings.theme)) {
+        ThemeChoice.AUTO -> systemLook.dark
+        ThemeChoice.LIGHT -> false
+        ThemeChoice.DARK -> true
+    }
+    val useSystemAccent = ThemeChoice.fromCode(state.globalSettings.theme) == ThemeChoice.AUTO
 
     LaunchedEffect(Unit) { controller.start() }
 
@@ -110,6 +136,15 @@ private fun runApplication(startHidden: Boolean) = application {
             onAction = { windowVisible = true },
             menu = {
                 Item(strings.showWindow, onClick = { windowVisible = true })
+                // Настройки прямо отсюда: приложение живёт свёрнутым, и путь
+                // «показать окно → найти кнопку» — лишний шаг ради галочки.
+                Item(
+                    strings.appSettings,
+                    onClick = {
+                        windowVisible = true
+                        showingSettings = true
+                    },
+                )
                 Item(strings.quit, onClick = ::quit)
             },
         )
@@ -122,11 +157,22 @@ private fun runApplication(startHidden: Boolean) = application {
         title = "OpenDisk",
         icon = OpenDiskIcon,
     ) {
-        MaterialTheme {
+        MaterialTheme(
+            colorScheme = colorSchemeFor(
+                dark = dark,
+                accent = systemLook.accent.takeIf { useSystemAccent },
+            ),
+        ) {
             // Язык подаётся сверху: строки нужны и вне композиции — например,
             // контроллеру для сообщений об ошибках.
             CompositionLocalProvider(LocalStrings provides strings) {
-                AppScreen(state, controller, onQuit = ::quit)
+                AppScreen(
+                    state = state,
+                    controller = controller,
+                    onQuit = ::quit,
+                    showingAppSettings = showingSettings,
+                    onShowAppSettings = { showingSettings = it },
+                )
             }
         }
     }
