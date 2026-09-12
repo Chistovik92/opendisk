@@ -1,6 +1,7 @@
 package com.opendisk.android.app
 
 import android.app.Application
+import android.provider.DocumentsContract
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.opendisk.android.LibrcloneTransport
@@ -55,6 +56,12 @@ data class MobileState(
     val browsing: Browsing? = null,
     val link: LinkState? = null,
     val adding: Boolean = false,
+    /** Открыт экран настроек. */
+    val settings: Boolean = false,
+    /** Настройки телефона: оформление, язык и список подключённых облаков. */
+    val preferences: MobilePreferences = MobilePreferences(),
+    /** Версия встроенного rclone — показывается в настройках, как на десктопе. */
+    val rcloneVersion: String? = null,
 )
 
 /**
@@ -67,10 +74,12 @@ data class MobileState(
  */
 class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
-    /** Строки на языке системы — для сообщений, которые собирает сама модель. */
-    val strings: MobileStrings = MobileStrings.system()
+    private val settings = MobileSettings(application)
 
-    private val _state = MutableStateFlow(MobileState())
+    /** Строки на выбранном языке — для сообщений, которые собирает сама модель. */
+    val strings: MobileStrings get() = MobileStrings.of(_state.value.preferences.language)
+
+    private val _state = MutableStateFlow(MobileState(preferences = settings.read()))
     val state: StateFlow<MobileState> = _state.asStateFlow()
 
     private var client: RcloneClient? = null
@@ -86,6 +95,9 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                 client = RcloneClient(LibrcloneTransport.get())
             }
             _state.update { it.copy(starting = false) }
+            // Уведомление переживает перезапуск телефона не само: система
+            // его снимает, а список подключённых облаков остаётся.
+            notifySystem(_state.value.preferences)
             reload()
         }
     }
@@ -93,6 +105,9 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
     fun reload() {
         val api = client ?: return
         viewModelScope.launch {
+            runCatching { api.version().version }.getOrNull()?.let { version ->
+                _state.update { it.copy(rcloneVersion = version) }
+            }
             try {
                 val names = api.listRemotes()
                 _state.update { current ->
@@ -219,8 +234,66 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { api.deleteRemote(name) }
                 .onFailure { e -> _state.update { it.copy(error = describe(e)) } }
+            // Удалённое облако не должно остаться подключённым: система
+            // продолжила бы показывать его корень в «Файлах».
+            val current = _state.value.preferences
+            if (name in current.connected) {
+                applyPreferences(current.copy(connected = current.connected - name))
+            }
             reload()
         }
+    }
+
+    // --- Подключение ----------------------------------------------------------
+
+    /**
+     * Подключить облако — значит отдать его системе: подключённое видно в
+     * «Файлах» и в окнах выбора файла. Монтированием диска, как на компьютере,
+     * это быть не может — Android такого приложению не позволяет.
+     */
+    fun setConnected(cloud: String, connected: Boolean) {
+        val current = _state.value.preferences
+        applyPreferences(
+            current.copy(
+                connected = if (connected) current.connected + cloud else current.connected - cloud,
+            ),
+        )
+    }
+
+    // --- Настройки ------------------------------------------------------------
+
+    fun openSettings() = _state.update { it.copy(settings = true) }
+
+    fun closeSettings() = _state.update { it.copy(settings = false) }
+
+    fun setTheme(theme: MobileTheme) =
+        applyPreferences(_state.value.preferences.copy(theme = theme))
+
+    fun setLanguage(language: MobileLanguage) =
+        applyPreferences(_state.value.preferences.copy(language = language))
+
+    /**
+     * Сохраняет настройки и рассказывает о них системе.
+     *
+     * Список корней система держит у себя и сама его не перечитывает: пока ей
+     * не сказали, что он изменился, подключённое облако в «Файлах» не появится
+     * (а отключённое — не исчезнет).
+     */
+    private fun applyPreferences(updated: MobilePreferences) {
+        settings.write(updated)
+        _state.update { it.copy(preferences = updated) }
+        notifySystem(updated)
+    }
+
+    private fun notifySystem(preferences: MobilePreferences) {
+        val context = getApplication<Application>()
+        runCatching {
+            context.contentResolver.notifyChange(
+                DocumentsContract.buildRootsUri(OpenDiskDocumentsProvider.AUTHORITY),
+                null,
+            )
+        }
+        ConnectedNotification.update(context, preferences.connected, strings)
     }
 
     // --- Мелочи --------------------------------------------------------------

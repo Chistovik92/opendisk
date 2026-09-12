@@ -355,6 +355,55 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
         return response.list.sortedWith(compareByDescending<Entry> { it.isDir }.thenBy { it.name.lowercase() })
     }
 
+    @Serializable
+    private data class StatResponse(val item: Entry? = null)
+
+    /**
+     * Сведения об одном файле или папке; null — такого пути в облаке нет.
+     *
+     * Нужен там, где о файле спрашивают вне списка папки: система Android
+     * спрашивает у поставщика документов про конкретный документ, ничего
+     * не зная о его соседях, и перечитывать ради этого всю папку — лишние
+     * запросы к облаку.
+     */
+    suspend fun stat(remoteName: String, remotePath: String): Entry? {
+        val response: StatResponse = call(
+            "operations/stat",
+            buildJsonObject {
+                put("fs", "$remoteName:")
+                put("remote", remotePath)
+            },
+        )
+        return response.item
+    }
+
+    /**
+     * Копирует файл из облака в локальную папку.
+     *
+     * Для телефона это единственный способ отдать файл системе: Android просит
+     * у поставщика документов обычный файловый дескриптор, а у файла в облаке
+     * его нет, пока файл не оказался на диске.
+     *
+     * @param localDirectory куда положить — путь к папке на этом устройстве.
+     * @param localName под каким именем.
+     */
+    suspend fun copyToLocal(
+        remoteName: String,
+        remotePath: String,
+        localDirectory: String,
+        localName: String,
+    ) {
+        call<JsonObject>(
+            "operations/copyfile",
+            buildJsonObject {
+                put("srcFs", "$remoteName:")
+                put("srcRemote", remotePath)
+                put("dstFs", localDirectory)
+                put("dstRemote", localName)
+            },
+        )
+    }
+
     // --- Ссылки на файлы ----------------------------------------------------
 
     /**

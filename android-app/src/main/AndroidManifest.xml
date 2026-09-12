@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Единственное разрешение: облака живут в сети. Ни к файлам телефона,
-         ни к чему-либо ещё приложение не обращается. -->
+    <!-- Облака живут в сети. К файлам телефона приложение не обращается:
+         подключённое облако система читает через поставщика документов,
+         и это её файлы, а не наши. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Значок в шторке, пока облака подключены. С Android 13 разрешение
+         спрашивается у человека; отказ ничего не ломает, кроме самого значка. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
@@ -22,5 +26,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Подключённые облака для всей системы: «Файлы» и любое окно выбора
+          файла спрашивают их здесь. Разрешение MANAGE_DOCUMENTS выдаётся
+          только системному приложению выбора файлов — так и задумано:
+          остальным приложениям корни видны лишь через него, по выбору
+          человека.
+        -->
+        <provider
+            android:name=".OpenDiskDocumentsProvider"
+            android:authorities="com.opendisk.android.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
     </application>
 </manifest>
