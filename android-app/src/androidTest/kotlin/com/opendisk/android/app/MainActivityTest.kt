@@ -71,8 +71,11 @@ class MainActivityTest {
 
         rule.onNodeWithText(strings.settings).performClick()
         rule.onNodeWithText(strings.theme).assertIsDisplayed()
-        rule.onNodeWithText(strings.themeAuto).assertIsDisplayed()
         rule.onNodeWithText(strings.language).assertIsDisplayed()
+        // Не по «как в системе»: этот вариант есть и у темы, и у языка,
+        // и проверка нашла бы два узла вместо одного.
+        rule.onNodeWithText(strings.themeDark).assertIsDisplayed()
+        rule.onNodeWithText(strings.about).assertIsDisplayed()
     }
 
     private companion object {
