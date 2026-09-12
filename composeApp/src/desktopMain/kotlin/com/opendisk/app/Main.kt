@@ -86,9 +86,13 @@ private fun runApplication(startHidden: Boolean) = application {
     // расписанию «тёмная с заката». Узнать об этом на десктопе можно только
     // спросив саму систему, поэтому переспрашиваем изредка: смена темы
     // не то событие, ради которого стоит держать опрос чаще.
+    //
+    // И только при открытом окне: каждый опрос — это запуск чужой программы
+    // (reg, defaults, gsettings), а приложение сутками живёт свёрнутым
+    // в трее, где показывать тему всё равно негде.
     var systemLook by remember { mutableStateOf(SystemLook()) }
-    LaunchedEffect(Unit) {
-        while (true) {
+    LaunchedEffect(windowVisible) {
+        while (windowVisible) {
             systemLook = withContext(Dispatchers.IO) { SystemAppearance.read() }
             delay(SYSTEM_LOOK_POLL_MILLIS)
         }
