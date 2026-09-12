@@ -60,3 +60,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.opendisk.ios
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_BITCODE: "NO"
+        # librclone — это Go, а сетевой код Go зовёт системный резолвер:
+        # res_9_ninit, res_9_nsearch, res_9_nclose. На iOS они живут в
+        # отдельной libresolv, и без этой строки сборка падает на линковке
+        # «Undefined symbols for architecture arm64».
+        OTHER_LDFLAGS: "-lresolv"

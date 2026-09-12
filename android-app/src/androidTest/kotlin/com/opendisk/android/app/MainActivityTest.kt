@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -55,6 +56,23 @@ class MainActivityTest {
         // Конфига на свежем устройстве нет. Важно, что это не ошибка и не
         // пустой экран, а приглашение: с него начинается любой первый запуск.
         rule.onNodeWithText(strings.noClouds.lineSequence().first(), substring = true).assertIsDisplayed()
+    }
+
+    /**
+     * Настройки открываются с главного экрана и показывают то, ради чего
+     * заведены. Проверка дешёвая, а ломается такое незаметно: экран есть,
+     * кнопки нет — и найти его нельзя.
+     */
+    @Test
+    fun settingsOpenFromTheMainScreen() {
+        rule.waitUntil(timeoutMillis = STARTUP_TIMEOUT_MILLIS) {
+            rule.onAllNodesWithText(strings.starting).fetchSemanticsNodes().isEmpty()
+        }
+
+        rule.onNodeWithText(strings.settings).performClick()
+        rule.onNodeWithText(strings.theme).assertIsDisplayed()
+        rule.onNodeWithText(strings.themeAuto).assertIsDisplayed()
+        rule.onNodeWithText(strings.language).assertIsDisplayed()
     }
 
     private companion object {
