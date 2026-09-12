@@ -25,3 +25,10 @@ local.properties
 
 # Claude Code
 .claude/worktrees/
+
+# iOS: файл проекта Xcode собирается XcodeGen из ios/project.yml, а ядро
+# rclone качается скриптом по контрольной сумме — оба в репозитории не нужны.
+ios/OpenDisk.xcodeproj/
+ios/Frameworks/
+ios/build/
+ios/OpenDisk/Info.plist

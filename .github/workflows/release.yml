@@ -526,6 +526,94 @@ jobs:
 
           gh release upload "$tag" build/android/*.apk "$sums" --clobber
 
+  # iOS — сборка без подписи.
+  #
+  # Сертификата Apple у проекта нет и не будет без платной программы
+  # разработчика, а без него .ipa не поставить обычным путём. Это не повод
+  # не выпускать файл: его подписывает своей учётной записью тот, кто ставит
+  # (AltStore, SideStore, Sideloadly) — со своими ограничениями, о которых
+  # честно написано в docs/IOS.md.
+  #
+  # Собранное приложение умеет то же, что и на Android, кроме одного: облако
+  # не появляется в «Файлах». Это File Provider Extension, а расширению нужны
+  # права (entitlements), которые выдаёт только Apple подписанному приложению.
+  ios:
+    name: iOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ядро rclone для iOS
+        run: sh scripts/fetch-librclone-ios.sh
+
+      - name: XcodeGen
+        # Файл проекта Xcode машинно-порождаемый и в репозитории не лежит:
+        # собирается из ios/project.yml.
+        run: brew install xcodegen
+
+      - name: Собрать без подписи
+        run: |
+          version=$(sed -n 's/^ *version = "\(.*\)"/\1/p' build.gradle.kts | head -1)
+          echo "версия: $version"
+          # Тот же расчёт, что у кода версии Android: 0.5.3 → 503.
+          build=$(echo "$version" | awk -F. '{print $1 * 10000 + $2 * 100 + $3}')
+
+          cd ios
+          xcodegen generate
+          xcodebuild \
+            -project OpenDisk.xcodeproj \
+            -scheme OpenDisk \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            MARKETING_VERSION="$version" \
+            CURRENT_PROJECT_VERSION="$build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Упаковать .ipa
+        run: |
+          version=$(sed -n 's/^ *version = "\(.*\)"/\1/p' build.gradle.kts | head -1)
+          app=ios/build/Build/Products/Release-iphoneos/OpenDisk.app
+          test -d "$app" || { echo "приложение не собралось: $app" >&2; exit 1; }
+
+          # .ipa — это zip с приложением в папке Payload, больше ничего.
+          mkdir -p build/ios/Payload
+          cp -R "$app" build/ios/Payload/
+          (cd build/ios && zip -qry "OpenDisk-$version.ipa" Payload && rm -rf Payload)
+          ls -la build/ios/
+
+      - name: Артефакты сборки
+        uses: actions/upload-artifact@v7
+        with:
+          name: opendisk-iOS
+          path: build/ios/*.ipa
+          if-no-files-found: error
+
+      - name: Выложить в релиз
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "OpenDisk $tag" --prerelease --draft \
+              --notes "Сборка $tag" ||
+              gh release view "$tag" >/dev/null 2>&1 ||
+              { echo "релиз $tag не создан и не найден" >&2; exit 1; }
+          fi
+
+          sums=SHA256SUMS-iOS
+          : > "$sums"
+          for file in build/ios/*.ipa; do
+            (cd "$(dirname "$file")" && shasum -a 256 "$(basename "$file")") >> "$GITHUB_WORKSPACE/$sums"
+          done
+          cat "$sums"
+
+          gh release upload "$tag" build/ios/*.ipa "$sums" --clobber
+
   # Проверка установщика Windows на настоящей системе, до выпуска.
   #
   # Собранный .exe ставится поверх старого .msi и прошлого .exe, обновляется
@@ -724,7 +812,7 @@ jobs:
   # одна сборка упала, эта работа не запустится, релиз останется черновиком и
   # пользователи его просто не увидят.
   publish:
-    needs: [package, android, verify-windows, verify-linux]
+    needs: [package, android, ios, verify-windows, verify-linux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -759,7 +847,8 @@ jobs:
               SHA256SUMS-Windows-x64 \
               SHA256SUMS-Linux \
               SHA256SUMS-macOS-x64 SHA256SUMS-macOS-arm64 \
-              -arm64.apk -universal.apk SHA256SUMS-Android; do
+              -arm64.apk -universal.apk SHA256SUMS-Android \
+              .ipa SHA256SUMS-iOS; do
             echo "$assets" | grep -q -- "$kind" || missing="$missing $kind"
           done
 

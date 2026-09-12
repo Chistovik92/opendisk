@@ -1,0 +1,62 @@
+# Описание проекта Xcode для XcodeGen.
+#
+# В репозитории лежит это описание, а не сам .xcodeproj: файл проекта Xcode —
+# машинно-порождаемый, склеенный из идентификаторов, и любое изменение в нём
+# невозможно ни прочитать, ни свести при слиянии. XcodeGen собирает его из
+# этого файла командой `xcodegen generate` — и на раннере, и на машине
+# разработчика, если она появится.
+#
+# Librclone.xcframework сюда не кладётся: это 150 МБ, и качается она из
+# выпуска librclone-ios-v<версия> по контрольной сумме — ровно как .aar для
+# Android и бинарник rclone для десктопа (см. scripts/fetch-librclone-ios.sh).
+name: OpenDisk
+options:
+  bundleIdPrefix: com.opendisk
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Номер версии подставляет сборка: `xcodebuild MARKETING_VERSION=0.5.3`.
+    # Здесь стоит заглушка, чтобы проект открывался и без неё.
+    MARKETING_VERSION: "0.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    # Сборка без подписи: сертификата Apple у проекта нет и быть не может
+    # без платной программы разработчика. Подписывает тот, кто ставит, —
+    # своей учётной записью, см. docs/IOS.md.
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGN_IDENTITY: ""
+
+targets:
+  OpenDisk:
+    type: application
+    platform: iOS
+    sources:
+      - path: OpenDisk
+    dependencies:
+      - framework: Frameworks/Librclone.xcframework
+        embed: true
+        codeSign: false
+    info:
+      path: OpenDisk/Info.plist
+      properties:
+        CFBundleDisplayName: OpenDisk
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Файлы приложения видны в «Файлах»: туда кладётся rclone.conf,
+        # перенесённый с компьютера, и оттуда же его можно забрать.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.opendisk.ios
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_BITCODE: "NO"
