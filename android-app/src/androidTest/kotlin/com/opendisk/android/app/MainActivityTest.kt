@@ -70,12 +70,17 @@ class MainActivityTest {
         }
 
         rule.onNodeWithText(strings.settings).performClick()
+
         rule.onNodeWithText(strings.theme).assertIsDisplayed()
-        rule.onNodeWithText(strings.language).assertIsDisplayed()
-        // Не по «как в системе»: этот вариант есть и у темы, и у языка,
+        // Ниже — только «существует»: экран настроек длиннее экрана телефона
+        // и прокручивается, а что попало в видимую часть, зависит от размера
+        // устройства. Проверяем, что пункт есть, а не что он сейчас на виду.
+        //
+        // И не по «как в системе»: этот вариант есть и у темы, и у языка,
         // и проверка нашла бы два узла вместо одного.
-        rule.onNodeWithText(strings.themeDark).assertIsDisplayed()
-        rule.onNodeWithText(strings.about).assertIsDisplayed()
+        rule.onNodeWithText(strings.themeDark).assertExists()
+        rule.onNodeWithText(strings.language).assertExists()
+        rule.onNodeWithText(strings.about).assertExists()
     }
 
     private companion object {
