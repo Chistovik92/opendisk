@@ -34,23 +34,22 @@ jobs:
             jdkArch: x64
             tasks: packageWixExe
             artifacts: composeApp/build/distributions/*.exe
-          # Windows на ARM в 0.5.2 не выпускается — вернётся в 0.5.3.
+          # Windows на ARM вернулась в 0.5.3.
           #
-          # Сборка 0.5.2 на ARM запускается — проба запуска
-          # (scripts/probe-windows-launch.ps1) это подтвердила. Но обновление
-          # поверх 0.5.0 висит: её лаунчер на ARM не запускался, а установщик
-          # ждёт его при удалении старой версии. И удаление на ARM ещё не
-          # проверено. Выпуск решили не задерживать.
+          # В 0.5.2 её не выпустили: сборка запускалась, но обновление поверх
+          # 0.5.0 висело — её лаунчер на ARM не стартовал вовсе, а установщик
+          # ждал его при удалении старой версии без предела. Теперь уборка
+          # зовётся с ограничением по времени (wix/Product.wxs), и зависший
+          # лаунчер больше ничего не вешает.
           #
-          # ARM-раннер Windows существует, и JDK 17 под aarch64 на нём ставится
-          # — но только не Temurin, у него сборок под Windows/AArch64 нет.
-          #
-          # - os: windows-11-arm
-          #   name: Windows-arm64
-          #   jdk: liberica
-          #   jdkArch: aarch64
-          #   tasks: packageWixExe
-          #   artifacts: composeApp/build/distributions/*.exe
+          # JDK 17 под aarch64 на этом раннере ставится — но только не Temurin,
+          # у него сборок под Windows/AArch64 нет.
+          - os: windows-11-arm
+            name: Windows-arm64
+            jdk: liberica
+            jdkArch: aarch64
+            tasks: packageWixExe
+            artifacts: composeApp/build/distributions/*.exe
           # 22.04, а не latest: на 24.04 jpackage прописывает зависимости
           # с суффиксом t64 (libasound2t64, libpng16-16t64) — таких пакетов нет
           # ни в Debian 12, ни в Ubuntu 22.04, и установка там просто
@@ -642,31 +641,22 @@ jobs:
             jdkArch: x64
             requireAppStart: 'true'
             upgradeChain: 'true'
-          # На ARM-раннере интерактивный сеанс висит на экране первой
-          # настройки Windows (видно на снимке экрана из проверки), и
-          # программы с окнами там не работают как следует. Установка,
-          # обновление и удаление проверяются строго; запуск приложения —
-          # предупреждением. Не проверенный здесь запуск ARM-сборки честно
-          # оговорён в заметках к выпуску.
+            testUninstall: 'true'
+          # ARM проверяется строго по запуску: проба в 0.5.2 показала, что
+          # наш лаунчер на этом раннере стартует всеми тремя способами —
+          # не стартовала именно сборка 0.5.0.
           #
-          # По той же причине там не пройти ни обновление с прошлой версии,
-          # ни удаление: оба вызывают лаунчер старой или текущей версии с
-          # --cleanup и ждут его, а он в таком сеансе не завершается. Остаются
-          # чистая установка и проба запуска, которая отличает поломку сборки
-          # от особенности раннера (scripts/probe-windows-launch.ps1).
-          #
-          # В 0.5.2 ARM-сборки нет (см. матрицу сборки выше) — вернуть вместе
-          # с ней в 0.5.3. Оговорки ниже писались, пока казалось, что на этом
-          # раннере не стартует ничего с окнами; проба показала, что висел
-          # только лаунчер 0.5.0. При возврате — requireAppStart: 'true', а
-          # удаление проверять (upgradeChain отдельно от TestUninstall).
-          #
-          # - os: windows-11-arm
-          #   arch: arm64
-          #   jdk: liberica
-          #   jdkArch: aarch64
-          #   requireAppStart: 'false'
-          #   upgradeChain: 'false'
+          # Цепочка обновления с прошлых версий на ARM не проходится, и это
+          # не про нашу сборку: прошлый выпуск для ARM — 0.5.0, а её лаунчер
+          # не запускается вовсе, поэтому обновляться там не с чего. Чистая
+          # установка, запуск и удаление проверяются как везде.
+          - os: windows-11-arm
+            arch: arm64
+            jdk: liberica
+            jdkArch: aarch64
+            requireAppStart: 'true'
+            upgradeChain: 'false'
+            testUninstall: 'true'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -710,27 +700,32 @@ jobs:
 
           # Прошлые установщики — с опубликованных выпусков. Через API, а не gh:
           # на ARM-раннере GitHub CLI может не оказаться, а PowerShell есть везде.
-          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; 'User-Agent' = 'opendisk-ci' }
-          $releases = Invoke-RestMethod -Headers $headers "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=30"
-          New-Item -ItemType Directory -Force prev | Out-Null
-
-          # 0.4.1 — последний выпуск с .msi: так стоит OpenDisk у всех, кто
-          # ставил его до 0.5.0.
-          $msi = ($releases | Where-Object tag_name -eq 'v0.4.1').assets | Where-Object name -eq 'OpenDisk-0.4.1.msi'
-          $msiPath = Join-Path $PWD 'prev\OpenDisk-0.4.1.msi'
-          Invoke-WebRequest $msi.browser_download_url -OutFile $msiPath
-
-          $exe = $releases |
-            Where-Object { -not $_.draft -and $_.tag_name -match '^v\d' -and $_.tag_name -ne "v$version" } |
-            ForEach-Object { $_.assets | Where-Object { $_.name -like "*-${{ matrix.arch }}.exe" } } |
-            Select-Object -First 1
-          $exePath = Join-Path $PWD "prev\$($exe.name)"
-          Invoke-WebRequest $exe.browser_download_url -OutFile $exePath
-
           $chain = '${{ matrix.upgradeChain }}' -eq 'true'
-          $previous = if ($chain) { @{ PreviousMsi = $msiPath; PreviousExe = $exePath } } else { @{} }
+          $previous = @{}
+          if ($chain) {
+            $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; 'User-Agent' = 'opendisk-ci' }
+            $releases = Invoke-RestMethod -Headers $headers "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=30"
+            New-Item -ItemType Directory -Force prev | Out-Null
+
+            # 0.4.1 — последний выпуск с .msi: так стоит OpenDisk у всех, кто
+            # ставил его до 0.5.0.
+            $msi = ($releases | Where-Object tag_name -eq 'v0.4.1').assets | Where-Object name -eq 'OpenDisk-0.4.1.msi'
+            $msiPath = Join-Path $PWD 'prev\OpenDisk-0.4.1.msi'
+            Invoke-WebRequest $msi.browser_download_url -OutFile $msiPath
+
+            $exe = $releases |
+              Where-Object { -not $_.draft -and $_.tag_name -match '^v\d' -and $_.tag_name -ne "v$version" } |
+              ForEach-Object { $_.assets | Where-Object { $_.name -like "*-${{ matrix.arch }}.exe" } } |
+              Select-Object -First 1
+            $exePath = Join-Path $PWD "prev\$($exe.name)"
+            Invoke-WebRequest $exe.browser_download_url -OutFile $exePath
+
+            $previous = @{ PreviousMsi = $msiPath; PreviousExe = $exePath }
+          }
+
           ./scripts/verify-windows-install.ps1 -Installer $installer.FullName -ExpectedVersion $version @previous `
-            -RequireAppStart ('${{ matrix.requireAppStart }}' -eq 'true') -TestUninstall $chain
+            -RequireAppStart ('${{ matrix.requireAppStart }}' -eq 'true') `
+            -TestUninstall ('${{ matrix.testUninstall }}' -eq 'true')
 
       # Снимки экрана: приложение пишет причину сбоя в своё окно, а не в лог.
       # Всегда, а не только при провале: снимок бывает и при предупреждении.
@@ -841,10 +836,10 @@ jobs:
           # Один вместо другого поставить нельзя.
           missing=""
           for kind in \
-              -x64.exe \
+              -x64.exe -arm64.exe \
               _amd64.deb -1.x86_64.rpm alt1.x86_64.rpm -x86_64.AppImage \
               -x64.dmg -arm64.dmg \
-              SHA256SUMS-Windows-x64 \
+              SHA256SUMS-Windows-x64 SHA256SUMS-Windows-arm64 \
               SHA256SUMS-Linux \
               SHA256SUMS-macOS-x64 SHA256SUMS-macOS-arm64 \
               -arm64.apk -universal.apk SHA256SUMS-Android \

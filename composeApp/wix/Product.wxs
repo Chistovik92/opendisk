@@ -85,13 +85,20 @@
       Return="ignore" — если уборка почему-то не отработала, удаление всё равно
       должно дойти до конца.
 
+      Зовём приложение не напрямую, а через powershell с пределом в минуту:
+      прямой вызов ждал бы завершения без конца. Так и вышло со сборкой 0.5.0
+      для ARM, у которой лаунчер не завершался вовсе: удаление и обновление
+      поверх неё вешались навсегда, и вылечить это можно было только
+      завершением процесса вручную. Минуты уборке хватает с запасом: это
+      удаление нескольких файлов в профиле.
+
       Список облаков (rclone.conf) и WinFsp здесь не трогаются: первое — данные
       пользователя, вторым могут пользоваться другие программы. Их удаление
       предлагается в самом приложении, где можно спросить.
     -->
     <CustomAction Id="CleanUserData"
                   Directory="INSTALLDIR"
-                  ExeCommand="&quot;[INSTALLDIR]OpenDisk.exe&quot; --cleanup"
+                  ExeCommand="&quot;[SystemFolder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -Command &quot;$p = Start-Process -FilePath '[INSTALLDIR]OpenDisk.exe' -ArgumentList '--cleanup' -PassThru; if (-not $p.WaitForExit(60000)) { $p.Kill() }&quot;"
                   Execute="immediate"
                   Impersonate="yes"
                   Return="ignore" />
