@@ -83,12 +83,21 @@ class MobileStrings(val russian: Boolean) {
     val waitingForBrowser = t("Подтвердите доступ в браузере", "Confirm access in the browser")
     val preparingSignIn = t("Готовлю вход…", "Preparing sign-in…")
     val waitingForBrowserHint = t(
-        "Когда страница напишет «Success», закройте вкладку — облако появится " +
-            "в списке само.",
-        "When the page says «Success», close the tab — the cloud will appear in " +
-            "the list by itself.",
+        "Когда страница напишет «Success», вернитесь в OpenDisk — нажатием на " +
+            "значок в шторке или просто закрыв вкладку. Облако уже будет в списке.",
+        "When the page says «Success», come back to OpenDisk — tap the icon in the " +
+            "shade or just close the tab. The cloud will already be in the list.",
     )
     val openBrowserAgain = t("Открыть браузер снова", "Open the browser again")
+
+    val signInChannel = t("Вход через браузер", "Browser sign-in")
+
+    fun signInNotificationTitle(cloud: String) = t("Вход в «$cloud»", "Signing in to «$cloud»")
+
+    val signInNotificationText = t(
+        "Подтвердите доступ в браузере, затем нажмите сюда, чтобы вернуться.",
+        "Confirm access in the browser, then tap here to come back.",
+    )
 
     fun deleteTitle(cloud: String) = t("Удалить «$cloud»?", "Delete «$cloud»?")
 
@@ -129,16 +138,24 @@ class MobileStrings(val russian: Boolean) {
     val notificationChannel = t("Подключённые облака", "Connected clouds")
     val notificationTitle = t("OpenDisk", "OpenDisk")
 
-    fun notificationText(clouds: List<String>): String = when (clouds.size) {
-        0 -> t("Облака отключены", "Clouds are disconnected")
-        else -> t("Подключено: ", "Connected: ") + clouds.joinToString(", ")
-    }
+    fun statusTitle(connected: Int, total: Int) = t(
+        "Подключено облаков: $connected из $total",
+        "Clouds connected: $connected of $total",
+    )
 
     val notificationHint = t(
-        "Пока облако подключено, уведомление висит в шторке: по нему видно, что " +
-            "приложение отдаёт файлы системе, и одним касанием оно открывается.",
-        "While a cloud is connected the notification stays in the shade: it shows " +
-            "that the app is serving files to the system, and opens it in one tap.",
+        "Пока есть подключённые облака или идёт вход через браузер, в шторке " +
+            "висит значок OpenDisk со сводкой: какие облака подключены и сколько " +
+            "в них занято. Это не только сводка: со значком телефон не отнимает " +
+            "у приложения сеть, когда оно в фоне, — иначе «Файлы» не смогли бы " +
+            "открыть файл из облака, а вход через браузер обрывался бы на " +
+            "последнем шаге.",
+        "While clouds are connected or a browser sign-in is running, the shade " +
+            "shows the OpenDisk icon with a summary: which clouds are connected and " +
+            "how much space they use. It is more than a summary: with it the phone " +
+            "keeps network access for the app in the background — otherwise Files " +
+            "could not open a cloud file, and browser sign-in would break at the " +
+            "last step.",
     )
     val notificationsBlocked = t(
         "Уведомления запрещены в настройках Android — подключение работает, " +

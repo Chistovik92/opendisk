@@ -5,9 +5,15 @@
          подключённое облако система читает через поставщика документов,
          и это её файлы, а не наши. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Значок в шторке, пока облака подключены. С Android 13 разрешение
+    <!-- Значок в шторке со сводкой подключений. С Android 13 разрешение
          спрашивается у человека; отказ ничего не ломает, кроме самого значка. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Служба переднего плана со значком в шторке, пока облака подключены
+         или идёт вход через браузер. Фоновому приложению телефон может
+         отрезать сеть, и вход падал с «no such host». См. StatusService. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:allowBackup="false"
@@ -26,6 +32,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          dataSync — до Android 14, дальше specialUse: с Android 15 у dataSync
+          предел в шесть часов в сутки, а подключённое облако работает дольше.
+        -->
+        <service
+            android:name=".StatusService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Отдаёт подключённые облака системному выбору файлов и держит сервер подтверждения входа через браузер" />
+        </service>
 
         <!--
           Подключённые облака для всей системы: «Файлы» и любое окно выбора

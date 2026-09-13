@@ -97,6 +97,12 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     val strings = model.strings
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
     val askForNotifications = rememberNotificationPermission()
+    // Разрешение на значок в шторке — сразу после запуска: значок теперь
+    // сводка по подключениям и ход входа через браузер, и без него о
+    // работе приложения в фоне узнать неоткуда.
+    LaunchedEffect(state.starting) {
+        if (!state.starting) askForNotifications()
+    }
 
     Scaffold(
         topBar = { AppBar(state, model) },
@@ -117,9 +123,8 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
                     model = model,
                     onDelete = { cloudToDelete = it },
                     onConnect = { cloud, connected ->
-                        // Разрешение спрашиваем ровно там, где значок и
-                        // появится, а не при первом запуске: вопрос без
-                        // повода одинаково раздражает и остаётся без ответа.
+                        // Ещё раз — на случай, если при запуске человек отмахнулся:
+                        // при подключении повод для значка очевиден.
                         if (connected) askForNotifications()
                         model.setConnected(cloud, connected)
                     },

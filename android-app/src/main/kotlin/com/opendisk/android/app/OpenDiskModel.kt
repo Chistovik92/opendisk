@@ -17,6 +17,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -113,12 +115,31 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                 client = RcloneClient(LibrcloneTransport.get())
             }
             _state.update { it.copy(starting = false) }
-            // Уведомление переживает перезапуск телефона не само: система
-            // его снимает, а список подключённых облаков остаётся.
-            notifySystem(_state.value.preferences)
+            notifySystem()
             reload()
         }
+
+        // Значок в шторке следит за состоянием сам: облака, их место,
+        // подключения и вход через браузер меняются в разных местах модели,
+        // и звать обновление из каждого значило бы однажды забыть одно из них.
+        viewModelScope.launch {
+            _state
+                .map { current -> statusSnapshot(current) }
+                .distinctUntilChanged()
+                .collect { StatusService.sync(getApplication(), it) }
+        }
     }
+
+    private fun statusSnapshot(current: MobileState) = StatusSnapshot(
+        clouds = current.clouds.map { cloud ->
+            StatusSnapshot.CloudStatus(
+                name = cloud.name,
+                connected = cloud.name in current.preferences.connected,
+                space = cloud.about?.describe(strings).orEmpty(),
+            )
+        },
+        signingIn = current.signIn?.cloud,
+    )
 
     fun reload() {
         val api = client ?: return
@@ -380,10 +401,10 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
     private fun applyPreferences(updated: MobilePreferences) {
         settings.write(updated)
         _state.update { it.copy(preferences = updated) }
-        notifySystem(updated)
+        notifySystem()
     }
 
-    private fun notifySystem(preferences: MobilePreferences) {
+    private fun notifySystem() {
         val context = getApplication<Application>()
         runCatching {
             context.contentResolver.notifyChange(
@@ -391,7 +412,6 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                 null,
             )
         }
-        ConnectedNotification.update(context, preferences.connected, strings)
     }
 
     // --- Мелочи --------------------------------------------------------------
