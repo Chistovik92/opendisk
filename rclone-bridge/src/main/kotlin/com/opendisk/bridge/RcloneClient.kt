@@ -276,7 +276,16 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
         @SerialName("Name") val name: String,
         @SerialName("Description") val description: String = "",
         @SerialName("Options") val options: List<Option> = emptyList(),
-    )
+        /**
+         * То, что пишется в `type` конфига. Почти всегда совпадает с [name],
+         * но не всегда: у «google photos» это `gphotos`, у «google cloud
+         * storage» — `gcs`, у «oracleobjectstorage» — `oos`.
+         */
+        @SerialName("Prefix") val prefix: String = "",
+    ) {
+        /** Тип бэкенда для конфига: [prefix], а если его нет — [name]. */
+        val type: String get() = prefix.ifBlank { name }
+    }
 
     @Serializable
     data class Option(
@@ -285,7 +294,29 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
         @SerialName("Required") val required: Boolean = false,
         @SerialName("IsPassword") val isPassword: Boolean = false,
         @SerialName("Advanced") val advanced: Boolean = false,
+        /**
+         * Для каких вариантов бэкенда поле имеет смысл — у S3 это список
+         * провайдеров через запятую («AWS,Cloudflare,Wasabi»), у Koofr — свой.
+         * Пусто — для всех. Знак «!» в начале значит «для всех, кроме».
+         */
+        @SerialName("Provider") val provider: String = "",
+        /** Готовые значения, из которых rclone предлагает выбрать. */
+        @SerialName("Examples") val examples: List<Example> = emptyList(),
     ) {
+        @Serializable
+        data class Example(
+            @SerialName("Value") val value: String = "",
+            @SerialName("Help") val help: String = "",
+        )
+
+        /** Относится ли поле к варианту бэкенда [variant] (провайдеру S3 и т. п.). */
+        fun appliesTo(variant: String?): Boolean {
+            if (provider.isBlank() || variant == null) return true
+            val negate = provider.startsWith("!")
+            val listed = provider.removePrefix("!").split(',').map { it.trim() }
+            return (variant in listed) != negate
+        }
+
         /** Первая строка справки: в rclone Help многострочный, в поле формы нужна короткая. */
         val shortHelp: String get() = help.lineSequence().firstOrNull().orEmpty()
     }
