@@ -47,11 +47,6 @@ struct Strings {
     var close: String { t("Закрыть", "Close") }
     var delete: String { t("Удалить", "Delete") }
     var name: String { t("Название", "Name") }
-    var login: String { t("Логин", "Login") }
-    var password: String { t("Пароль", "Password") }
-    var appPassword: String { t("Пароль приложения", "App password") }
-    var serverUrl: String { t("Адрес сервера", "Server address") }
-    var host: String { t("Хост", "Host") }
     var emptyFolder: String { t("Папка пуста", "The folder is empty") }
     var readingFolder: String { t("Читаю папку…", "Reading the folder…") }
 
@@ -75,29 +70,19 @@ struct Strings {
     }
 
     var chooseService: String { t("Какое облако добавить", "Which cloud to add") }
-    var yandexDisk: String { t("Яндекс.Диск", "Yandex.Disk") }
-    var mailru: String { t("Облако Mail.ru", "Mail.ru Cloud") }
-    var anyWebdav: String { t("Любой сервер WebDAV", "Any WebDAV server") }
-    var sshAccess: String { t("Доступ по SSH", "Access over SSH") }
-    var ftpServer: String { t("Сервер FTP", "FTP server") }
-    var yandexHint: String {
+    var searchServices: String { t("Название, страна или другое имя", "Name, country or another name") }
+    var loadingAllServices: String { t("Загружаю полный список сервисов rclone…", "Loading the full list of rclone services…") }
+    var nothingFound: String { t("Ничего не найдено", "Nothing found") }
+    var signInWithBrowser: String { t("Войти через браузер", "Sign in with a browser") }
+    var browserWillOpen: String {
         t(
-            "Яндексу нужен пароль приложения, а не пароль от аккаунта: создаётся на id.yandex.ru в разделе «Пароли приложений».",
-            "Yandex needs an app password rather than your account password: create one at id.yandex.ru under «App passwords»."
+            "Откроется окно входа: выберите аккаунт и разрешите доступ. Пароль вводить и придумывать не нужно.",
+            "A sign-in window will open: pick the account and allow access. No password to type or create."
         )
     }
-    var mailruHint: String {
-        t(
-            "Mail.ru не принимает основной пароль от аккаунта — нужен отдельный пароль для внешних приложений.",
-            "Mail.ru does not accept your main account password — a separate password for external applications is required."
-        )
-    }
-    var browserServicesMissing: String {
-        t(
-            "Google Диск, Dropbox и OneDrive подтверждают доступ в браузере — на телефоне этого пока нет. Добавьте их в OpenDisk на компьютере и перенесите файл rclone.conf.",
-            "Google Drive, Dropbox and OneDrive confirm access in a browser — that is not available on the phone yet. Add them in OpenDisk on a computer and bring the rclone.conf file over."
-        )
-    }
+    var waitingForBrowser: String { t("Подтвердите доступ в окне входа", "Confirm access in the sign-in window") }
+    var preparingSignIn: String { t("Готовлю вход…", "Preparing sign-in…") }
+    var openBrowserAgain: String { t("Открыть окно входа снова", "Open the sign-in window again") }
 
     var settings: String { t("Настройки", "Settings") }
     var theme: String { t("Оформление", "Appearance") }

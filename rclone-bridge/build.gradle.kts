@@ -35,3 +35,13 @@ tasks.test {
 kotlin {
     jvmToolchain(17)
 }
+
+// Каталог сервисов для приложения на iPhone: Kotlin на iOS не работает, а
+// ручная копия на Swift расходилась бы с этой. См. CatalogExport.
+tasks.register<JavaExec>("exportCatalog") {
+    group = "build"
+    description = "Выгружает каталог сервисов в ios/OpenDisk/catalog.json"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.opendisk.bridge.CatalogExport")
+    args(rootProject.file("ios/OpenDisk/catalog.json").absolutePath)
+}

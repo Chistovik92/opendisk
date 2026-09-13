@@ -32,3 +32,7 @@ ios/OpenDisk.xcodeproj/
 ios/Frameworks/
 ios/build/
 ios/OpenDisk/Info.plist
+
+# Каталог сервисов для iOS выгружается сборкой из rclone-bridge
+# (./gradlew :rclone-bridge:exportCatalog) — копия в репозитории разошлась бы.
+ios/OpenDisk/catalog.json

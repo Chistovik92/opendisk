@@ -1,193 +1,199 @@
+import AuthenticationServices
 import SwiftUI
 
-/// Поле, которое спрашиваем при добавлении облака.
-struct PresetField: Identifiable {
-    let key: String
-    let label: String
-    var isPassword = false
-    var required = true
-
-    var id: String { key }
-}
-
-/// Готовое подключение к сервису — то же, что плитки на компьютере и на
-/// Android. Сервисы с подтверждением доступа в браузере сюда не попали:
-/// их поток должен вернуть человека из браузера обратно в приложение, а это
-/// отдельная работа.
-struct Preset: Identifiable {
-    let id: String
-    let title: String
-    let subtitle: String
-    let backend: String
-    var fixed: [String: String] = [:]
-    let fields: [PresetField]
-    var hint: String?
-}
-
-func presets(_ strings: Strings) -> [Preset] {
-    [
-        Preset(
-            id: "yandex",
-            title: strings.yandexDisk,
-            subtitle: strings.appPassword,
-            backend: "webdav",
-            fixed: ["url": "https://webdav.yandex.ru", "vendor": "other"],
-            fields: [
-                PresetField(key: "user", label: strings.login),
-                PresetField(key: "pass", label: strings.appPassword, isPassword: true),
-            ],
-            hint: strings.yandexHint
-        ),
-        Preset(
-            id: "mailru",
-            title: strings.mailru,
-            subtitle: strings.appPassword,
-            backend: "mailru",
-            fields: [
-                PresetField(key: "user", label: strings.login),
-                PresetField(key: "pass", label: strings.appPassword, isPassword: true),
-            ],
-            hint: strings.mailruHint
-        ),
-        Preset(
-            id: "webdav",
-            title: "WebDAV",
-            subtitle: strings.anyWebdav,
-            backend: "webdav",
-            fields: [
-                PresetField(key: "url", label: strings.serverUrl),
-                PresetField(key: "user", label: strings.login, required: false),
-                PresetField(key: "pass", label: strings.password, isPassword: true, required: false),
-            ]
-        ),
-        Preset(
-            id: "sftp",
-            title: "SFTP",
-            subtitle: strings.sshAccess,
-            backend: "sftp",
-            fields: [
-                PresetField(key: "host", label: strings.host),
-                PresetField(key: "user", label: strings.login, required: false),
-                PresetField(key: "pass", label: strings.password, isPassword: true, required: false),
-            ]
-        ),
-        Preset(
-            id: "ftp",
-            title: "FTP",
-            subtitle: strings.ftpServer,
-            backend: "ftp",
-            fields: [
-                PresetField(key: "host", label: strings.host),
-                PresetField(key: "user", label: strings.login, required: false),
-                PresetField(key: "pass", label: strings.password, isPassword: true, required: false),
-            ]
-        ),
-    ]
-}
-
+/// Добавление облака: весь каталог сервисов с поиском.
+///
+/// Сверху — отобранные вручную сервисы по разделам, снизу — всё, что знает
+/// встроенный rclone. До 0.5.4 здесь было пять сервисов и все по паролю.
 struct AddCloudView: View {
 
     let strings: Strings
     @ObservedObject var model: CloudsModel
 
     @Environment(\.dismiss) private var dismiss
-    @State private var chosen: Preset?
+    @State private var query = ""
+    @State private var chosen: CatalogService?
+
+    private var sections: [(key: String, services: [CatalogService])] {
+        let all = (Catalog.shared.services + model.allServices).filter { $0.matches(query) }
+        let order = Catalog.shared.groups.map(\.key) + ["ALL"]
+        return order.compactMap { key in
+            let inGroup = all.filter { $0.group == key }
+            return inGroup.isEmpty ? nil : (key, inGroup)
+        }
+    }
 
     var body: some View {
         NavigationView {
-            Group {
-                if let preset = chosen {
-                    PresetForm(strings: strings, preset: preset, model: model) { dismiss() }
-                } else {
-                    List {
-                        Section(strings.chooseService) {
-                            ForEach(presets(strings)) { preset in
-                                Button {
-                                    chosen = preset
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(preset.title).foregroundColor(.primary)
-                                        Text(preset.subtitle)
-                                            .font(.footnote)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
+            List {
+                ForEach(sections, id: \.key) { section in
+                    Section(Catalog.shared.title(ofGroup: section.key).pick(strings.russian)) {
+                        ForEach(section.services) { service in
+                            Button {
+                                chosen = service
+                            } label: {
+                                ServiceRow(service: service, strings: strings)
                             }
-                        }
-                        Section {
-                            Text(strings.browserServicesMissing)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
                         }
                     }
                 }
+                if model.allServices.isEmpty {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(strings.loadingAllServices).foregroundColor(.secondary)
+                    }
+                } else if sections.isEmpty {
+                    Text(strings.nothingFound).foregroundColor(.secondary)
+                }
             }
-            .navigationTitle(chosen?.title ?? strings.chooseService)
+            .searchable(text: $query, prompt: strings.searchServices)
+            .navigationTitle(strings.chooseService)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(chosen == nil ? strings.cancel : strings.back) {
-                        if chosen == nil { dismiss() } else { chosen = nil }
-                    }
+                    Button(strings.cancel) { dismiss() }
+                }
+            }
+            .sheet(item: $chosen) { service in
+                ServiceForm(strings: strings, service: service, model: model) {
+                    chosen = nil
+                    dismiss()
                 }
             }
         }
         .navigationViewStyle(.stack)
+        .task { await model.loadAllServices() }
     }
 }
 
-private struct PresetForm: View {
+private struct ServiceRow: View {
+    let service: CatalogService
+    let strings: Strings
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Буква на цветном квадрате, а не логотип сервиса: чужие товарные
+            // знаки в приложение мы не кладём.
+            Text(service.glyph)
+                .font(.subheadline.bold())
+                .foregroundColor(.white)
+                .frame(width: 36, height: 36)
+                .background(Color(argb: service.accent))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(service.title.pick(strings.russian)).foregroundColor(.primary)
+                Text(service.subtitle.pick(strings.russian))
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+private struct ServiceForm: View {
 
     let strings: Strings
-    let preset: Preset
+    let service: CatalogService
     @ObservedObject var model: CloudsModel
     let onAdded: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var values: [String: String] = [:]
     @State private var error: String?
     @State private var busy = false
+    @StateObject private var webSignIn = WebSignIn()
 
-    init(strings: Strings, preset: Preset, model: CloudsModel, onAdded: @escaping () -> Void) {
+    init(strings: Strings, service: CatalogService, model: CloudsModel, onAdded: @escaping () -> Void) {
         self.strings = strings
-        self.preset = preset
+        self.service = service
         self.model = model
         self.onAdded = onAdded
-        _name = State(initialValue: preset.id)
+        // «rclone:s3:Wasabi» превращается в «Wasabi».
+        let base = service.id.split(separator: ":").last.map(String.init) ?? service.id
+        var candidate = base
+        var index = 2
+        let taken = Set(model.clouds.map(\.name))
+        while taken.contains(candidate) {
+            candidate = "\(base)\(index)"
+            index += 1
+        }
+        _name = State(initialValue: candidate)
     }
 
     private var filled: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty &&
-            preset.fields.filter(\.required).allSatisfy { !(values[$0.key] ?? "").isEmpty }
+            !model.clouds.contains { $0.name == name.trimmingCharacters(in: .whitespaces) } &&
+            service.fields.filter(\.required).allSatisfy { !(values[$0.key] ?? "").isEmpty }
     }
 
     var body: some View {
-        Form {
-            if let hint = preset.hint {
-                Section { Text(hint).font(.footnote).foregroundColor(.secondary) }
-            }
-            Section {
-                TextField(strings.name, text: $name)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                ForEach(preset.fields) { field in
-                    if field.isPassword {
-                        // Под маской: на экране телефона, который видно
-                        // из-за плеча, пароль открытым текстом недопустим.
-                        SecureField(field.label, text: binding(field.key))
-                    } else {
-                        TextField(field.label, text: binding(field.key))
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
+        NavigationView {
+            Form {
+                if let hint = service.hint {
+                    Section { Text(hint.pick(strings.russian)).font(.footnote).foregroundColor(.secondary) }
+                }
+                Section {
+                    TextField(strings.name, text: $name)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    ForEach(service.fields) { field in
+                        VStack(alignment: .leading, spacing: 4) {
+                            let label = field.label.pick(strings.russian) + (field.required ? " *" : "")
+                            if field.isPassword {
+                                // Под маской: на экране телефона, который видно
+                                // из-за плеча, пароль открытым текстом недопустим.
+                                SecureField(label, text: binding(field.key))
+                            } else {
+                                TextField(label, text: binding(field.key))
+                                    .autocorrectionDisabled()
+                                    .textInputAutocapitalization(.never)
+                            }
+                            if let help = field.help {
+                                Text(help.pick(strings.russian)).font(.caption).foregroundColor(.secondary)
+                            }
+                        }
                     }
                 }
+                if service.oauth {
+                    Section { Text(strings.browserWillOpen).font(.footnote).foregroundColor(.secondary) }
+                }
+                if let signIn = model.signIn {
+                    Section {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text(signIn.link == nil ? strings.preparingSignIn : strings.waitingForBrowser)
+                        }
+                        if let link = signIn.link {
+                            Button(strings.openBrowserAgain) { webSignIn.start(link) { model.cancelSignIn() } }
+                        }
+                        Button(strings.cancel, role: .destructive) { model.cancelSignIn() }
+                            .disabled(signIn.cancelled)
+                    }
+                }
+                if let error {
+                    Section { Text(error).foregroundColor(.red) }
+                }
+                Section {
+                    Button(busy ? strings.adding : (service.oauth ? strings.signInWithBrowser : strings.add)) { add() }
+                        .disabled(busy || !filled)
+                }
             }
-            if let error {
-                Section { Text(error).foregroundColor(.red) }
+            .navigationTitle(service.title.pick(strings.russian))
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(strings.back) { dismiss() }.disabled(busy)
+                }
             }
-            Section {
-                Button(busy ? strings.adding : strings.add) { add() }
-                    .disabled(busy || !filled)
-            }
+        }
+        .navigationViewStyle(.stack)
+        // Окно входа открывается, как только rclone напечатал ссылку, и
+        // закрывается, как только вход закончился — удачно или нет.
+        .onChange(of: model.signIn?.link) { link in
+            if let link { webSignIn.start(link) { model.cancelSignIn() } }
+        }
+        .onChange(of: model.signIn == nil) { finished in
+            if finished { webSignIn.finish() }
         }
     }
 
@@ -198,23 +204,80 @@ private struct PresetForm: View {
     private func add() {
         busy = true
         error = nil
-        let secrets = Set(preset.fields.filter(\.isPassword).map(\.key))
-        var parameters = preset.fixed
-        for (key, value) in values { parameters[key] = value }
-
         Task {
             let failure = await model.add(
+                service: service,
                 name: name.trimmingCharacters(in: .whitespaces),
-                type: preset.backend,
-                parameters: parameters,
-                secrets: secrets
+                values: values
             )
             busy = false
             if let failure {
                 error = failure
-            } else {
+            } else if model.clouds.contains(where: { $0.name == name.trimmingCharacters(in: .whitespaces) }) {
                 onAdded()
             }
         }
+    }
+}
+
+/// Окно входа Apple поверх приложения.
+///
+/// Не встроенный браузер: Google отказывается пускать на вход из встроенных
+/// окон, и правильно — встроенное окно видит пароль. У окна Apple есть и
+/// второе достоинство, без которого вход бы не работал: приложение остаётся
+/// активным, пока оно открыто, а значит, работает и сервер подтверждения,
+/// который rclone поднял внутри приложения. Свёрнутое приложение iOS
+/// усыпила бы через несколько секунд — вместе с сервером.
+///
+/// Адрес возврата у rclone — `http://127.0.0.1:53682/`, а не своя схема
+/// приложения, поэтому окно само не закрывается: закрываем его, когда
+/// rclone сообщил, что вход закончен.
+final class WebSignIn: NSObject, ObservableObject, ASWebAuthenticationPresentationContextProviding {
+
+    private var session: ASWebAuthenticationSession?
+    private var finishing = false
+
+    func start(_ link: String, onUserCancel: @escaping () -> Void) {
+        guard let url = URL(string: link) else { return }
+        finish()
+        finishing = false
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: nil) { [weak self] _, error in
+            guard let self, !self.finishing else { return }
+            if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
+                DispatchQueue.main.async { onUserCancel() }
+            }
+        }
+        // Не частный режим: человек уже может быть вошедшим в свой аккаунт,
+        // и выбрать его — быстрее, чем набирать пароль заново.
+        session.prefersEphemeralWebBrowserSession = false
+        session.presentationContextProvider = self
+        self.session = session
+        session.start()
+    }
+
+    func finish() {
+        finishing = true
+        session?.cancel()
+        session = nil
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow } ?? ASPresentationAnchor()
+    }
+}
+
+extension Color {
+    /// Цвет из числа 0xAARRGGBB — в таком виде он лежит в каталоге.
+    init(argb: Int64) {
+        self.init(
+            .sRGB,
+            red: Double((argb >> 16) & 0xFF) / 255,
+            green: Double((argb >> 8) & 0xFF) / 255,
+            blue: Double(argb & 0xFF) / 255,
+            opacity: Double((argb >> 24) & 0xFF) / 255
+        )
     }
 }

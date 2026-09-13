@@ -70,19 +70,83 @@ final class CloudsModel: ObservableObject {
         }
     }
 
-    func add(name: String, type: String, parameters: [String: String], secrets: Set<String>) async -> String? {
+    /// Все сервисы, которые знает встроенный rclone, — нижняя часть списка.
+    @Published var allServices: [CatalogService] = []
+    /// Идёт вход через браузер; nil — не идёт.
+    @Published var signIn: SignIn?
+
+    struct SignIn: Equatable {
+        let cloud: String
+        /// Ссылка подтверждения; nil — rclone её ещё не напечатал.
+        var link: String?
+        /// Человек нажал «Отмена»: ошибку «access_denied» показывать не нужно.
+        var cancelled = false
+    }
+
+    func loadAllServices() async {
+        guard allServices.isEmpty, let providers = try? await Rclone.shared.providers() else { return }
+        allServices = Catalog.shared.fromProviders(providers)
+    }
+
+    /// Добавляет облако.
+    ///
+    /// Для сервисов со входом через браузер запрос `config/create` висит, пока
+    /// человек подтверждает доступ: rclone внутри приложения поднимает сервер
+    /// подтверждения и печатает ссылку. Ссылка перехватывается из его журнала
+    /// и кладётся в `signIn` — форма открывает по ней окно входа Apple.
+    func add(service: CatalogService, name: String, values: [String: String]) async -> String? {
+        let existedBefore = clouds.contains { $0.name == name }
+        let secrets = Set(service.fields.filter(\.isPassword).map(\.key))
+        var listener: UUID?
+
+        if service.oauth {
+            // Ссылки прошлых попыток не наши: их сервер уже закрыт.
+            let stale = Set(RcloneLog.shared.recentLines().compactMap { OAuthLink.find(in: $0) })
+            signIn = SignIn(cloud: name)
+            listener = RcloneLog.shared.addListener { [weak self] line in
+                guard let link = OAuthLink.find(in: line), !stale.contains(link) else { return }
+                Task { @MainActor in
+                    guard let self, var current = self.signIn, current.link == nil else { return }
+                    current.link = link
+                    self.signIn = current
+                    // «Отмену» могли нажать раньше, чем появилась ссылка.
+                    if current.cancelled { OAuthLink.cancel(link) }
+                }
+            }
+        }
+        defer { if let listener { RcloneLog.shared.removeListener(listener) } }
+
         do {
             var prepared: [String: String] = [:]
-            for (key, value) in parameters where !value.trimmingCharacters(in: .whitespaces).isEmpty {
+            for (key, value) in service.fixed.merging(values, uniquingKeysWith: { $1 })
+            where !value.trimmingCharacters(in: .whitespaces).isEmpty {
                 let trimmed = value.trimmingCharacters(in: .whitespaces)
                 prepared[key] = secrets.contains(key) ? try await Rclone.shared.obscure(trimmed) : trimmed
             }
-            try await Rclone.shared.createRemote(name: name, type: type, parameters: prepared)
+            try await Rclone.shared.createRemote(name: name, type: service.backend, parameters: prepared)
+            signIn = nil
             await reload()
             return nil
         } catch {
-            return error.localizedDescription
+            let cancelled = signIn?.cancelled == true
+            signIn = nil
+            // rclone записывает облако в конфиг до входа в браузер: без уборки
+            // после отказа в списке осталось бы облако без токена.
+            if !existedBefore {
+                try? await Rclone.shared.deleteRemote(name)
+                await reload()
+            }
+            return cancelled ? nil : error.localizedDescription
         }
+    }
+
+    /// Прерывает вход через браузер: будит висящий `config/create` отказом
+    /// по той же ссылке — ровно так, как ответил бы сервис.
+    func cancelSignIn() {
+        guard var current = signIn else { return }
+        current.cancelled = true
+        signIn = current
+        if let link = current.link { OAuthLink.cancel(link) }
     }
 
     func delete(_ name: String) async {

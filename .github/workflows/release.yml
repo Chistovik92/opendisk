@@ -545,6 +545,19 @@ jobs:
       - name: Ядро rclone для iOS
         run: sh scripts/fetch-librclone-ios.sh
 
+      # Каталог сервисов — тот же, что на компьютере и Android: Kotlin на iOS
+      # не работает, поэтому каталог приезжает в приложение файлом.
+      - name: JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Каталог сервисов
+        run: ./gradlew :rclone-bridge:exportCatalog --no-daemon
+
       - name: XcodeGen
         # Файл проекта Xcode машинно-порождаемый и в репозитории не лежит:
         # собирается из ios/project.yml.

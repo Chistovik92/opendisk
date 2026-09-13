@@ -55,6 +55,12 @@ targets:
         # перенесённый с компьютера, и оттуда же его можно забрать.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # Отмена входа через браузер — запрос на http://127.0.0.1 к серверу
+        # подтверждения, который rclone поднимает внутри приложения. Без этой
+        # оговорки App Transport Security не пустила бы незашифрованный запрос
+        # даже на собственный адрес.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.opendisk.ios
