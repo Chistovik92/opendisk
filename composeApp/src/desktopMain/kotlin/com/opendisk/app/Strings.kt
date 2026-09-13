@@ -27,7 +27,7 @@ enum class Language(val code: String) {
  * Строки с подстановками принимают их параметрами, а не собираются склейкой:
  * порядок слов в языках разный, и склейка ломает перевод.
  */
-class Strings(private val russian: Boolean) {
+class Strings(val russian: Boolean) {
 
     private fun t(ru: String, en: String): String = if (russian) ru else en
 
@@ -375,6 +375,10 @@ class Strings(private val russian: Boolean) {
     // --- Мастер добавления --------------------------------------------------
 
     val whichCloud = t("Какое облако подключаем?", "Which cloud are we connecting?")
+    val searchServices = t(
+        "Поиск: название, страна или другое имя",
+        "Search: name, country or another name",
+    )
     val otherConnection = t("Другое подключение", "Other connection")
     val otherConnectionFull = t(
         "Другое подключение — весь список бэкендов rclone",

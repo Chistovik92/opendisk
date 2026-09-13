@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
@@ -118,21 +119,45 @@ private fun ServicePickerDialog(
 ) {
     val strings = LocalStrings.current
     val presets = remember(strings) { cloudPresets(strings) }
+    var query by remember { mutableStateOf("") }
+    // Сервисов стало около сорока — без поиска и разделов плитки превращаются
+    // в стену, в которой свой сервис не найти.
+    val grouped = presets.filter { it.service.matches(query) }.groupBy { it.group }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(strings.whichCloud) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text(strings.searchServices) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
-                    modifier = Modifier.heightIn(max = 360.dp),
+                    modifier = Modifier.heightIn(max = 420.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(presets, key = { it.id }) { preset ->
-                        ServiceTile(preset = preset, onClick = { onPreset(preset) })
+                    grouped.forEach { (group, inGroup) ->
+                        item(key = group.name, span = { GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                group.title.pick(strings.russian),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        items(inGroup, key = { it.id }) { preset ->
+                            ServiceTile(preset = preset, onClick = { onPreset(preset) })
+                        }
                     }
+                }
+                if (grouped.isEmpty()) {
+                    Text(strings.nothingFound, style = MaterialTheme.typography.bodySmall)
                 }
                 TextButton(onClick = onAdvanced) {
                     Text(strings.otherConnectionFull)
@@ -474,7 +499,8 @@ private fun AdvancedFormDialog(
                     error = null
                     onCreate(
                         name.trim(),
-                        provider.name,
+                        // Тип, а не имя: у «google photos» в конфиг пишется gphotos.
+                        provider.type,
                         values,
                         options.filter { it.isPassword }.map { it.name }.toSet(),
                     ) { failure ->

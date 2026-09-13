@@ -2,6 +2,7 @@ package com.opendisk.app
 
 import com.opendisk.bridge.MountSupport
 import com.opendisk.bridge.MountedPaths
+import com.opendisk.bridge.OAuthLink
 import com.opendisk.bridge.PublicLinkUnsupportedException
 import com.opendisk.bridge.RcloneClient
 import com.opendisk.bridge.RcloneConfigFile
@@ -9,9 +10,11 @@ import com.opendisk.bridge.RcloneConfigLockedException
 import com.opendisk.bridge.RcloneProcess
 import com.opendisk.bridge.RcloneRcException
 import com.opendisk.bridge.StaleRcloneCleanup
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
@@ -394,11 +397,13 @@ class RcloneController(
         onDone: (String?) -> Unit,
     ) {
         val api = client ?: return
+        val existedBefore = state.value.clouds.any { it.name == name }
         addCloudJob = scope.launch {
             // Для OAuth-облаков rclone держит запрос открытым, пока пользователь
             // подтверждает доступ, и печатает ссылку в свой вывод. Подхватываем
             // её, чтобы показать, если браузер не открылся сам.
             val linkWatcher = launch { watchForOauthLink() }
+            var created = false
             try {
                 // Пробелы по краям обрезаем обязательно. Идентификаторы и ключи
                 // вставляют из браузера, а оттуда они приезжают то с пробелом,
@@ -409,10 +414,13 @@ class RcloneController(
                     if (key in secretKeys && trimmed.isNotEmpty()) api.obscure(trimmed) else trimmed
                 }
                 api.createRemote(name, type, prepared.filterValues { it.isNotEmpty() })
+                created = true
                 reloadClouds()
                 onDone(null)
             } catch (e: RcloneRcException) {
                 onDone(e.rcloneError)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // Обрыв связи с rcd на длинном OAuth-запросе иначе выглядел бы
                 // как навсегда зависший диалог: показываем причину.
@@ -420,6 +428,16 @@ class RcloneController(
             } finally {
                 linkWatcher.cancel()
                 _state.update { it.copy(oauthUrl = null) }
+                // Недосозданное облако не должно остаться в списке. rclone
+                // записывает его в конфиг до входа в браузер, и после отказа
+                // или отмены в списке оставалось облако без токена — оно
+                // не подключалось, а занимало имя.
+                if (!created && !existedBefore) {
+                    withContext(NonCancellable) {
+                        runCatching { api.deleteRemote(name) }
+                        reloadClouds()
+                    }
+                }
             }
         }
     }
@@ -499,6 +517,10 @@ class RcloneController(
 
     /** Прекращает ожидание подтверждения в браузере. */
     fun cancelAddCloud() {
+        // Разорвать свой запрос мало: rcd продолжал бы ждать браузера и держать
+        // порт подтверждения, и следующая попытка входа упёрлась бы в занятый
+        // адрес. Будим его тем же отказом, какой прислал бы сервис.
+        state.value.oauthUrl?.let { link -> scope.launch(Dispatchers.IO) { OAuthLink.cancel(link) } }
         addCloudJob?.cancel()
         addCloudJob = null
         _state.update { it.copy(oauthUrl = null) }
@@ -508,7 +530,7 @@ class RcloneController(
     private suspend fun watchForOauthLink() {
         while (currentCoroutineContext().isActive) {
             val link = process?.recentOutput()?.firstNotNullOfOrNull { line ->
-                OAUTH_LINK_PATTERN.find(line)?.value
+                OAuthLink.find(line)
             }
             if (link != null) {
                 _state.update { it.copy(oauthUrl = link) }
@@ -832,8 +854,6 @@ class RcloneController(
     }
 
     companion object {
-        /** Ссылка, которую rclone печатает при запуске браузерной авторизации. */
-        private val OAUTH_LINK_PATTERN = Regex("http://127\\.0\\.0\\.1:\\d+/auth\\?state=\\S+")
         private const val OAUTH_LINK_POLL_MILLIS = 400L
 
         /**
