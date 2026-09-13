@@ -826,6 +826,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+
+      # Текст выпуска — таблица «какой файл под какую систему» и заметки из
+      # docs/releases/<версия>.md. Таблица строится из файлов, которые
+      # действительно легли в выпуск, поэтому собирается здесь, в конце.
+      - name: Таблица загрузок и заметки
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sh scripts/release-notes.sh "${GITHUB_REF_NAME}" > "$RUNNER_TEMP/body.md"
+          gh release edit "${GITHUB_REF_NAME}" \
+            --title "OpenDisk ${GITHUB_REF_NAME#v}" \
+            --notes-file "$RUNNER_TEMP/body.md"
+
       - name: Проверить, что собрались все платформы, и опубликовать
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
