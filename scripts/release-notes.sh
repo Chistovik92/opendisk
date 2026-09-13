@@ -68,6 +68,8 @@ curl -fsSL https://raw.githubusercontent.com/$repo/main/scripts/install.sh | sh
 EOF
 
 notes="$root/docs/releases/$version.md"
+# Первая строка вида «# Заголовок» — название выпуска, а не часть текста:
+# его ставит шаг публикации (см. release.yml).
 if [ -f "$notes" ]; then
-    cat "$notes"
+    sed "1{/^# /d}" "$notes" | sed "1{/^$/d}"
 fi

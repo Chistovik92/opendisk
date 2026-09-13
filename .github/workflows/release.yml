@@ -837,8 +837,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           sh scripts/release-notes.sh "${GITHUB_REF_NAME}" > "$RUNNER_TEMP/body.md"
+          # Название — из первой строки заметок вида «# Заголовок», если она есть.
+          version="${GITHUB_REF_NAME#v}"
+          title=$(sed -n '1s/^# //p' "docs/releases/$version.md" 2>/dev/null || true)
           gh release edit "${GITHUB_REF_NAME}" \
-            --title "OpenDisk ${GITHUB_REF_NAME#v}" \
+            --title "${title:-OpenDisk $version}" \
             --notes-file "$RUNNER_TEMP/body.md"
 
       - name: Проверить, что собрались все платформы, и опубликовать
