@@ -5,10 +5,15 @@ import android.provider.DocumentsContract
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.opendisk.android.LibrcloneTransport
+import com.opendisk.android.RcloneOutput
+import com.opendisk.bridge.CatalogService
+import com.opendisk.bridge.CloudCatalog
+import com.opendisk.bridge.OAuthLink
 import com.opendisk.bridge.PublicLinkUnsupportedException
 import com.opendisk.bridge.RcloneClient
 import com.opendisk.bridge.RcloneRcException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,6 +67,19 @@ data class MobileState(
     val preferences: MobilePreferences = MobilePreferences(),
     /** Версия встроенного rclone — показывается в настройках, как на десктопе. */
     val rcloneVersion: String? = null,
+    /** Все сервисы, которые знает встроенный rclone, — нижняя часть списка. */
+    val allServices: List<CatalogService> = emptyList(),
+    /** Идёт вход через браузер; null — не идёт. */
+    val signIn: SignInState? = null,
+)
+
+/** Вход через браузер в процессе. */
+data class SignInState(
+    val cloud: String,
+    /** Ссылка подтверждения; null — rclone её ещё не напечатал. */
+    val link: String? = null,
+    /** Человек нажал «Отмена»: ошибку «access_denied» показывать не нужно. */
+    val cancelled: Boolean = false,
 )
 
 /**
@@ -194,39 +212,119 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
     // --- Добавление облака ---------------------------------------------------
 
-    fun startAdding() = _state.update { it.copy(adding = true) }
+    fun startAdding() {
+        _state.update { it.copy(adding = true) }
+        loadAllServices()
+    }
 
     fun cancelAdding() = _state.update { it.copy(adding = false) }
+
+    /**
+     * Полный список сервисов из самого rclone — один раз за запуск: он не
+     * меняется, пока не сменилась библиотека, а строится из сотни бэкендов.
+     */
+    private fun loadAllServices() {
+        val api = client ?: return
+        if (_state.value.allServices.isNotEmpty()) return
+        viewModelScope.launch {
+            runCatching { api.providers() }.getOrNull()?.let { providers ->
+                _state.update { it.copy(allServices = CloudCatalog.fromProviders(providers)) }
+            }
+        }
+    }
 
     /**
      * Добавляет облако. Пароли пропускаются через `core/obscure` — ровно как
      * на десктопе: rclone хранит их в «затемнённом» виде и открытый текст
      * в конфиге не примет.
+     *
+     * Для сервисов со входом через браузер запрос `config/create` висит, пока
+     * человек подтверждает доступ: rclone внутри приложения поднимает сервер
+     * подтверждения и печатает ссылку. Ссылка перехватывается из его вывода
+     * ([RcloneOutput]) и кладётся в [MobileState.signIn] — экран открывает её
+     * во вкладке браузера.
      */
     fun addCloud(
+        service: CatalogService,
         name: String,
-        type: String,
-        parameters: Map<String, String>,
-        secretKeys: Set<String>,
+        values: Map<String, String>,
         onDone: (String?) -> Unit,
     ) {
         val api = client ?: return
+        val cloud = name.trim()
+        val existedBefore = _state.value.clouds.any { it.name == cloud }
+        val secretKeys = service.fields.filter { it.isPassword }.map { it.key }.toSet()
+
+        // Ссылки, напечатанные раньше — например, при прошлой отменённой
+        // попытке, — не наши: их сервер уже закрыт.
+        val staleLinks = RcloneOutput.recentLines().mapNotNull(OAuthLink::find).toSet()
+        // Слушатель вызывается из потока чтения вывода rclone, не с главного.
+        val listener: (String) -> Unit = { line ->
+            val link = OAuthLink.find(line)?.takeIf { it !in staleLinks }
+            if (link != null) {
+                var cancelledEarly = false
+                _state.update { current ->
+                    val signIn = current.signIn
+                    if (signIn == null || signIn.link != null) return@update current
+                    cancelledEarly = signIn.cancelled
+                    current.copy(signIn = signIn.copy(link = link))
+                }
+                // «Отмену» могли нажать раньше, чем rclone напечатал ссылку, —
+                // тогда отменять было нечем, и отменяем сейчас.
+                if (cancelledEarly) OAuthLink.cancel(link)
+            }
+        }
+        if (service.oauth) {
+            _state.update { it.copy(signIn = SignInState(cloud = cloud)) }
+            RcloneOutput.addListener(listener)
+        }
+
         viewModelScope.launch {
+            var created = false
             try {
-                val prepared = parameters
+                val prepared = (service.fixed + values)
                     .mapValues { (_, value) -> value.trim() }
                     .filterValues { it.isNotEmpty() }
                     .mapValues { (key, value) ->
                         if (key in secretKeys) api.obscure(value) else value
                     }
-                api.createRemote(name.trim(), type, prepared)
-                _state.update { it.copy(adding = false) }
+                api.createRemote(cloud, service.backend, prepared)
+                created = true
+                _state.update { it.copy(adding = false, signIn = null) }
                 reload()
                 onDone(null)
             } catch (e: Exception) {
-                onDone(describe(e))
+                val cancelled = _state.value.signIn?.cancelled == true
+                _state.update { it.copy(signIn = null) }
+                // Отменённый вход — не ошибка, говорить о нём нечего.
+                onDone(if (cancelled) null else describe(e))
+            } finally {
+                RcloneOutput.removeListener(listener)
+                // rclone записывает облако в конфиг до входа в браузер: без
+                // этой уборки после отказа в списке оставалось бы облако без
+                // токена — оно не открывается, а имя занимает.
+                if (!created && !existedBefore) {
+                    withContext(NonCancellable) {
+                        runCatching { api.deleteRemote(cloud) }
+                        reload()
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * Прерывает вход через браузер.
+     *
+     * Сам запрос `config/create` не отменяется ничем — rclone ждёт возврата из
+     * браузера без срока. Но его сервер подтверждения принимает отказ в том же
+     * виде, в каком его прислал бы сервис, и после этого запрос возвращается.
+     */
+    fun cancelSignIn() {
+        val signIn = _state.value.signIn ?: return
+        _state.update { it.copy(signIn = signIn.copy(cancelled = true)) }
+        val link = signIn.link ?: return
+        viewModelScope.launch(Dispatchers.IO) { OAuthLink.cancel(link) }
     }
 
     fun deleteCloud(name: String) {

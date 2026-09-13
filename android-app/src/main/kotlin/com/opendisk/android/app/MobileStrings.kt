@@ -13,7 +13,7 @@ import java.util.Locale
  * Язык — системный. Сменить его на ходу Android не даёт без пересоздания
  * экрана, а при пересоздании строки берутся заново.
  */
-class MobileStrings(private val russian: Boolean) {
+class MobileStrings(val russian: Boolean) {
 
     private fun t(ru: String, en: String): String = if (russian) ru else en
 
@@ -56,49 +56,39 @@ class MobileStrings(private val russian: Boolean) {
     val newCloud = t("Новое облако", "New cloud")
     val name = t("Название", "Name")
 
-    // --- Готовые сервисы ------------------------------------------------------
+    // --- Выбор сервиса и вход через браузер ------------------------------------
 
     val chooseService = t("Какое облако добавить", "Which cloud to add")
-    val otherService = t("Другое", "Other")
-    val yandexWebdav = t("Яндекс.Диск", "Yandex.Disk")
-    val mailru = t("Облако Mail.ru", "Mail.ru Cloud")
-    val anyWebdavServer = t("Любой сервер WebDAV", "Any WebDAV server")
-    val sshAccess = t("Доступ по SSH", "Access over SSH")
-    val ftpServer = t("Сервер FTP", "FTP server")
-    val appPassword = t("Пароль приложения", "App password")
-    val serverUrl = t("Адрес сервера", "Server address")
-
-    val yandexHint = t(
-        "Яндексу нужен пароль приложения, а не пароль от аккаунта: создаётся " +
-            "на id.yandex.ru в разделе «Пароли приложений».",
-        "Yandex needs an app password rather than your account password: create " +
-            "one at id.yandex.ru under «App passwords».",
+    val searchServices = t(
+        "Поиск: название, страна или другое имя",
+        "Search: name, country or another name",
     )
-    val mailruHint = t(
-        "Mail.ru не принимает основной пароль от аккаунта — нужен отдельный " +
-            "пароль для внешних приложений.",
-        "Mail.ru does not accept your main account password — a separate password " +
-            "for external applications is required.",
+    val loadingAllServices = t(
+        "Загружаю полный список сервисов rclone…",
+        "Loading the full list of rclone services…",
     )
-
-    /**
-     * Почему в списке нет Google Диска, Dropbox и OneDrive. Умолчать нельзя:
-     * это первое, что ищут, и без объяснения выглядит как недоделка.
-     */
-    val browserServicesMissing = t(
-        "Google Диск, Dropbox и OneDrive подтверждают доступ в браузере — на " +
-            "телефоне этого пока нет. Добавьте их в OpenDisk на компьютере: " +
-            "список облаков переносится файлом rclone.conf.",
-        "Google Drive, Dropbox and OneDrive confirm access in a browser — that " +
-            "is not available on the phone yet. Add them in OpenDisk on a computer: " +
-            "the list of clouds travels as the rclone.conf file.",
-    )
-    val serverAddress = t("Адрес сервера", "Server address")
-    val host = t("Хост", "Host")
-    val login = t("Логин", "Login")
-    val password = t("Пароль", "Password")
+    val nothingFound = t("Ничего не найдено", "Nothing found")
     val adding = t("Добавляю…", "Adding…")
     val add = t("Добавить", "Add")
+
+    val signInWithBrowser = t("Войти через браузер", "Sign in with a browser")
+
+    /** Что будет после нажатия — до нажатия, а не после. */
+    val browserWillOpen = t(
+        "Откроется браузер: выберите аккаунт и разрешите доступ. Пароль вводить " +
+            "и придумывать не нужно.",
+        "A browser will open: pick the account and allow access. No password to " +
+            "type or create.",
+    )
+    val waitingForBrowser = t("Подтвердите доступ в браузере", "Confirm access in the browser")
+    val preparingSignIn = t("Готовлю вход…", "Preparing sign-in…")
+    val waitingForBrowserHint = t(
+        "Когда страница напишет «Success», закройте вкладку — облако появится " +
+            "в списке само.",
+        "When the page says «Success», close the tab — the cloud will appear in " +
+            "the list by itself.",
+    )
+    val openBrowserAgain = t("Открыть браузер снова", "Open the browser again")
 
     fun deleteTitle(cloud: String) = t("Удалить «$cloud»?", "Delete «$cloud»?")
 

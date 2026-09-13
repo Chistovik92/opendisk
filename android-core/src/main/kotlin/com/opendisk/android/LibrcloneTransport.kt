@@ -121,6 +121,11 @@ class LibrcloneTransport private constructor() : RcloneTransport {
 
             if (initialized.compareAndSet(false, true)) {
                 Gomobile.rcloneInitialize()
+                // После инициализации, а не до: библиотека уже загружена, и
+                // gomobile больше не переставит поток ошибок на свой канал.
+                // Без перехвата вход через браузер невозможен — ссылку rclone
+                // печатает именно туда.
+                RcloneOutput.capture()
             }
             return LibrcloneTransport().also { instance = it }
         }

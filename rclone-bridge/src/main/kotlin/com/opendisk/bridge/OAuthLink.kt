@@ -1,6 +1,7 @@
 package com.opendisk.bridge
 
-import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URI
 
 /**
@@ -48,18 +49,27 @@ object OAuthLink {
     /**
      * Прерывает ожидание подтверждения. Ошибки глотаем: если сервер уже
      * закрылся, значит, ждать и так нечего.
+     *
+     * Запрос уходит обычным сокетом, а не через `HttpURLConnection`: на
+     * Android с API 28 он отказывается ходить по незашифрованному HTTP,
+     * в том числе на 127.0.0.1, — и отмена молча не доходила бы до rclone.
+     * Правило касается HTTP-клиентов системы, а не сокетов.
      */
     fun cancel(link: String) {
-        val target = cancelUrl(link) ?: return
+        val target = cancelUrl(link)?.let { runCatching { URI(it) }.getOrNull() } ?: return
         runCatching {
-            val connection = URI(target).toURL().openConnection() as HttpURLConnection
-            connection.connectTimeout = 2000
-            connection.readTimeout = 2000
-            try {
-                connection.responseCode
-            } finally {
-                connection.disconnect()
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(target.host, target.port), TIMEOUT_MILLIS)
+                socket.soTimeout = TIMEOUT_MILLIS
+                val request = "GET ${target.rawPath}?${target.rawQuery} HTTP/1.1\r\n" +
+                    "Host: ${target.authority}\r\nConnection: close\r\n\r\n"
+                socket.getOutputStream().write(request.toByteArray(Charsets.US_ASCII))
+                socket.getOutputStream().flush()
+                // Дождаться ответа — значит дождаться, что сервер запрос принял.
+                socket.getInputStream().read()
             }
         }
     }
+
+    private const val TIMEOUT_MILLIS = 2000
 }

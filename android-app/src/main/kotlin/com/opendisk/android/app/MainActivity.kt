@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -44,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -59,8 +61,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opendisk.bridge.CatalogService
+import com.opendisk.bridge.CloudCatalog
 import com.opendisk.bridge.RcloneClient
 
 /**
@@ -96,7 +101,7 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     Scaffold(
         topBar = { AppBar(state, model) },
         floatingActionButton = {
-            if (state.browsing == null && !state.starting && !state.settings) {
+            if (state.browsing == null && !state.starting && !state.settings && !state.adding) {
                 FloatingActionButton(onClick = model::startAdding) { Text("+") }
             }
         },
@@ -105,6 +110,7 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
             when {
                 state.starting -> Centered(strings.starting, spinner = true)
                 state.settings -> SettingsScreen(state, model)
+                state.adding -> AddCloudScreen(state, model)
                 state.browsing != null -> FolderList(state.browsing!!, model)
                 else -> CloudList(
                     state = state,
@@ -132,9 +138,10 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     }
 
     if (state.settings) BackHandler { model.closeSettings() }
+    if (state.adding) BackHandler { model.cancelAdding() }
 
     state.link?.let { LinkDialog(it, model) }
-    if (state.adding) AddCloudDialog(model)
+    state.signIn?.let { SignInDialog(it, model) }
 
     cloudToDelete?.let { name ->
         ConfirmDeleteDialog(
@@ -159,6 +166,7 @@ private fun AppBar(state: MobileState, model: OpenDiskModel) {
             Text(
                 text = when {
                     state.settings -> strings.settings
+                    state.adding -> strings.chooseService
                     open == null -> "OpenDisk"
                     open.path.isEmpty() -> open.cloud
                     else -> open.path.substringAfterLast('/')
@@ -170,6 +178,7 @@ private fun AppBar(state: MobileState, model: OpenDiskModel) {
         navigationIcon = {
             when {
                 state.settings -> TextButton(onClick = model::closeSettings) { Text(strings.back) }
+                state.adding -> TextButton(onClick = model::cancelAdding) { Text(strings.back) }
                 open != null -> TextButton(onClick = {
                     val parent = open.parent
                     if (parent == null) model.closeBrowser() else model.open(open.cloud, parent)
@@ -179,7 +188,7 @@ private fun AppBar(state: MobileState, model: OpenDiskModel) {
         actions = {
             // Настройки — на всех экранах, кроме них самих: искать их
             // приходится редко, а найти нужно сразу.
-            if (!state.settings && !state.starting) {
+            if (!state.settings && !state.starting && !state.adding) {
                 TextButton(onClick = model::openSettings) { Text(strings.settings) }
             }
         },
@@ -506,114 +515,137 @@ private fun ConfirmDeleteDialog(
 }
 
 /**
- * Добавление облака: сначала выбор сервиса, потом его поля.
+ * Добавление облака: весь каталог сервисов с поиском.
  *
- * До этого выпуска здесь был список из трёх слов — `webdav`, `sftp`, `ftp`, —
- * и человек должен был сам знать, что Яндекс.Диск подключается по WebDAV,
- * по какому адресу и с каким паролем. Теперь знает приложение, как и на
- * компьютере.
+ * Отдельным экраном, а не диалогом: сервисов больше полутора сотен, и
+ * диалог с ними упирался бы в края телефона. Сверху — отобранные вручную
+ * с готовыми адресами, по разделам; снизу — всё, что знает встроенный
+ * rclone, с каждым провайдером S3 отдельной строкой.
  *
- * Сервисы с подтверждением доступа в браузере (Google Диск, Dropbox,
- * OneDrive) сюда по-прежнему не попали: их поток должен вернуть человека из
- * браузера обратно в приложение, а это отдельная работа. Об этом сказано
- * прямо в списке, а не оставлено на догадки.
+ * До 0.5.4 здесь было пять сервисов, и все по паролю: Google Диск, Dropbox
+ * и OneDrive подтверждают доступ в браузере, а входа через браузер на
+ * телефоне не было.
  */
 @Composable
-private fun AddCloudDialog(model: OpenDiskModel) {
+private fun AddCloudScreen(state: MobileState, model: OpenDiskModel) {
     val strings = model.strings
-    val presets = remember(strings) { mobilePresets(strings) }
-    var chosen by remember { mutableStateOf<MobilePreset?>(null) }
+    var query by remember { mutableStateOf("") }
+    var chosen by remember { mutableStateOf<CatalogService?>(null) }
 
-    val preset = chosen
-    if (preset == null) {
-        ChooseServiceDialog(strings, presets, onChoose = { chosen = it }, onDismiss = model::cancelAdding)
-    } else {
-        PresetFormDialog(
-            preset = preset,
+    val curated = remember(query) { CloudCatalog.services.filter { it.matches(query) } }
+    val all = state.allServices.filter { it.matches(query) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = { Text(strings.searchServices) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            (curated + all).groupBy { it.group }.forEach { (group, services) ->
+                item(key = group.name) {
+                    Text(
+                        group.title.pick(strings.russian),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 4.dp),
+                    )
+                }
+                items(services, key = { it.id }) { service ->
+                    ServiceRow(service, strings) { chosen = service }
+                }
+            }
+            if (state.allServices.isEmpty()) {
+                item { ListNote(strings.loadingAllServices, spinner = true) }
+            } else if (curated.isEmpty() && all.isEmpty()) {
+                item { ListNote(strings.nothingFound) }
+            }
+        }
+    }
+
+    chosen?.let { service ->
+        ServiceFormDialog(
+            service = service,
             model = model,
-            onBack = { chosen = null },
+            existingNames = state.clouds.map { it.name }.toSet(),
+            onDismiss = { chosen = null },
         )
     }
 }
 
+/** Строка-пояснение внутри списка: у элемента ленивого списка нет высоты, которую можно заполнить. */
 @Composable
-private fun ChooseServiceDialog(
-    strings: MobileStrings,
-    presets: List<MobilePreset>,
-    onChoose: (MobilePreset) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(strings.chooseService) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                presets.forEach { preset ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onChoose(preset) }
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        // Буква на цветном квадрате, а не логотип сервиса:
-                        // чужие товарные знаки в приложение мы не кладём.
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(preset.accent, RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(preset.glyph, color = Color.White)
-                        }
-                        Column {
-                            Text(preset.title, style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                preset.subtitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-                HorizontalDivider()
-                Text(
-                    strings.browserServicesMissing,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text(strings.cancel) } },
-    )
+private fun ListNote(text: String, spinner: Boolean = false) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (spinner) CircularProgressIndicator(modifier = Modifier.size(18.dp))
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
-private fun PresetFormDialog(preset: MobilePreset, model: OpenDiskModel, onBack: () -> Unit) {
-    val strings = model.strings
-    var name by remember(preset.id) { mutableStateOf(preset.id) }
-    val values = remember(preset.id) { mutableStateMapOf<String, String>() }
-    var error by remember(preset.id) { mutableStateOf<String?>(null) }
-    var busy by remember(preset.id) { mutableStateOf(false) }
+private fun ServiceRow(service: CatalogService, strings: MobileStrings, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // Буква на цветном квадрате, а не логотип сервиса: чужие товарные
+        // знаки в приложение мы не кладём.
+        Box(
+            modifier = Modifier.size(36.dp).background(Color(service.accent), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(service.glyph, color = Color.White, maxLines = 1)
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(service.title.pick(strings.russian), style = MaterialTheme.typography.titleSmall)
+            Text(
+                service.subtitle.pick(strings.russian),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
 
-    val filled = preset.fields.filter { it.required }.all { values[it.key].orEmpty().isNotBlank() }
+@Composable
+private fun ServiceFormDialog(
+    service: CatalogService,
+    model: OpenDiskModel,
+    existingNames: Set<String>,
+    onDismiss: () -> Unit,
+) {
+    val strings = model.strings
+    // Имя по умолчанию — от идентификатора сервиса без служебной приставки:
+    // «rclone:s3:Wasabi» превращается в «Wasabi».
+    val baseName = service.id.split(":").last()
+    var name by remember(service.id) { mutableStateOf(uniqueName(baseName, existingNames)) }
+    val values = remember(service.id) { mutableStateMapOf<String, String>() }
+    var error by remember(service.id) { mutableStateOf<String?>(null) }
+    var busy by remember(service.id) { mutableStateOf(false) }
+
+    val nameTaken = name.trim() in existingNames
+    val filled = service.fields.filter { it.required }.all { values[it.key].orEmpty().isNotBlank() }
 
     AlertDialog(
-        onDismissRequest = model::cancelAdding,
-        title = { Text(preset.title) },
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(service.title.pick(strings.russian)) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                preset.hint?.let {
+                service.hint?.let {
                     Text(
-                        it,
+                        it.pick(strings.russian),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -623,16 +655,17 @@ private fun PresetFormDialog(preset: MobilePreset, model: OpenDiskModel, onBack:
                     onValueChange = { name = it },
                     label = { Text(strings.name) },
                     singleLine = true,
+                    isError = nameTaken,
                 )
-                preset.fields.forEach { field ->
+                service.fields.forEach { field ->
                     OutlinedTextField(
                         value = values[field.key].orEmpty(),
                         onValueChange = { values[field.key] = it },
-                        label = { Text(field.label) },
+                        label = { Text(field.label.pick(strings.russian) + if (field.required) " *" else "") },
+                        supportingText = field.help?.let { help -> { Text(help.pick(strings.russian)) } },
                         singleLine = true,
-                        // Пароль под маской: в 0.5.0 он печатался открытым
-                        // текстом — на экране телефона, который видно
-                        // из-за плеча.
+                        // Пароль под маской: на экране телефона, который видно
+                        // из-за плеча, открытым текстом ему не место.
                         visualTransformation = if (field.isPassword) {
                             PasswordVisualTransformation()
                         } else {
@@ -645,30 +678,112 @@ private fun PresetFormDialog(preset: MobilePreset, model: OpenDiskModel, onBack:
                         },
                     )
                 }
+                if (service.oauth) {
+                    Text(
+                        strings.browserWillOpen,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             Button(
-                enabled = !busy && name.isNotBlank() && filled,
+                enabled = !busy && name.isNotBlank() && !nameTaken && filled,
                 onClick = {
                     busy = true
                     error = null
-                    val secrets = preset.fields.filter { it.isPassword }.map { it.key }.toSet()
-                    model.addCloud(
-                        name = name,
-                        type = preset.backend,
-                        parameters = preset.fixed + values,
-                        secretKeys = secrets,
-                    ) { failure ->
+                    model.addCloud(service, name, values.toMap()) { failure ->
                         busy = false
                         error = failure
+                        if (failure == null) onDismiss()
                     }
                 },
-            ) { Text(if (busy) strings.adding else strings.add) }
+            ) {
+                Text(
+                    when {
+                        busy -> strings.adding
+                        service.oauth -> strings.signInWithBrowser
+                        else -> strings.add
+                    },
+                )
+            }
         },
-        dismissButton = { TextButton(onClick = onBack) { Text(strings.back) } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(strings.back) } },
     )
+}
+
+/**
+ * Ожидание подтверждения в браузере.
+ *
+ * Страница открывается во вкладке браузера поверх приложения — Custom Tabs,
+ * а не встроенным окном: Google отказывается пускать на вход из встроенных
+ * браузеров («disallowed_useragent»), и правильно делает — встроенное окно
+ * видит пароль. Вернуть человека обратно само приложение не может: Android
+ * не даёт открывать свои окна из фона. Поэтому подсказка просит закрыть
+ * вкладку, когда страница скажет «Success», — облако к этому моменту уже
+ * в списке.
+ */
+@Composable
+private fun SignInDialog(signIn: SignInState, model: OpenDiskModel) {
+    val strings = model.strings
+    val context = LocalContext.current
+    var opened by remember(signIn.cloud) { mutableStateOf<String?>(null) }
+
+    val link = signIn.link
+    LaunchedEffect(link) {
+        if (link != null && opened != link) {
+            openInBrowser(context, link)
+            opened = link
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text(strings.waitingForBrowser) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    Text(if (link == null) strings.preparingSignIn else signIn.cloud)
+                }
+                Text(
+                    strings.waitingForBrowserHint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            if (link != null) {
+                TextButton(onClick = { openInBrowser(context, link) }) { Text(strings.openBrowserAgain) }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = model::cancelSignIn, enabled = !signIn.cancelled) { Text(strings.cancel) }
+        },
+    )
+}
+
+private fun openInBrowser(context: Context, link: String) {
+    runCatching {
+        CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, Uri.parse(link))
+    }
+}
+
+/**
+ * Имя по умолчанию, свободное в списке: подставляем его, чтобы не заставлять
+ * человека придумывать название на пустом месте.
+ */
+private fun uniqueName(base: String, taken: Set<String>): String {
+    if (base !in taken) return base
+    var index = 2
+    while ("$base$index" in taken) index++
+    return "$base$index"
 }
 
 @Composable

@@ -5,6 +5,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -81,6 +83,29 @@ class MainActivityTest {
         rule.onNodeWithText(strings.themeDark).assertExists()
         rule.onNodeWithText(strings.language).assertExists()
         rule.onNodeWithText(strings.about).assertExists()
+    }
+
+    /**
+     * В списке сервисов есть Google Диск со входом через браузер, а поиск
+     * находит сервисы из полного списка rclone — например, китайский Qiniu,
+     * который среди отобранных вручную не значится.
+     *
+     * До 0.5.4 Google Диска на телефоне не было вовсе.
+     */
+    @Test
+    fun serviceListHasGoogleDriveAndTheFullRcloneCatalog() {
+        rule.waitUntil(timeoutMillis = STARTUP_TIMEOUT_MILLIS) {
+            rule.onAllNodesWithText(strings.starting).fetchSemanticsNodes().isEmpty()
+        }
+
+        rule.onNodeWithText("+").performClick()
+        rule.onNodeWithText(strings.searchServices).performTextInput("Google")
+        rule.onNodeWithText(if (strings.russian) "Google Диск" else "Google Drive").assertExists()
+
+        rule.onNodeWithText("Google").performTextReplacement("Qiniu")
+        rule.waitUntil(timeoutMillis = 30_000) {
+            rule.onAllNodesWithText("Qiniu", substring = true).fetchSemanticsNodes().size > 1
+        }
     }
 
     private companion object {

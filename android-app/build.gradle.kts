@@ -93,6 +93,9 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    // Вход через браузер: вкладка Custom Tabs поверх приложения. Встроенное
+    // окно не годится — Google не пускает на вход из встроенных браузеров.
+    implementation("androidx.browser:browser:1.8.0")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)
