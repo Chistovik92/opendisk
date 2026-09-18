@@ -373,11 +373,22 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
      *
      * @param remotePath путь внутри облака; пустая строка — корень.
      */
-    suspend fun list(remoteName: String, remotePath: String = ""): List<Entry> {
+    suspend fun list(remoteName: String, remotePath: String = ""): List<Entry> =
+        listFs(cloudFs(remoteName), remotePath)
+
+    /**
+     * То же, что [list], но для любой файловой системы rclone: облака
+     * (`яндекс:`) или обычного каталога на этом устройстве (`/storage/emulated/0`).
+     *
+     * Файловый менеджер на телефоне ходит и по облакам, и по памяти телефона
+     * одним и тем же кодом — rclone внутри приложения умеет и то, и другое,
+     * а копирование между ними становится одним вызовом.
+     */
+    suspend fun listFs(fs: String, remotePath: String = ""): List<Entry> {
         val response: ListResponse = call(
             "operations/list",
             buildJsonObject {
-                put("fs", "$remoteName:")
+                put("fs", fs)
                 put("remote", remotePath)
             },
         )
@@ -433,6 +444,121 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
                 put("dstRemote", localName)
             },
         )
+    }
+
+    // --- Файловые операции ---------------------------------------------------
+    //
+    // Всё ниже принимает файловую систему rclone целиком: `облако:` или
+    // локальный каталог. Путь внутри неё — отдельно, без ведущего слэша.
+
+    /** Создаёт папку; уже существующая — не ошибка. */
+    suspend fun mkdir(fs: String, remotePath: String) {
+        call<JsonObject>(
+            "operations/mkdir",
+            buildJsonObject {
+                put("fs", fs)
+                put("remote", remotePath)
+            },
+        )
+    }
+
+    /** Удаляет один файл. */
+    suspend fun deleteFile(fs: String, remotePath: String) {
+        call<JsonObject>(
+            "operations/deletefile",
+            buildJsonObject {
+                put("fs", fs)
+                put("remote", remotePath)
+            },
+        )
+    }
+
+    /**
+     * Удаляет папку вместе со всем содержимым.
+     *
+     * `operations/purge`, а не `rmdir`: тот удаляет только пустую папку,
+     * а человек, нажавший «удалить» на папке, ждёт, что она исчезнет.
+     */
+    suspend fun purge(fs: String, remotePath: String) {
+        call<JsonObject>(
+            "operations/purge",
+            buildJsonObject {
+                put("fs", fs)
+                put("remote", remotePath)
+            },
+        )
+    }
+
+    /**
+     * Копирует один файл — в том числе между разными файловыми системами:
+     * из облака в память телефона, из телефона в облако, из облака в облако.
+     */
+    suspend fun copyFile(srcFs: String, srcPath: String, dstFs: String, dstPath: String) {
+        call<JsonObject>(
+            "operations/copyfile",
+            buildJsonObject {
+                put("srcFs", srcFs)
+                put("srcRemote", srcPath)
+                put("dstFs", dstFs)
+                put("dstRemote", dstPath)
+            },
+        )
+    }
+
+    /**
+     * Перемещает один файл. Внутри одного облака rclone делает это на стороне
+     * сервиса, если тот умеет, — без скачивания и повторной заливки.
+     */
+    suspend fun moveFile(srcFs: String, srcPath: String, dstFs: String, dstPath: String) {
+        call<JsonObject>(
+            "operations/movefile",
+            buildJsonObject {
+                put("srcFs", srcFs)
+                put("srcRemote", srcPath)
+                put("dstFs", dstFs)
+                put("dstRemote", dstPath)
+            },
+        )
+    }
+
+    /**
+     * Копирует папку целиком.
+     *
+     * У `operations/copyfile` папок нет — только файлы, поэтому для папок
+     * `sync/copy`, где источник и цель — уже сами папки: `облако:путь`.
+     */
+    suspend fun copyDir(srcFs: String, srcPath: String, dstFs: String, dstPath: String) {
+        call<JsonObject>(
+            "sync/copy",
+            buildJsonObject {
+                put("srcFs", joinFs(srcFs, srcPath))
+                put("dstFs", joinFs(dstFs, dstPath))
+                put("createEmptySrcDirs", true)
+            },
+        )
+    }
+
+    /** Перемещает папку целиком; пустые папки источника тоже убираются. */
+    suspend fun moveDir(srcFs: String, srcPath: String, dstFs: String, dstPath: String) {
+        call<JsonObject>(
+            "sync/move",
+            buildJsonObject {
+                put("srcFs", joinFs(srcFs, srcPath))
+                put("dstFs", joinFs(dstFs, dstPath))
+                put("createEmptySrcDirs", true)
+                put("deleteEmptySrcDirs", true)
+            },
+        )
+        // sync/move оставляет саму папку-источник, даже пустую.
+        runCatching {
+            call<JsonObject>(
+                "operations/rmdirs",
+                buildJsonObject {
+                    put("fs", srcFs)
+                    put("remote", srcPath)
+                },
+            )
+        }
     }
 
     // --- Ссылки на файлы ----------------------------------------------------
@@ -623,6 +749,23 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
     ): T = rcloneJson.decodeFromJsonElement(transport.rpc(endpoint, body))
 
     companion object {
+        /** Файловая система облака: rclone ждёт имя с двоеточием, иначе это путь. */
+        fun cloudFs(remoteName: String): String = "$remoteName:"
+
+        /**
+         * Папка внутри файловой системы как самостоятельная файловая система:
+         * `яндекс:` + `Фото/2024` → `яндекс:Фото/2024`, `/sdcard` + `DCIM` →
+         * `/sdcard/DCIM`. Так её ждут `sync/copy` и `sync/move`.
+         */
+        fun joinFs(fs: String, path: String): String {
+            val inner = path.trim('/')
+            if (inner.isEmpty()) return fs
+            return when {
+                fs.endsWith(":") || fs.endsWith("/") -> fs + inner
+                else -> "$fs/$inner"
+            }
+        }
+
         /**
          * Фрагмент, по которому опознаём отказ расшифровки конфига. rclone пишет
          * "unable to decrypt configuration ..." и в случае отсутствующего пароля,

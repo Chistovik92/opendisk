@@ -411,6 +411,61 @@ class RcloneClientTest {
         assertEquals("boom", extractError("""{"error":"boom"}"""))
     }
 
+    @Test
+    fun `listFs accepts a local directory as the file system`() = runBlocking {
+        val client = clientRespondingWith("""{"list":[]}""")
+
+        client.listFs("/storage/emulated/0", "DCIM")
+
+        val body = lastRequestBody()
+        assertContains(body, "\"fs\":\"/storage/emulated/0\"")
+        assertContains(body, "\"remote\":\"DCIM\"")
+    }
+
+    @Test
+    fun `copyFile sends both sides to operations copyfile`() = runBlocking {
+        val client = clientRespondingWith("{}")
+
+        client.copyFile("yandex:", "Docs/a.pdf", "/storage/emulated/0", "Download/a.pdf")
+
+        assertEquals("$BASE_URL/operations/copyfile", requests.last().url.toString())
+        val body = lastRequestBody()
+        assertContains(body, "\"srcFs\":\"yandex:\"")
+        assertContains(body, "\"srcRemote\":\"Docs/a.pdf\"")
+        assertContains(body, "\"dstFs\":\"/storage/emulated/0\"")
+        assertContains(body, "\"dstRemote\":\"Download/a.pdf\"")
+    }
+
+    @Test
+    fun `moveDir addresses folders as file systems and removes the source`() = runBlocking {
+        val client = clientRespondingWith("{}")
+
+        client.moveDir("yandex:", "Old", "yandex:", "New/Old")
+
+        assertEquals("$BASE_URL/sync/move", requests[requests.size - 2].url.toString())
+        val moveBody = (requests[requests.size - 2].body as TextContent).text
+        assertContains(moveBody, "\"srcFs\":\"yandex:Old\"")
+        assertContains(moveBody, "\"dstFs\":\"yandex:New/Old\"")
+        assertEquals("$BASE_URL/operations/rmdirs", requests.last().url.toString())
+    }
+
+    @Test
+    fun `purge removes a folder with contents`() = runBlocking {
+        val client = clientRespondingWith("{}")
+
+        client.purge("yandex:", "Trash")
+
+        assertEquals("$BASE_URL/operations/purge", requests.last().url.toString())
+    }
+
+    @Test
+    fun `joinFs builds folder file systems for clouds and local paths`() {
+        assertEquals("yandex:Photos/2024", RcloneClient.joinFs("yandex:", "Photos/2024"))
+        assertEquals("yandex:", RcloneClient.joinFs("yandex:", ""))
+        assertEquals("/sdcard/DCIM", RcloneClient.joinFs("/sdcard", "/DCIM/"))
+        assertEquals("/DCIM", RcloneClient.joinFs("/", "DCIM"))
+    }
+
     private companion object {
         const val BASE_URL = "http://127.0.0.1:5572"
     }
