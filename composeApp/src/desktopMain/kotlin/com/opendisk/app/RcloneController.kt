@@ -1,5 +1,6 @@
 package com.opendisk.app
 
+import com.opendisk.bridge.FuseMounts
 import com.opendisk.bridge.MountSupport
 import com.opendisk.bridge.MountedPaths
 import com.opendisk.bridge.OAuthLink
@@ -107,7 +108,9 @@ class RcloneController(
             // и до сих пор держать смонтированные диски. Тогда новые маунты на
             // те же буквы просто не встанут, а пользователь увидит буквы,
             // за которыми ничего нет.
-            val killed = withContext(Dispatchers.IO) { staleCleanup.killLeftover() }
+            val killed = withContext(Dispatchers.IO) {
+                staleCleanup.killLeftover().also { releaseLeftoverMounts() }
+            }
             if (killed != null) {
                 _notifications.tryEmit(
                     AppNotification(
@@ -156,6 +159,104 @@ class RcloneController(
         }
     }
 
+    // --- Живучесть -----------------------------------------------------------
+
+    /** Приложение само гасит rcd: закрытие, обновление, удаление. Не перезапускать. */
+    @Volatile
+    private var stopping = false
+    private var watchdog: Job? = null
+    private val recentRestarts = ArrayDeque<Long>()
+
+    /**
+     * Облака, которые были подключены, когда rcd упал. Если после перезапуска
+     * понадобился пароль от конфига, подключаем их после его ввода.
+     */
+    private var pendingRemount: List<String> = emptyList()
+
+    /**
+     * Следит, жив ли rcd, и поднимает его заново, если он умер сам.
+     *
+     * rcd — один процесс на все диски, и его смерть (нехватка памяти, сбой
+     * внутри rclone, убитый по ошибке процесс) раньше означала: все диски
+     * пропали, а приложение продолжает показывать «подключено» до
+     * перезапуска. Теперь rcd поднимается заново, и диски возвращаются сами.
+     */
+    private fun watchRcd() {
+        if (watchdog != null) return
+        watchdog = scope.launch {
+            while (isActive) {
+                delay(RCD_WATCH_MILLIS)
+                val rcd = process ?: continue
+                if (stopping || rcd.isRunning()) continue
+                restartRcd(rcd)
+            }
+        }
+    }
+
+    private suspend fun restartRcd(dead: RcloneProcess) {
+        val now = System.currentTimeMillis()
+        while (recentRestarts.isNotEmpty() && now - recentRestarts.first() > RESTART_WINDOW_MILLIS) {
+            recentRestarts.removeFirst()
+        }
+        // Падает снова и снова — значит, дело не в случайности, и крутить
+        // перезапуски бесконечно значит прятать настоящую ошибку.
+        if (recentRestarts.size >= MAX_RESTARTS) {
+            stopping = true
+            _state.update {
+                it.copy(session = SessionState.Failed(strings.rcdKeepsCrashing, dead.recentOutput()))
+            }
+            return
+        }
+        recentRestarts.addLast(now)
+
+        val wereMounted = ourMounts.keys.toList()
+        ourMounts.clear()
+        runCatching { client?.close() }
+        client = null
+        _state.update { current ->
+            current.copy(clouds = current.clouds.map { it.copy(mountPoint = null, busy = false) })
+        }
+        _notifications.tryEmit(AppNotification(title = strings.rcdRestarted, message = strings.rcdRestartedDetails))
+
+        // Точки FUSE, которые держал умерший rcd, на Linux остались висеть:
+        // без уборки новый rcd в них не смонтирует.
+        withContext(Dispatchers.IO) { releaseLeftoverMounts() }
+
+        val located = locateRclone() ?: return
+        val rcd = RcloneProcess(
+            rclonePath = located.file.absolutePath,
+            rcAddr = RcloneProcess.freeRcAddr(),
+            config = resolveConfig(),
+            cleanup = staleCleanup,
+        )
+        process = rcd
+        try {
+            rcd.start()
+            rcd.awaitReady()
+        } catch (e: IllegalStateException) {
+            // Следующий круг сторожа попробует ещё раз, пока не кончится лимит.
+            return
+        }
+        client = RcloneClient(rcd.rcBaseUrl)
+        pendingRemount = wereMounted
+        becomeReadyOrAskPassword()
+    }
+
+    /**
+     * Снимает на Linux точки монтирования наших облаков, оставшиеся от rclone,
+     * которого больше нет. Вызывается, когда своего rcd ещё нет или он только
+     * что умер: всё, что rclone держит в наших папках, — осиротевшее.
+     */
+    private fun releaseLeftoverMounts() {
+        if (isWindows) return
+        val names = settings.load().keys + state.value.clouds.map { it.name }
+        names.forEach { name ->
+            val point = settings.forCloud(name).mountPoint?.takeIf { it.isNotBlank() }
+                ?: defaultMountPoint(name)
+            runCatching { FuseMounts.releaseLeftover(point, evenIfAlive = true) }
+        }
+    }
+
     /**
      * Проверяет доступность конфига. Порт открывается и при зашифрованном конфиге,
      * поэтому именно здесь выясняется, нужен ли пароль.
@@ -173,6 +274,12 @@ class RcloneController(
             loadProviders()
             reloadClouds()
             mountMarkedClouds()
+            // После перезапуска упавшего rcd — вернуть то, что было подключено,
+            // даже если при запуске эти облака не подключаются.
+            val remount = pendingRemount
+            pendingRemount = emptyList()
+            remount.filter { !ourMounts.containsKey(it) }.forEach { mountAndWait(it) }
+            watchRcd()
 
             // Фоновая проверка обновлений — после того, как всё остальное
             // поднялось: она необязательная и не должна задерживать запуск.
@@ -415,6 +522,9 @@ class RcloneController(
                 }
                 api.createRemote(name, type, prepared.filterValues { it.isNotEmpty() })
                 created = true
+                // Облако на Windows — это буква диска с первой минуты: её видно
+                // в списке ещё до подключения, и сменить её можно заранее.
+                if (!existedBefore) pinDriveLetter(name)
                 reloadClouds()
                 onDone(null)
             } catch (e: RcloneRcException) {
@@ -598,9 +708,37 @@ class RcloneController(
 
     private suspend fun mountAndWait(name: String) {
         val api = client ?: return
+        val mountPoint = if (isWindows) {
+            pinDriveLetter(name)
+        } else {
+            settings.forCloud(name).mountPoint?.takeIf { it.isNotBlank() }
+                ?: defaultMountPoint(name, reserved = ourMounts.values.toSet())
+        }
+        if (mountPoint == null) {
+            updateCloud(name) { it.copy(busy = false, error = strings.noFreeDriveLetter) }
+            return
+        }
         val cloudSettings = settings.forCloud(name)
-        val mountPoint = cloudSettings.mountPoint?.takeIf { it.isNotBlank() }
-            ?: defaultMountPoint(name, reserved = ourMounts.values.toSet())
+
+        // Закреплённая буква могла оказаться занята: вставили флешку, подключили
+        // сетевую папку. Молча брать другую нельзя — облако тогда уже не та
+        // буква, на которую смотрят ярлыки. Говорим, чем занята и что делать.
+        DriveLetters.letterOf(mountPoint)?.takeIf { isWindows }?.let { letter ->
+            val busyInSystem = letter in DriveLetters.systemTaken()
+            val ours = ourMounts.values.any { DriveLetters.letterOf(it) == letter }
+            if (busyInSystem && !ours) {
+                updateCloud(name) { it.copy(busy = false, error = strings.driveLetterBusy(letter)) }
+                return
+            }
+        }
+
+        if (!isWindows) {
+            val problem = withContext(Dispatchers.IO) { linuxMountProblem(mountPoint) }
+            if (problem != null) {
+                updateCloud(name) { it.copy(busy = false, error = problem) }
+                return
+            }
+        }
 
         updateCloud(name) { it.copy(busy = true, error = null) }
         try {
@@ -617,6 +755,46 @@ class RcloneController(
                 ),
             )
         }
+    }
+
+    /**
+     * Что мешает подключить облако в папку на Linux и macOS; null — ничего.
+     *
+     * Висящая точка от упавшего rclone снимается здесь же, молча: человеку
+     * незачем знать про «Transport endpoint is not connected». А вот чужое
+     * монтирование и непустую папку мы не трогаем — rclone туда всё равно
+     * не смонтирует, и лучше сказать почему, чем показать его ошибку.
+     */
+    private fun linuxMountProblem(mountPoint: String): String? {
+        if (mountPoint in ourMounts.values) return null
+        FuseMounts.releaseLeftover(mountPoint)
+        if (FuseMounts.mountedAt(mountPoint) != null) return strings.mountFolderBusy(mountPoint)
+        if (FuseMounts.isNonEmptyDirectory(mountPoint)) return strings.mountFolderNotEmpty(mountPoint)
+        return null
+    }
+
+    /**
+     * Буква диска, закреплённая за облаком; нет закреплённой — выбирает
+     * свободную и закрепляет. Только Windows: на остальных системах точка
+     * монтирования — каталог, и закреплять там нечего.
+     *
+     * @return точка монтирования вида «Z:» или null, если свободных букв нет.
+     */
+    private fun pinDriveLetter(name: String): String? {
+        if (!isWindows) return null
+        val current = settings.forCloud(name)
+        current.mountPoint?.takeIf { it.isNotBlank() }?.let { return it }
+
+        val letter = DriveLetters.firstFree(
+            cloud = name,
+            settings = settings.load(),
+            systemTaken = DriveLetters.systemTaken(),
+            reserved = ourMounts.values.mapNotNull(DriveLetters::letterOf).toSet(),
+        ) ?: return null
+        val point = DriveLetters.mountPointOf(letter)
+        settings.update(name, current.copy(mountPoint = point))
+        _state.update { it.copy(settings = settings.load()) }
+        return point
     }
 
     fun unmount(name: String) {
@@ -810,6 +988,7 @@ class RcloneController(
      * остаются в системе без того, кто ими управляет.
      */
     fun prepareForRemoval(alsoCloudConfig: Boolean, onDone: () -> Unit) {
+        stopping = true
         scope.launch {
             val api = client
             state.value.clouds.filter { it.isMounted }.forEach { cloud ->
@@ -827,6 +1006,7 @@ class RcloneController(
 
     /** Останавливает rcd. Вызывается при закрытии приложения. */
     fun shutdown() {
+        stopping = true
         runCatching { updateChecker.close() }
         runCatching { client?.close() }
         runCatching { process?.stop() }
@@ -855,6 +1035,12 @@ class RcloneController(
 
     companion object {
         private const val OAUTH_LINK_POLL_MILLIS = 400L
+        private const val RCD_WATCH_MILLIS = 3_000L
+        private const val RESTART_WINDOW_MILLIS = 10 * 60_000L
+        private const val MAX_RESTARTS = 3
+
+        private val isWindows: Boolean
+            get() = System.getProperty("os.name").lowercase().contains("win")
 
         /**
          * Google Диск, работающий через общий идентификатор приложения rclone.

@@ -145,6 +145,8 @@ fun AppScreen(
             cloudName = name,
             current = state.settings[name] ?: CloudSettings(),
             isMounted = state.clouds.firstOrNull { it.name == name }?.isMounted == true,
+            allSettings = state.settings,
+            mountedAt = state.clouds.firstOrNull { it.name == name }?.mountPoint,
             onDismiss = { cloudToConfigure = null },
             onSave = { updated ->
                 controller.updateCloudSettings(name, updated)
@@ -277,6 +279,7 @@ private fun ReadyContent(
                         mountPoint = cloud.mountPoint.orEmpty(),
                         settings = state.settings[cloud.name] ?: CloudSettings(),
                     ).networkMode,
+                    pinnedPoint = state.settings[cloud.name]?.mountPoint,
                     onMount = { controller.mount(cloud.name) },
                     onUnmount = { controller.unmount(cloud.name) },
                     onRename = { onRequestRename(cloud.name) },
@@ -303,6 +306,8 @@ private fun CloudRow(
     mountAvailable: Boolean,
     cacheMode: String,
     asNetworkDrive: Boolean,
+    /** Закреплённая точка монтирования из настроек, даже если облако не подключено. */
+    pinnedPoint: String?,
     onMount: () -> Unit,
     onUnmount: () -> Unit,
     onRename: () -> Unit,
@@ -323,7 +328,13 @@ private fun CloudRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(cloud.name, style = MaterialTheme.typography.titleMedium)
+                    // Закреплённая буква — прямо у имени: облако и есть эта буква,
+                    // и видно это должно быть и когда оно не подключено.
+                    Text(
+                        listOfNotNull(cloud.name, DriveLetters.letterOf(pinnedPoint)?.let { "($it:)" })
+                            .joinToString(" "),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                     Text(
                         text = cloudStatusLine(cloud, cacheMode, strings, asNetworkDrive),
                         style = MaterialTheme.typography.bodySmall,

@@ -186,6 +186,31 @@ class Strings(val russian: Boolean) {
             "holding the connected drives. It has been stopped — the drives can be " +
             "connected again.",
     )
+    val rcdRestarted = t("rclone перезапущен", "rclone restarted")
+    val rcdRestartedDetails = t(
+        "Служебный процесс rclone неожиданно завершился. OpenDisk запустил его заново " +
+            "и возвращает подключённые диски.",
+        "The rclone helper process exited unexpectedly. OpenDisk started it again " +
+            "and is reconnecting your drives.",
+    )
+    val rcdKeepsCrashing = t(
+        "rclone завершается снова и снова — перезапускать его дальше бессмысленно. " +
+            "Ниже его последние сообщения; перезапустите OpenDisk.",
+        "rclone keeps exiting, so restarting it again makes no sense. " +
+            "Its last messages are below; restart OpenDisk.",
+    )
+    fun mountFolderNotEmpty(path: String) = t(
+        "Папка $path не пуста, а подключать облако поверх файлов Linux не даёт. " +
+            "Выберите пустую папку в настройках облака.",
+        "Folder $path is not empty, and Linux won't mount a cloud over files. " +
+            "Pick an empty folder in the cloud settings.",
+    )
+    fun mountFolderBusy(path: String) = t(
+        "В папке $path уже подключено что-то другое. Отключите его или выберите " +
+            "другую папку в настройках облака.",
+        "Something else is already mounted at $path. Unmount it or pick another " +
+            "folder in the cloud settings.",
+    )
     val createFailed = t("не удалось создать облако", "failed to create the cloud")
     val renameFailed = t("не удалось переименовать", "failed to rename")
     val saveFailed = t("не удалось сохранить", "failed to save")
@@ -445,6 +470,31 @@ class Strings(val russian: Boolean) {
             "на Linux — каталог.",
         "Leave empty and a free one will be picked. On Windows this is a drive letter, " +
             "on Linux a directory.",
+    )
+    val driveLetter = t("Буква диска", "Drive letter")
+    val driveLetterHint = t(
+        "Буква закреплена за этим облаком: оно всегда подключается на неё, и " +
+            "ярлыки и пути в программах не разъезжаются.",
+        "The letter is pinned to this cloud: it always mounts there, so " +
+            "shortcuts and paths in programs keep pointing at the same cloud.",
+    )
+    fun driveLetterOfCloud(letter: Char, cloud: String) =
+        t("$letter: — у облака «$cloud»", "$letter: — used by «$cloud»")
+    fun driveLetterInSystem(letter: Char) =
+        t("$letter: — занята в системе", "$letter: — taken in the system")
+    val driveLetterFolderInstead = t(
+        "Подключать в папку, а не на букву",
+        "Mount into a folder instead of a letter",
+    )
+    fun driveLetterBusy(letter: Char) = t(
+        "Буква $letter: занята другим диском — флешкой или сетевой папкой. " +
+            "Освободите её или выберите другую в настройках облака.",
+        "Drive $letter: is taken by another disk — a USB stick or a network share. " +
+            "Free it or pick another letter in the cloud settings.",
+    )
+    val noFreeDriveLetter = t(
+        "Свободных букв дисков не осталось. Отключите что-нибудь или подключите облако в папку.",
+        "No free drive letters left. Disconnect something or mount the cloud into a folder.",
     )
     val mountOnStartup = t(
         "Подключать при запуске приложения",

@@ -2,6 +2,7 @@ package com.opendisk.app
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,7 +14,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -39,6 +43,10 @@ fun CloudSettingsDialog(
     cloudName: String,
     current: CloudSettings,
     isMounted: Boolean,
+    /** Настройки всех облаков — чтобы не дать выбрать букву, закреплённую за другим. */
+    allSettings: Map<String, CloudSettings>,
+    /** Где облако подключено сейчас: эта буква занята им самим, а не кем-то ещё. */
+    mountedAt: String?,
     onDismiss: () -> Unit,
     onSave: (CloudSettings) -> Unit,
     /**
@@ -50,8 +58,21 @@ fun CloudSettingsDialog(
     onEditConnection: () -> Unit,
 ) {
     val strings = LocalStrings.current
+    val windows = remember { System.getProperty("os.name").lowercase().contains("win") }
+    val letterChoices = remember(allSettings, mountedAt) {
+        DriveLetters.choices(
+            cloud = cloudName,
+            settings = allSettings,
+            systemTaken = DriveLetters.systemTaken(),
+            ownMounted = DriveLetters.letterOf(mountedAt),
+        )
+    }
     var cacheMode by remember { mutableStateOf(current.cacheMode) }
     var mountPoint by remember { mutableStateOf(current.mountPoint.orEmpty()) }
+    // Своя папка вместо буквы — только если человек её уже выбрал раньше.
+    var intoFolder by remember {
+        mutableStateOf(current.mountPoint?.isNotBlank() == true && DriveLetters.letterOf(current.mountPoint) == null)
+    }
     var mountOnStartup by remember { mutableStateOf(current.mountOnStartup) }
     var showAsLocalDrive by remember { mutableStateOf(current.showAsLocalDrive) }
 
@@ -74,17 +95,53 @@ fun CloudSettingsDialog(
                 }
 
                 Text(strings.whereToMount, style = MaterialTheme.typography.titleSmall)
-                OutlinedTextField(
-                    value = mountPoint,
-                    onValueChange = { mountPoint = it },
-                    label = { Text(strings.mountPoint) },
-                    singleLine = true,
-                    placeholder = { Text(RcloneController.defaultMountPoint(cloudName)) },
-                    supportingText = {
-                        Text(strings.mountPointHint)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (windows && !intoFolder) {
+                    DriveLetterPicker(
+                        choices = letterChoices,
+                        selected = DriveLetters.letterOf(mountPoint),
+                        onSelect = { mountPoint = DriveLetters.mountPointOf(it) },
+                    )
+                    Text(
+                        strings.driveLetterHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = mountPoint,
+                        onValueChange = { mountPoint = it },
+                        label = { Text(strings.mountPoint) },
+                        singleLine = true,
+                        placeholder = { Text(RcloneController.defaultMountPoint(cloudName)) },
+                        supportingText = {
+                            Text(strings.mountPointHint)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (windows) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Checkbox(
+                            checked = intoFolder,
+                            onCheckedChange = { checked ->
+                                intoFolder = checked
+                                // Переключились обратно на букву — вернём закреплённую
+                                // или первую свободную, а не путь к папке.
+                                if (!checked && DriveLetters.letterOf(mountPoint) == null) {
+                                    mountPoint = DriveLetters.letterOf(current.mountPoint)
+                                        ?.let(DriveLetters::mountPointOf)
+                                        ?: letterChoices.firstOrNull { it is DriveLetters.Choice.Free }
+                                            ?.letter?.let(DriveLetters::mountPointOf)
+                                        ?: ""
+                                }
+                            },
+                        )
+                        Text(strings.driveLetterFolderInstead)
+                    }
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -149,6 +206,55 @@ fun CloudSettingsDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(strings.cancel) } },
     )
+}
+
+/**
+ * Выбор буквы из списка, а не ввод руками: так видно, какие буквы свободны,
+ * какие заняты системой и какие уже закреплены за другими облаками, — и
+ * выбрать две одинаковые буквы для двух облаков просто нельзя.
+ */
+@Composable
+private fun DriveLetterPicker(
+    choices: List<DriveLetters.Choice>,
+    selected: Char?,
+    onSelect: (Char) -> Unit,
+) {
+    val strings = LocalStrings.current
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) {
+            Text(
+                selected?.let { "${strings.driveLetter}: $it:" }
+                    ?: "${strings.driveLetter}: —",
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 320.dp),
+        ) {
+            choices.forEach { choice ->
+                val label = when (choice) {
+                    is DriveLetters.Choice.Free -> "${choice.letter}:"
+                    is DriveLetters.Choice.OtherCloud -> strings.driveLetterOfCloud(choice.letter, choice.cloud)
+                    is DriveLetters.Choice.System -> strings.driveLetterInSystem(choice.letter)
+                }
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    enabled = choice is DriveLetters.Choice.Free,
+                    onClick = {
+                        onSelect(choice.letter)
+                        expanded = false
+                    },
+                    trailingIcon = if (choice.letter == selected) {
+                        { Text("✓") }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable
