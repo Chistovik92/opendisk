@@ -43,6 +43,14 @@ class MobileSettings(context: Context) {
             .apply()
     }
 
+    /**
+     * Спрашивали ли уже доступ ко всем файлам при запуске. Экран настроек
+     * системы открываем сами один раз — дальше человек решает кнопкой.
+     */
+    var storageAccessAsked: Boolean
+        get() = prefs.getBoolean(KEY_STORAGE_ASKED, false)
+        set(value) = prefs.edit().putBoolean(KEY_STORAGE_ASKED, value).apply()
+
     /** Переименование или удаление облака не должно оставлять его в списке. */
     fun forget(cloud: String) {
         val current = read()
@@ -55,5 +63,6 @@ class MobileSettings(context: Context) {
         const val KEY_THEME = "theme"
         const val KEY_LANGUAGE = "language"
         const val KEY_CONNECTED = "connected"
+        const val KEY_STORAGE_ASKED = "storage_asked"
     }
 }

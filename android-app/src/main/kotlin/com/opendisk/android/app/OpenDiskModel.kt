@@ -31,9 +31,12 @@ data class CloudRow(
     val supportsLinks: Boolean = false,
 )
 
-/** Открытая папка облака. */
+/** Вкладки внизу экрана. */
+enum class MainTab { DISKS, ADD }
+
+/** Открытая папка диска во встроенном файловом менеджере. */
 data class Browsing(
-    val cloud: String,
+    val disk: Disk,
     val path: String = "",
     val entries: List<RcloneClient.Entry> = emptyList(),
     val loading: Boolean = true,
@@ -56,13 +59,29 @@ data class LinkState(
     val busy: Boolean = true,
 )
 
+/** Файл готов к открытию другим приложением — экран запускает для него окно выбора. */
+data class OpenRequest(val file: File, val name: String, val share: Boolean)
+
 data class MobileState(
     val starting: Boolean = true,
     val clouds: List<CloudRow> = emptyList(),
     val error: String? = null,
+    val tab: MainTab = MainTab.DISKS,
     val browsing: Browsing? = null,
     val link: LinkState? = null,
-    val adding: Boolean = false,
+    /** Скопированное или вырезанное — ждёт «Вставить». */
+    val clip: FileClip? = null,
+    /** Идёт долгая операция: копирование, удаление, скачивание. Текст — что именно. */
+    val operation: String? = null,
+    /** Короткое сообщение внизу экрана: готово или что пошло не так. */
+    val notice: String? = null,
+    val openRequest: OpenRequest? = null,
+    /** Карты памяти и флешки. */
+    val removableVolumes: List<Disk.Local> = emptyList(),
+    /** На телефоне есть `su`. */
+    val rootAvailable: Boolean = false,
+    /** Человек дал root в менеджере root; null — ещё не спрашивали. */
+    val rootGranted: Boolean? = null,
     /** Открыт экран настроек. */
     val settings: Boolean = false,
     /** Настройки телефона: оформление, язык и список подключённых облаков. */
@@ -175,33 +194,269 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- Просмотр содержимого -----------------------------------------------
+    // --- Файловый менеджер ---------------------------------------------------
 
-    fun open(cloud: String, path: String = "") {
-        val api = client ?: return
-        _state.update { it.copy(browsing = Browsing(cloud = cloud, path = path)) }
+    fun selectTab(tab: MainTab) {
+        _state.update { it.copy(tab = tab, browsing = if (tab == MainTab.DISKS) it.browsing else null) }
+        if (tab == MainTab.ADD) loadAllServices()
+        if (tab == MainTab.DISKS) refreshVolumes()
+    }
+
+    /** Карты памяти появляются и пропадают, а `su` могут поставить, пока приложение живо. */
+    fun refreshVolumes() {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            val (volumes, root) = withContext(Dispatchers.IO) {
+                LocalVolumes.removable(context) to RootShell.available()
+            }
+            _state.update { it.copy(removableVolumes = volumes, rootAvailable = root) }
+        }
+    }
+
+    fun open(disk: Disk, path: String = "") {
+        _state.update { it.copy(browsing = Browsing(disk = disk, path = path)) }
         viewModelScope.launch {
             try {
-                val entries = api.list(cloud, path)
+                // root спрашиваем при первом входе: окно менеджера root должно
+                // появиться в ответ на действие человека, а не на запуск.
+                if (disk == Disk.Root && _state.value.rootGranted != true) {
+                    val granted = withContext(Dispatchers.IO) { RootShell.requestAccess() }
+                    _state.update { it.copy(rootGranted = granted) }
+                    if (!granted) error(strings.rootDenied)
+                }
+                val entries = listDisk(disk, path)
                 _state.update { current ->
                     // Пользователь мог успеть уйти в другую папку, пока шёл
                     // запрос: тогда ответ уже не про то, что на экране.
                     val open = current.browsing
-                    if (open?.cloud != cloud || open.path != path) return@update current
+                    if (open?.disk != disk || open.path != path) return@update current
                     current.copy(browsing = open.copy(entries = entries, loading = false))
                 }
             } catch (e: Exception) {
                 _state.update { current ->
                     val open = current.browsing ?: return@update current
+                    if (open.disk != disk || open.path != path) return@update current
                     current.copy(browsing = open.copy(loading = false, error = describe(e)))
                 }
             }
         }
     }
 
+    fun refreshFolder() {
+        val current = _state.value.browsing ?: return
+        open(current.disk, current.path)
+    }
+
     fun closeBrowser() {
         _state.update { it.copy(browsing = null) }
     }
+
+    fun createFolder(name: String) {
+        val open = _state.value.browsing ?: return
+        val clean = name.trim().trim('/')
+        if (clean.isEmpty()) return
+        runOperation(strings.creatingFolder) {
+            mkdirOn(open.disk, childPath(open.path, clean))
+        }
+    }
+
+    fun rename(entry: RcloneClient.Entry, newName: String) {
+        val open = _state.value.browsing ?: return
+        val clean = newName.trim().trim('/')
+        if (clean.isEmpty() || clean == entry.name) return
+        val parent = entry.path.substringBeforeLast('/', "")
+        runOperation(strings.renaming) {
+            transfer(open.disk, entry, open.disk, childPath(parent, clean), move = true)
+        }
+    }
+
+    fun delete(entry: RcloneClient.Entry) {
+        val open = _state.value.browsing ?: return
+        runOperation(strings.deleting(entry.name)) { deleteOn(open.disk, entry) }
+    }
+
+    /** «Копировать» или «Вырезать»: запоминаем, вставка — в любой папке любого диска. */
+    fun clip(entry: RcloneClient.Entry, move: Boolean) {
+        val open = _state.value.browsing ?: return
+        _state.update { it.copy(clip = FileClip(open.disk, entry, move)) }
+    }
+
+    fun cancelClip() = _state.update { it.copy(clip = null) }
+
+    fun paste() {
+        val clip = _state.value.clip ?: return
+        val open = _state.value.browsing ?: return
+        var target = childPath(open.path, clip.entry.name)
+        if (clip.disk == open.disk && target == clip.entry.path) {
+            // Вырезать и вставить туда же — делать нечего.
+            if (clip.move) {
+                _state.update { it.copy(clip = null) }
+                return
+            }
+            // Копия рядом с оригиналом — под другим именем, а не поверх него.
+            target = childPath(open.path, copyName(clip.entry.name, open.entries.map { it.name }.toSet()))
+        }
+        // Папку в саму себя не положить: rclone ушёл бы в бесконечное копирование.
+        if (clip.disk == open.disk && clip.entry.isDir && (open.path + "/").startsWith(clip.entry.path + "/")) {
+            _state.update { it.copy(notice = strings.cannotPasteIntoItself) }
+            return
+        }
+        val label = if (clip.move) strings.moving(clip.entry.name) else strings.copying(clip.entry.name)
+        runOperation(label) {
+            transfer(clip.disk, clip.entry, open.disk, target, clip.move)
+            _state.update { it.copy(clip = null) }
+        }
+    }
+
+    /** Скачать в память телефона — в «Download/OpenDisk», где его найдёт любое приложение. */
+    fun download(entry: RcloneClient.Entry) {
+        val open = _state.value.browsing ?: return
+        val phone = LocalVolumes.primary()
+        runOperation(strings.downloading(entry.name), refresh = false) {
+            mkdirOn(phone, DOWNLOAD_DIR)
+            transfer(open.disk, entry, phone, childPath(DOWNLOAD_DIR, entry.name), move = false)
+            _state.update { it.copy(notice = strings.downloaded("$DOWNLOAD_DIR/${entry.name}")) }
+        }
+    }
+
+    /**
+     * Открыть файл в другом приложении или отправить.
+     *
+     * Файл из облака или из-под root сначала копируется в кэш приложения:
+     * другое приложение получает от системы обычный файл, а не адрес в облаке.
+     */
+    fun openFile(entry: RcloneClient.Entry, share: Boolean = false) {
+        val open = _state.value.browsing ?: return
+        runOperation(strings.preparingFile(entry.name), refresh = false) {
+            val file = localCopyOf(open.disk, entry)
+            _state.update { it.copy(openRequest = OpenRequest(file, entry.name, share)) }
+        }
+    }
+
+    fun openRequestHandled() = _state.update { it.copy(openRequest = null) }
+
+    fun showNotice(text: String) = _state.update { it.copy(notice = text) }
+
+    fun storageAccessAsked(): Boolean = settings.storageAccessAsked
+
+    fun markStorageAccessAsked() {
+        settings.storageAccessAsked = true
+    }
+
+    fun dismissNotice() = _state.update { it.copy(notice = null) }
+
+    /**
+     * Долгая операция с индикатором. Ошибка не роняет экран, а приходит
+     * сообщением: файловый менеджер, который закрывается от «нет места»,
+     * хуже, чем тот, который об этом сообщает.
+     */
+    private fun runOperation(label: String, refresh: Boolean = true, block: suspend () -> Unit) {
+        if (_state.value.operation != null) return
+        _state.update { it.copy(operation = label) }
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (e: Exception) {
+                _state.update { it.copy(notice = describe(e)) }
+            } finally {
+                _state.update { it.copy(operation = null) }
+                if (refresh) refreshFolder()
+            }
+        }
+    }
+
+    // Операции по видам дисков. Облака и память телефона — через rclone,
+    // root — через su; перенос между ними — через промежуточную копию.
+
+    private suspend fun listDisk(disk: Disk, path: String): List<RcloneClient.Entry> {
+        val fs = disk.fs ?: return withContext(Dispatchers.IO) { RootShell.list(disk.absolutePath(path)!!) }
+        return api().listFs(fs, path)
+    }
+
+    private suspend fun mkdirOn(disk: Disk, path: String) {
+        val fs = disk.fs ?: return root { RootShell.mkdir(disk.absolutePath(path)!!) }
+        api().mkdir(fs, path)
+    }
+
+    private suspend fun deleteOn(disk: Disk, entry: RcloneClient.Entry) {
+        val fs = disk.fs ?: return root { RootShell.delete(disk.absolutePath(entry.path)!!) }
+        if (entry.isDir) api().purge(fs, entry.path) else api().deleteFile(fs, entry.path)
+    }
+
+    /** Копирует или переносит файл либо папку с диска на диск. */
+    private suspend fun transfer(
+        from: Disk,
+        entry: RcloneClient.Entry,
+        to: Disk,
+        targetPath: String,
+        move: Boolean,
+    ) {
+        val srcFs = from.fs
+        val dstFs = to.fs
+        if (srcFs != null && dstFs != null) {
+            val api = api()
+            when {
+                entry.isDir && move -> api.moveDir(srcFs, entry.path, dstFs, targetPath)
+                entry.isDir -> api.copyDir(srcFs, entry.path, dstFs, targetPath)
+                move -> api.moveFile(srcFs, entry.path, dstFs, targetPath)
+                else -> api.copyFile(srcFs, entry.path, dstFs, targetPath)
+            }
+            return
+        }
+
+        val srcAbs = from.absolutePath(entry.path)
+        val dstAbs = to.absolutePath(targetPath)
+        when {
+            // Оба конца на устройстве: su справится сам.
+            srcAbs != null && dstAbs != null -> root {
+                if (move) RootShell.move(srcAbs, dstAbs) else RootShell.copy(srcAbs, dstAbs)
+            }
+            // Из облака под root: сначала в кэш приложения, оттуда через su.
+            srcAbs == null && dstAbs != null -> withStage { stage ->
+                transfer(from, entry, stage, entry.name, move = false)
+                root { RootShell.copy(joinPath(stage.root, entry.name), dstAbs) }
+                if (move) deleteOn(from, entry)
+            }
+            // Из-под root в облако: su копирует в кэш и отдаёт копию приложению.
+            srcAbs != null -> withStage { stage ->
+                val uid = getApplication<Application>().applicationInfo.uid
+                root { RootShell.copyOut(srcAbs, joinPath(stage.root, entry.name), uid) }
+                transfer(stage, entry.copy(path = entry.name), to, targetPath, move = false)
+                if (move) root { RootShell.delete(srcAbs) }
+            }
+            else -> error("unsupported transfer")
+        }
+    }
+
+    /** Обычный файл на устройстве с содержимым записи — для открытия в другом приложении. */
+    private suspend fun localCopyOf(disk: Disk, entry: RcloneClient.Entry): File {
+        if (disk is Disk.Local) return File(disk.absolutePath(entry.path)!!)
+        val dir = File(getApplication<Application>().cacheDir, OPEN_DIR)
+        withContext(Dispatchers.IO) {
+            // Открытые раньше файлы не копим: кэш не должен расти от просмотров.
+            dir.deleteRecursively()
+            dir.mkdirs()
+        }
+        transfer(disk, entry, Disk.Local(dir.absolutePath, removable = false), entry.name, move = false)
+        return File(dir, entry.name)
+    }
+
+    private suspend fun withStage(block: suspend (Disk.Local) -> Unit) {
+        val dir = File(getApplication<Application>().cacheDir, "stage/${System.nanoTime()}")
+        withContext(Dispatchers.IO) { dir.mkdirs() }
+        try {
+            block(Disk.Local(dir.absolutePath, removable = false))
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { dir.deleteRecursively() }
+        }
+    }
+
+    private suspend fun root(command: () -> RootShell.Result) {
+        val result = withContext(Dispatchers.IO) { command() }
+        if (!result.ok) error(result.output.trim().ifEmpty { "su: ${result.exitCode}" })
+    }
+
+    private fun api(): RcloneClient = client ?: error(strings.starting)
 
     // --- Ссылки --------------------------------------------------------------
 
@@ -233,18 +488,12 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
     // --- Добавление облака ---------------------------------------------------
 
-    fun startAdding() {
-        _state.update { it.copy(adding = true) }
-        loadAllServices()
-    }
-
-    fun cancelAdding() = _state.update { it.copy(adding = false) }
 
     /**
      * Полный список сервисов из самого rclone — один раз за запуск: он не
      * меняется, пока не сменилась библиотека, а строится из сотни бэкендов.
      */
-    private fun loadAllServices() {
+    fun loadAllServices() {
         val api = client ?: return
         if (_state.value.allServices.isNotEmpty()) return
         viewModelScope.launch {
@@ -311,7 +560,8 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                     }
                 api.createRemote(cloud, service.backend, prepared)
                 created = true
-                _state.update { it.copy(adding = false, signIn = null) }
+                // Добавили — показываем его среди дисков.
+                _state.update { it.copy(tab = MainTab.DISKS, browsing = null, signIn = null) }
                 reload()
                 onDone(null)
             } catch (e: Exception) {
@@ -353,6 +603,13 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { api.deleteRemote(name) }
                 .onFailure { e -> _state.update { it.copy(error = describe(e)) } }
+            // Удалённое облако не должно остаться ни открытым, ни в буфере.
+            _state.update { current ->
+                current.copy(
+                    browsing = current.browsing?.takeIf { it.disk != Disk.Cloud(name) },
+                    clip = current.clip?.takeIf { it.disk != Disk.Cloud(name) },
+                )
+            }
             // Удалённое облако не должно остаться подключённым: система
             // продолжила бы показывать его корень в «Файлах».
             val current = _state.value.preferences
@@ -429,6 +686,27 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
     /** Текст ошибки от rclone, а не «что-то пошло не так». */
     private fun describe(e: Throwable): String =
         (e as? RcloneRcException)?.rcloneError ?: e.message ?: e::class.simpleName.orEmpty()
+
+    private companion object {
+        /** Куда скачиваются файлы в памяти телефона. */
+        const val DOWNLOAD_DIR = "Download/OpenDisk"
+
+        /** Папка кэша для файлов, открытых в других приложениях. */
+        const val OPEN_DIR = "open"
+    }
+}
+
+/**
+ * Имя для копии рядом с оригиналом: «отчёт.pdf» → «отчёт (2).pdf».
+ * Расширение остаётся в конце — иначе файл перестал бы открываться.
+ */
+fun copyName(name: String, taken: Set<String>): String {
+    val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: name.length
+    val base = name.substring(0, dot)
+    val extension = name.substring(dot)
+    var index = 2
+    while ("$base ($index)$extension" in taken) index++
+    return "$base ($index)$extension"
 }
 
 /**

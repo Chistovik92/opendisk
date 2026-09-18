@@ -104,6 +104,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
+    testImplementation(kotlin("test"))
+
     androidTestImplementation(composeBom)
     androidTestImplementation(kotlin("test"))
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

@@ -33,14 +33,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -69,12 +73,15 @@ import com.opendisk.bridge.CloudCatalog
 import com.opendisk.bridge.RcloneClient
 
 /**
- * Единственный экран приложения — точнее, три состояния одного экрана: список
- * облаков, содержимое папки и диалоги поверх них.
+ * Единственное окно приложения: две вкладки внизу — «Диски» и «Добавить».
  *
- * Отдельной навигации нет намеренно: экранов пока три, и библиотека навигации
- * ради них — лишняя зависимость и лишний слой. Появится четвёртый — станет
- * видно, что пора.
+ * «Диски» — всё, что уже есть: память телефона, карты, root и облака; тап
+ * по диску открывает встроенный файловый менеджер. «Добавить» — каталог
+ * сервисов. До 0.5.6 это был один список облаков с кнопкой «+», а внутрь
+ * облака можно было заглянуть только за ссылкой на файл.
+ *
+ * Отдельной библиотеки навигации по-прежнему нет: экранов немного, и все
+ * они — состояния одной модели.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,32 +102,84 @@ class MainActivity : ComponentActivity() {
 fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     val state by model.state.collectAsState()
     val strings = model.strings
+    val context = LocalContext.current
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
+    var creatingFolder by remember { mutableStateOf(false) }
     val askForNotifications = rememberNotificationPermission()
-    // Разрешение на значок в шторке — сразу после запуска: значок теперь
-    // сводка по подключениям и ход входа через браузер, и без него о
-    // работе приложения в фоне узнать неоткуда.
+    var storageGranted by remember { mutableStateOf(StorageAccess.granted(context)) }
+    val requestStorage = rememberStorageAccessRequest { granted ->
+        storageGranted = granted
+        model.refreshVolumes()
+    }
+    val snackbar = remember { SnackbarHostState() }
+
+    // Разрешения — сразу после запуска: значок в шторке и доступ ко всем
+    // файлам. Без второго файловый менеджер не видит память телефона, и
+    // скачать файл из облака было бы некуда. Настройки системы открываем
+    // один раз; дальше — кнопкой на вкладке «Диски».
     LaunchedEffect(state.starting) {
-        if (!state.starting) askForNotifications()
+        if (state.starting) return@LaunchedEffect
+        askForNotifications()
+        model.refreshVolumes()
+        if (!storageGranted && !model.storageAccessAsked()) {
+            model.markStorageAccessAsked()
+            requestStorage()
+        }
+    }
+
+    // Файл готов — отдаём его выбранному приложению.
+    LaunchedEffect(state.openRequest) {
+        val request = state.openRequest ?: return@LaunchedEffect
+        launchOpen(context, request, strings)?.let(model::showNotice)
+        model.openRequestHandled()
+    }
+
+    LaunchedEffect(state.notice) {
+        val notice = state.notice ?: return@LaunchedEffect
+        snackbar.showSnackbar(notice)
+        model.dismissNotice()
     }
 
     Scaffold(
-        topBar = { AppBar(state, model) },
-        floatingActionButton = {
-            if (state.browsing == null && !state.starting && !state.settings && !state.adding) {
-                FloatingActionButton(onClick = model::startAdding) { Text("+") }
+        topBar = { AppBar(state, model, onNewFolder = { creatingFolder = true }) },
+        bottomBar = {
+            Column {
+                state.operation?.let { OperationBar(it) }
+                if (!state.starting && !state.settings) {
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = state.tab == MainTab.DISKS,
+                            onClick = {
+                                // Повторное нажатие на «Диски» из папки — к списку дисков.
+                                if (state.tab == MainTab.DISKS) model.closeBrowser()
+                                model.selectTab(MainTab.DISKS)
+                            },
+                            icon = { Text("🗂") },
+                            label = { Text(strings.tabDisks) },
+                        )
+                        NavigationBarItem(
+                            selected = state.tab == MainTab.ADD,
+                            onClick = { model.selectTab(MainTab.ADD) },
+                            icon = { Text("＋") },
+                            label = { Text(strings.tabAdd) },
+                        )
+                    }
+                }
             }
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when {
                 state.starting -> Centered(strings.starting, spinner = true)
                 state.settings -> SettingsScreen(state, model)
-                state.adding -> AddCloudScreen(state, model)
-                state.browsing != null -> FolderList(state.browsing!!, model)
-                else -> CloudList(
+                state.tab == MainTab.ADD -> AddCloudScreen(state, model)
+                state.browsing != null -> FileBrowser(state, state.browsing!!, model)
+                else -> DisksScreen(
                     state = state,
                     model = model,
+                    storageGranted = storageGranted,
+                    onRequestStorage = requestStorage,
                     onDelete = { cloudToDelete = it },
                     onConnect = { cloud, connected ->
                         // Ещё раз — на случай, если при запуске человек отмахнулся:
@@ -135,18 +194,31 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
 
     // Кнопка «назад» ведёт вверх по папкам, а не выкидывает из приложения:
     // иначе из глубокой папки выйти можно было бы только целиком.
-    state.browsing?.let { open ->
-        BackHandler {
-            val parent = open.parent
-            if (parent == null) model.closeBrowser() else model.open(open.cloud, parent)
+    val browsing = state.browsing
+    when {
+        state.settings -> BackHandler { model.closeSettings() }
+        state.tab == MainTab.ADD -> BackHandler { model.selectTab(MainTab.DISKS) }
+        browsing != null -> BackHandler {
+            val parent = browsing.parent
+            if (parent == null) model.closeBrowser() else model.open(browsing.disk, parent)
         }
     }
 
-    if (state.settings) BackHandler { model.closeSettings() }
-    if (state.adding) BackHandler { model.cancelAdding() }
-
     state.link?.let { LinkDialog(it, model) }
     state.signIn?.let { SignInDialog(it, model) }
+
+    if (creatingFolder) {
+        NameDialog(
+            title = strings.newFolder,
+            initial = "",
+            strings = strings,
+            onDismiss = { creatingFolder = false },
+            onConfirm = { name ->
+                model.createFolder(name)
+                creatingFolder = false
+            },
+        )
+    }
 
     cloudToDelete?.let { name ->
         ConfirmDeleteDialog(
@@ -163,17 +235,17 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppBar(state: MobileState, model: OpenDiskModel) {
-    val open = state.browsing
+private fun AppBar(state: MobileState, model: OpenDiskModel, onNewFolder: () -> Unit) {
+    val open = state.browsing.takeIf { state.tab == MainTab.DISKS && !state.settings }
     val strings = model.strings
     TopAppBar(
         title = {
             Text(
                 text = when {
                     state.settings -> strings.settings
-                    state.adding -> strings.chooseService
+                    state.tab == MainTab.ADD -> strings.chooseService
                     open == null -> "OpenDisk"
-                    open.path.isEmpty() -> open.cloud
+                    open.path.isEmpty() -> diskTitle(open.disk, strings)
                     else -> open.path.substringAfterLast('/')
                 },
                 maxLines = 1,
@@ -183,17 +255,31 @@ private fun AppBar(state: MobileState, model: OpenDiskModel) {
         navigationIcon = {
             when {
                 state.settings -> TextButton(onClick = model::closeSettings) { Text(strings.back) }
-                state.adding -> TextButton(onClick = model::cancelAdding) { Text(strings.back) }
                 open != null -> TextButton(onClick = {
                     val parent = open.parent
-                    if (parent == null) model.closeBrowser() else model.open(open.cloud, parent)
+                    if (parent == null) model.closeBrowser() else model.open(open.disk, parent)
                 }) { Text(strings.back) }
             }
         },
         actions = {
-            // Настройки — на всех экранах, кроме них самих: искать их
-            // приходится редко, а найти нужно сразу.
-            if (!state.settings && !state.starting && !state.adding) {
+            if (open != null) {
+                var menu by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { menu = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text(strings.newFolder) }, onClick = {
+                            menu = false
+                            onNewFolder()
+                        })
+                        DropdownMenuItem(text = { Text(strings.refresh) }, onClick = {
+                            menu = false
+                            model.refreshFolder()
+                        })
+                    }
+                }
+            } else if (!state.settings && !state.starting) {
+                // Настройки — на всех экранах, кроме них самих: искать их
+                // приходится редко, а найти нужно сразу.
                 TextButton(onClick = model::openSettings) { Text(strings.settings) }
             }
         },
@@ -220,75 +306,6 @@ private fun rememberNotificationPermission(): () -> Unit {
             android.Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) launcher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-    }
-}
-
-@Composable
-private fun CloudList(
-    state: MobileState,
-    model: OpenDiskModel,
-    onDelete: (String) -> Unit,
-    onConnect: (String, Boolean) -> Unit,
-) {
-    val strings = model.strings
-
-    state.error?.let { error ->
-        Card(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-            Text(error, modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
-        }
-        return
-    }
-
-    if (state.clouds.isEmpty()) {
-        Centered(strings.noClouds)
-        return
-    }
-
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item {
-            // Что вообще значит «подключить» на телефоне — объяснение стоит
-            // над списком, а не прячется в справке: диска, как на компьютере,
-            // здесь не будет, и ждать его не надо.
-            Text(
-                strings.connectExplanation,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            HorizontalDivider()
-        }
-        items(state.clouds, key = { it.name }) { cloud ->
-            val connected = cloud.name in state.preferences.connected
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { model.open(cloud.name) }
-                    .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(cloud.name, style = MaterialTheme.typography.titleMedium)
-                    val space = cloud.about?.describe(strings).orEmpty()
-                    Text(
-                        listOf(
-                            if (connected) strings.connected else strings.notConnected,
-                            space,
-                        ).filter { it.isNotEmpty() }.joinToString("  ·  "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = connected,
-                    onCheckedChange = { onConnect(cloud.name, it) },
-                )
-                // Кнопкой, а не долгим нажатием: долгое нажатие никто не
-                // находит, а в 0.5.0 удалить облако было нельзя вовсе —
-                // функция в модели была, а до неё не вело ничего.
-                TextButton(onClick = { onDelete(cloud.name) }) { Text(strings.delete) }
-            }
-            HorizontalDivider()
-        }
     }
 }
 
@@ -392,55 +409,6 @@ private fun Hint(text: String) {
 }
 
 private const val PROJECT_URL = "https://github.com/Chistovik92/opendisk"
-
-@Composable
-private fun FolderList(open: Browsing, model: OpenDiskModel) {
-    val strings = model.strings
-    when {
-        open.loading -> Centered(strings.readingFolder, spinner = true)
-        open.error != null -> Centered(open.error)
-        open.entries.isEmpty() -> Centered(strings.emptyFolder)
-        else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(open.entries, key = { it.path }) { entry ->
-                EntryRow(entry, strings) {
-                    if (entry.isDir) {
-                        model.open(open.cloud, entry.path)
-                    } else {
-                        model.requestLink(open.cloud, entry)
-                    }
-                }
-                HorizontalDivider()
-            }
-        }
-    }
-}
-
-@Composable
-private fun EntryRow(entry: RcloneClient.Entry, strings: MobileStrings, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                // Папку видно по названию со слэшем: значков в первой версии
-                // нет, а отличать надо сразу.
-                text = if (entry.isDir) "${entry.name}/" else entry.name,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!entry.isDir) {
-                Text(
-                    formatBytes(entry.size, strings),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (!entry.isDir) Text(strings.linkHint, style = MaterialTheme.typography.labelMedium)
-    }
-}
 
 @Composable
 private fun LinkDialog(link: LinkState, model: OpenDiskModel) {

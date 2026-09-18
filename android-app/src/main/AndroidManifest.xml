@@ -1,10 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Облака живут в сети. К файлам телефона приложение не обращается:
-         подключённое облако система читает через поставщика документов,
-         и это её файлы, а не наши. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Встроенный файловый менеджер (0.5.6): память телефона как диск рядом
+         с облаками — открыть, скачать из облака, залить в облако.
+         С Android 11 всё, кроме медиа, открывает только «доступ ко всем
+         файлам»; до него хватает обычных чтения и записи. -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
     <!-- Значок в шторке со сводкой подключений. С Android 13 разрешение
          спрашивается у человека; отказ ничего не ломает, кроме самого значка. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -19,6 +30,7 @@
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="OpenDisk"
+        android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.OpenDisk">
 
@@ -45,6 +57,19 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Отдаёт подключённые облака системному выбору файлов и держит сервер подтверждения входа через браузер" />
         </service>
+
+        <!-- Файл из встроенного файлового менеджера открывается в другом
+             приложении по адресу content://, а не по пути: чужому приложению
+             наши файлы по пути не прочитать. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!--
           Подключённые облака для всей системы: «Файлы» и любое окно выбора

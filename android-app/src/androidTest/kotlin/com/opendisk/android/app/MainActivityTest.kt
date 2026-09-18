@@ -8,6 +8,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.rules.ExternalResource
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,7 +26,21 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MainActivityTest {
 
-    @get:Rule
+    /**
+     * До запуска экрана: доступ ко всем файлам уже «спрашивали».
+     *
+     * Иначе при первом запуске приложение само открывает настройки системы
+     * (или окно разрешения на старых Android), оно ложится поверх нашего
+     * окна, и нажатия тестов уходят в него. Проверяем здесь не это.
+     */
+    @get:Rule(order = 0)
+    val storageAlreadyAsked = object : ExternalResource() {
+        override fun before() {
+            MobileSettings(InstrumentationRegistry.getInstrumentation().targetContext).storageAccessAsked = true
+        }
+    }
+
+    @get:Rule(order = 1)
     val rule = createAndroidComposeRule<MainActivity>()
 
     /**
@@ -98,7 +114,7 @@ class MainActivityTest {
             rule.onAllNodesWithText(strings.starting).fetchSemanticsNodes().isEmpty()
         }
 
-        rule.onNodeWithText("+").performClick()
+        rule.onNodeWithText(strings.tabAdd).performClick()
         rule.onNodeWithText(strings.searchServices).performTextInput("Google")
         rule.onNodeWithText(if (strings.russian) "Google Диск" else "Google Drive").assertExists()
 

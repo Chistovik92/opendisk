@@ -19,8 +19,8 @@ class MobileStrings(val russian: Boolean) {
 
     val starting = t("Запускаю rclone…", "Starting rclone…")
     val noClouds = t(
-        "Облаков пока нет.\nДобавьте первое кнопкой «+».",
-        "No clouds yet.\nAdd the first one with «+».",
+        "Облаков пока нет. Добавьте первое на вкладке «Добавить».",
+        "No clouds yet. Add the first one on the «Add» tab.",
     )
     val back = t("Назад", "Back")
     val close = t("Закрыть", "Close")
@@ -32,6 +32,77 @@ class MobileStrings(val russian: Boolean) {
     val readingFolder = t("Читаю папку…", "Reading the folder…")
     val emptyFolder = t("Папка пуста", "The folder is empty")
     val linkHint = t("ссылка", "link")
+
+    // --- Вкладки и диски -----------------------------------------------------
+
+    val tabDisks = t("Диски", "Disks")
+    val tabAdd = t("Добавить", "Add")
+    val sectionDevice = t("На этом телефоне", "On this phone")
+    val sectionClouds = t("Облака", "Clouds")
+    val phoneStorage = t("Память телефона", "Phone storage")
+    val sdCard = t("Карта памяти", "Memory card")
+    val rootFs = t("Корень системы (root)", "System root (root)")
+    val rootHint = t(
+        "Вся файловая система телефона. При первом входе менеджер root спросит, " +
+            "давать ли OpenDisk доступ.",
+        "The whole phone file system. On first entry the root manager asks " +
+            "whether to give OpenDisk access.",
+    )
+    val rootDenied = t(
+        "root не выдан. Разрешите OpenDisk в Magisk, KernelSU или другом менеджере root.",
+        "Root was not granted. Allow OpenDisk in Magisk, KernelSU or another root manager.",
+    )
+    val storageAccessNeeded = t(
+        "Нужен доступ ко всем файлам — без него OpenDisk не видит память телефона " +
+            "и не может скачивать в неё файлы из облаков.",
+        "Access to all files is needed — without it OpenDisk cannot see the phone " +
+            "storage or download cloud files into it.",
+    )
+    val grantStorageAccess = t("Разрешить доступ ко всем файлам", "Allow access to all files")
+    val showInFiles = t("В «Файлах»", "In Files")
+
+    // --- Файловый менеджер ---------------------------------------------------
+
+    val open = t("Открыть", "Open")
+    val share = t("Отправить", "Share")
+    val downloadToPhone = t("Скачать в телефон", "Download to phone")
+    val copyAction = t("Копировать", "Copy")
+    val cutAction = t("Вырезать", "Cut")
+    val rename = t("Переименовать", "Rename")
+    val getLink = t("Ссылка на скачивание", "Download link")
+    val newFolder = t("Новая папка", "New folder")
+    val refresh = t("Обновить", "Refresh")
+    val pasteHere = t("Вставить сюда", "Paste here")
+    val more = t("Ещё", "More")
+    val ok = t("Готово", "OK")
+
+    fun inClipboard(name: String, move: Boolean) = if (move) {
+        t("Вырезано: $name", "Cut: $name")
+    } else {
+        t("Скопировано: $name", "Copied: $name")
+    }
+
+    val creatingFolder = t("Создаю папку…", "Creating the folder…")
+    val renaming = t("Переименовываю…", "Renaming…")
+    fun deleting(name: String) = t("Удаляю «$name»…", "Deleting «$name»…")
+    fun copying(name: String) = t("Копирую «$name»…", "Copying «$name»…")
+    fun moving(name: String) = t("Переношу «$name»…", "Moving «$name»…")
+    fun downloading(name: String) = t("Скачиваю «$name»…", "Downloading «$name»…")
+    fun downloaded(path: String) = t("Сохранено в память телефона: $path", "Saved to phone storage: $path")
+    fun preparingFile(name: String) = t("Готовлю «$name»…", "Preparing «$name»…")
+    val cannotPasteIntoItself = t(
+        "Папку нельзя вставить в саму себя.",
+        "A folder cannot be pasted into itself.",
+    )
+    val noAppToOpen = t("Нет приложения, которое открывает такие файлы.", "No app can open this kind of file.")
+
+    fun deleteFileTitle(name: String) = t("Удалить «$name»?", "Delete «$name»?")
+    val deleteFileExplanation = t(
+        "Файл удалится там, где лежит, — в облаке или на телефоне. Корзины у " +
+            "OpenDisk нет.",
+        "The file is deleted where it lives — in the cloud or on the phone. " +
+            "OpenDisk has no recycle bin.",
+    )
 
     // --- Ссылки --------------------------------------------------------------
 
