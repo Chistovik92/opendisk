@@ -345,7 +345,7 @@ private fun PresetFormDialog(
 }
 
 @Composable
-private fun OauthWaiting(oauthUrl: String?) {
+internal fun OauthWaiting(oauthUrl: String?) {
     val strings = LocalStrings.current
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

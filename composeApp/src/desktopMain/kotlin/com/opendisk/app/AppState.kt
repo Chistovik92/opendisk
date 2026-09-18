@@ -1,6 +1,7 @@
 package com.opendisk.app
 
 import com.opendisk.bridge.MountSupport
+import com.opendisk.bridge.AuthErrors
 import com.opendisk.bridge.RcloneClient
 
 /**
@@ -54,6 +55,9 @@ data class CloudUi(
     val supportsLinks: Boolean = false,
 ) {
     val isMounted: Boolean get() = mountPoint != null
+
+    /** Доступ к сервису истёк или отозван: без повторного входа облако не заработает. */
+    val needsSignIn: Boolean get() = error?.let(AuthErrors::isExpired) == true
 }
 
 /**
@@ -100,6 +104,8 @@ data class UiState(
      * rclone печатает её в свой вывод, откуда мы её и достаём.
      */
     val oauthUrl: String? = null,
+    /** Идёт повторный вход в облако с истёкшим доступом; имя облака. */
+    val reauthorizing: String? = null,
     /** Настройки облаков: режим кэширования и точка монтирования. */
     val settings: Map<String, CloudSettings> = emptyMap(),
     /** Общие настройки: автозапуск и ограничение скорости. */

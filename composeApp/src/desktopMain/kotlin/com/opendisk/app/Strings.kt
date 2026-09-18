@@ -492,6 +492,16 @@ class Strings(val russian: Boolean) {
         "Drive $letter: is taken by another disk — a USB stick or a network share. " +
             "Free it or pick another letter in the cloud settings.",
     )
+    val signInAgain = t("Войти заново", "Sign in again")
+    fun signInAgainTitle(cloud: String) = t("Вход в «$cloud»", "Signing in to «$cloud»")
+    fun accessExpired(cloud: String) = t(
+        "Доступ к «$cloud» истёк или отозван сервисом — так бывает после смены пароля " +
+            "или долгого простоя. Нажмите «Войти заново»: откроется браузер, настройки " +
+            "и буква диска останутся прежними.",
+        "Access to «$cloud» has expired or was revoked by the service — this happens " +
+            "after a password change or a long pause. Press «Sign in again»: a browser " +
+            "opens, and the settings and drive letter stay the same.",
+    )
     val noFreeDriveLetter = t(
         "Свободных букв дисков не осталось. Отключите что-нибудь или подключите облако в папку.",
         "No free drive letters left. Disconnect something or mount the cloud into a folder.",

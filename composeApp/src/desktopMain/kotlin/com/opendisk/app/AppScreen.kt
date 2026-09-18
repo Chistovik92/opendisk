@@ -3,6 +3,8 @@ package com.opendisk.app
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -106,6 +109,16 @@ fun AppScreen(
             link = link,
             controller = controller,
             onDismiss = controller::dismissLink,
+        )
+    }
+
+    state.reauthorizing?.let { name ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(strings.signInAgainTitle(name)) },
+            text = { OauthWaiting(state.oauthUrl) },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = controller::cancelAddCloud) { Text(strings.cancel) } },
         )
     }
 
@@ -294,6 +307,7 @@ private fun ReadyContent(
                             title = strings.linkChooseFile,
                         )?.let(controller::createLink)
                     },
+                    onSignInAgain = { controller.signInAgain(cloud.name) },
                 )
             }
         }
@@ -301,6 +315,7 @@ private fun ReadyContent(
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun CloudRow(
     cloud: CloudUi,
     mountAvailable: Boolean,
@@ -314,6 +329,7 @@ private fun CloudRow(
     onSettings: () -> Unit,
     onDelete: () -> Unit,
     onLink: () -> Unit,
+    onSignInAgain: () -> Unit,
 ) {
     val strings = LocalStrings.current
 
@@ -322,57 +338,68 @@ private fun CloudRow(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    // Закреплённая буква — прямо у имени: облако и есть эта буква,
-                    // и видно это должно быть и когда оно не подключено.
-                    Text(
-                        listOfNotNull(cloud.name, DriveLetters.letterOf(pinnedPoint)?.let { "($it:)" })
-                            .joinToString(" "),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = cloudStatusLine(cloud, cacheMode, strings, asNetworkDrive),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+            // Имя и состояние — на всю ширину, кнопки — строкой ниже с переносом.
+            // В 0.5.6 всё стояло в одну строку, и кнопки отбирали место у имени:
+            // «yandex (F:)» разваливалось по буквам, а состояние обрезалось
+            // до «подкл…» — ровно то, ради чего на карточку и смотрят.
+            //
+            // Закреплённая буква — прямо у имени: облако и есть эта буква,
+            // и видно это должно быть и когда оно не подключено.
+            Text(
+                listOfNotNull(cloud.name, DriveLetters.letterOf(pinnedPoint)?.let { "($it:)" })
+                    .joinToString(" "),
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = cloudStatusLine(cloud, cacheMode, strings, asNetworkDrive),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (cloud.busy) {
-                        CircularProgressIndicator(modifier = Modifier.width(24.dp))
-                    } else if (cloud.isMounted) {
-                        OutlinedButton(onClick = onUnmount) { Text(strings.disconnect) }
-                    } else {
-                        Button(onClick = onMount, enabled = mountAvailable) {
-                            Text(strings.connect)
-                        }
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (cloud.busy) {
+                    CircularProgressIndicator(modifier = Modifier.width(24.dp))
+                } else if (cloud.isMounted) {
+                    OutlinedButton(onClick = onUnmount) { Text(strings.disconnect) }
+                } else {
+                    Button(onClick = onMount, enabled = mountAvailable && !cloud.needsSignIn) {
+                        Text(strings.connect)
                     }
-                    // Только у подключённого диска и только там, где сервис
-                    // ссылки вообще умеет: кнопка, которая заведомо приведёт
-                    // к отказу, хуже отсутствующей.
-                    if (cloud.isMounted && cloud.supportsLinks) {
-                        TextButton(onClick = onLink, enabled = !cloud.busy) {
-                            Text(strings.linkFile)
-                        }
-                    }
-                    TextButton(onClick = onSettings, enabled = !cloud.busy) {
-                        Text(strings.settings)
-                    }
-                    TextButton(onClick = onRename, enabled = !cloud.busy) { Text(strings.rename) }
-                    TextButton(onClick = onDelete, enabled = !cloud.busy) { Text(strings.delete) }
                 }
+                // Доступ истёк — без повторного входа облако не подключится,
+                // и кнопка входа должна стоять первой, а не прятаться в настройках.
+                if (cloud.needsSignIn && !cloud.busy) {
+                    Button(onClick = onSignInAgain) { Text(strings.signInAgain) }
+                }
+                // Только у подключённого диска и только там, где сервис
+                // ссылки вообще умеет: кнопка, которая заведомо приведёт
+                // к отказу, хуже отсутствующей.
+                if (cloud.isMounted && cloud.supportsLinks) {
+                    TextButton(onClick = onLink, enabled = !cloud.busy) {
+                        Text(strings.linkFile)
+                    }
+                }
+                TextButton(onClick = onSettings, enabled = !cloud.busy) {
+                    Text(strings.settings)
+                }
+                TextButton(onClick = onRename, enabled = !cloud.busy) { Text(strings.rename) }
+                TextButton(onClick = onDelete, enabled = !cloud.busy) { Text(strings.delete) }
             }
 
             cloud.error?.let {
                 Text(
-                    text = it,
+                    // Сырой ответ rclone про протухший токен советует «rclone config
+                    // reconnect» — команду, которой у человека с OpenDisk нет. Говорим
+                    // по-человечески; кнопка входа стоит выше.
+                    text = if (cloud.needsSignIn) strings.accessExpired(cloud.name) else it,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )

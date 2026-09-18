@@ -28,9 +28,36 @@ object DriveLetters {
 
     fun mountPointOf(letter: Char): String = "${letter.uppercaseChar()}:"
 
-    /** Буквы, которые уже заняты в системе: диски, флешки, сетевые папки. */
+    /**
+     * Буквы, которые уже заняты в системе: диски, флешки, сетевые папки.
+     *
+     * Список дисков системы — не всё. Сетевой диск, подключённый «с
+     * восстановлением при входе», пока сервер недоступен, в нём отсутствует,
+     * хотя проводник его показывает (с красным крестиком) и букву держит:
+     * при появлении сервера Windows вернёт диск на неё. Такие диски живут
+     * в реестре, в `HKCU\Network\<буква>`, — оттуда их и берём.
+     */
     fun systemTaken(): Set<Char> =
-        File.listRoots().mapNotNull { it.path.firstOrNull()?.uppercaseChar() }.toSet()
+        File.listRoots().mapNotNull { it.path.firstOrNull()?.uppercaseChar() }.toSet() +
+            rememberedNetworkDrives()
+
+    private fun rememberedNetworkDrives(): Set<Char> = runCatching {
+        val process = ProcessBuilder("reg", "query", """HKCU\Network""").redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText()
+        process.waitFor()
+        parseNetworkKeys(output)
+    }.getOrDefault(emptySet())
+
+    /** Строки `HKEY_CURRENT_USER\Network\Z` из вывода `reg query` → буквы. */
+    internal fun parseNetworkKeys(output: String): Set<Char> =
+        output.lineSequence()
+            .map { it.trim() }
+            .mapNotNull { line ->
+                val key = line.substringAfterLast('\\', "")
+                key.singleOrNull()?.takeIf { line.contains("\\Network\\", ignoreCase = true) && it.isLetter() }
+            }
+            .map { it.uppercaseChar() }
+            .toSet()
 
     /** За какими облаками какие буквы закреплены, кроме [except]. */
     fun pinnedByOthers(settings: Map<String, CloudSettings>, except: String): Map<Char, String> =

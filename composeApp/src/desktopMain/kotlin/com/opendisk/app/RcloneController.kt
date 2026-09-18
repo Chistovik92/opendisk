@@ -1,5 +1,6 @@
 package com.opendisk.app
 
+import com.opendisk.bridge.AuthErrors
 import com.opendisk.bridge.FuseMounts
 import com.opendisk.bridge.MountSupport
 import com.opendisk.bridge.MountedPaths
@@ -273,6 +274,10 @@ class RcloneController(
             applyBandwidthLimit(settings.global().bandwidthLimit)
             loadProviders()
             reloadClouds()
+            // Облака, добавленные до 0.5.6, буквы ещё не имеют — закрепляем при
+            // запуске, а не при первом подключении: облако и есть буква, и видно
+            // её должно быть в списке сразу.
+            if (isWindows) state.value.clouds.forEach { pinDriveLetter(it.name) }
             mountMarkedClouds()
             // После перезапуска упавшего rcd — вернуть то, что было подключено,
             // даже если при запуске эти облака не подключаются.
@@ -476,7 +481,14 @@ class RcloneController(
             // Место спрашиваем отдельно и по одному: запрос ходит в сеть, а часть
             // бэкендов его вовсе не поддерживает — общий список не должен от этого страдать.
             names.forEach { name ->
-                val about = runCatching { api.about(name) }.getOrNull() ?: return@forEach
+                val about = runCatching { api.about(name) }
+                    .onFailure { e ->
+                        // Истёкший доступ видно уже здесь — говорим сразу, а не
+                        // когда человек нажмёт «Подключить» и получит отказ.
+                        val message = (e as? RcloneRcException)?.rcloneError.orEmpty()
+                        if (AuthErrors.isExpired(message)) updateCloud(name) { it.copy(error = message) }
+                    }
+                    .getOrNull() ?: return@forEach
                 updateCloud(name) { it.copy(about = about) }
             }
 
@@ -610,6 +622,35 @@ class RcloneController(
                 onDone(null)
             } catch (e: Exception) {
                 onDone((e as? RcloneRcException)?.rcloneError ?: e.message ?: strings.saveFailed)
+            }
+        }
+    }
+
+    /**
+     * Повторный вход в облако, у которого истёк доступ, — вместо совета rclone
+     * «rclone config reconnect», которого человеку с OpenDisk не выполнить.
+     * Настройки облака, буква диска и имя остаются прежними; меняется только
+     * токен. Отмена — той же кнопкой, что и при добавлении ([cancelAddCloud]).
+     */
+    fun signInAgain(name: String) {
+        val api = client ?: return
+        addCloudJob = scope.launch {
+            _state.update { it.copy(reauthorizing = name) }
+            updateCloud(name) { it.copy(busy = true, error = null) }
+            val linkWatcher = launch { watchForOauthLink() }
+            try {
+                api.reauthorize(name)
+                updateCloud(name) { it.copy(busy = false, error = null) }
+                reloadClouds()
+            } catch (e: CancellationException) {
+                updateCloud(name) { it.copy(busy = false) }
+                throw e
+            } catch (e: Exception) {
+                val message = (e as? RcloneRcException)?.rcloneError ?: e.message ?: strings.saveFailed
+                updateCloud(name) { it.copy(busy = false, error = message) }
+            } finally {
+                linkWatcher.cancel()
+                _state.update { it.copy(oauthUrl = null, reauthorizing = null) }
             }
         }
     }

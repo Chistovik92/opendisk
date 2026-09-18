@@ -51,6 +51,18 @@ class DriveLettersTest {
     }
 
     @Test
+    fun `remembered network drives are read from the registry output`() {
+        val output = """
+
+            HKEY_CURRENT_USER\Network\Z
+            HKEY_CURRENT_USER\Network\y
+        """.trimIndent()
+
+        assertEquals(setOf('Z', 'Y'), DriveLetters.parseNetworkKeys(output))
+        assertEquals(emptySet(), DriveLetters.parseNetworkKeys("ERROR: The system was unable to find the specified registry key"))
+    }
+
+    @Test
     fun `no letter when everything is taken`() {
         val letter = DriveLetters.firstFree("x", emptyMap(), systemTaken = ('C'..'Z').toSet())
 

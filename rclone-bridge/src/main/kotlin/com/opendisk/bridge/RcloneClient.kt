@@ -128,6 +128,37 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
         )
     }
 
+    /**
+     * Заново проходит вход у облака со входом через браузер — то же, что
+     * `rclone config reconnect`, только через RC API.
+     *
+     * Протухший токен сначала стирается: пустое значение в `config/update`
+     * удаляет ключ. Иначе rclone увидел бы токен и не стал бы входить заново.
+     * Дальше — `config/create` под тем же именем со всеми прежними настройками:
+     * это тот же путь, что и при добавлении облака, и он уже умеет печатать
+     * ссылку и ждать браузер. `noObscure` — потому что значения из конфига
+     * уже затемнены, как и при переименовании.
+     */
+    suspend fun reauthorize(name: String) {
+        val existing = getRemote(name)
+        val type = existing["type"]?.toString()?.trim('"')
+            ?: throw IllegalStateException("у облака '$name' не указан тип")
+        updateRemote(name, mapOf("token" to ""))
+        call<JsonObject>(
+            "config/create",
+            buildJsonObject {
+                put("name", name)
+                put("type", type)
+                putJsonObject("parameters") {
+                    existing.forEach { (key, value) ->
+                        if (key != "type" && key != "token") put(key, value)
+                    }
+                }
+                putJsonObject("opt") { put("noObscure", true) }
+            },
+        )
+    }
+
     suspend fun deleteRemote(name: String) {
         call<JsonObject>("config/delete", buildJsonObject { put("name", name) })
     }
