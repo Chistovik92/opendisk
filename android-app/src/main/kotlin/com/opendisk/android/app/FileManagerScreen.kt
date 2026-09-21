@@ -35,7 +35,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -113,8 +113,7 @@ fun rememberStorageAccessRequest(onResult: (Boolean) -> Unit): () -> Unit {
  * Все диски разом: память телефона, карты, root и облака.
  *
  * Облако здесь в первую очередь папка, которую открывают, — как в любом
- * файловом менеджере. Переключатель «В «Файлах»» остался: он отдаёт облако
- * системе, чтобы его видели другие приложения.
+ * файловом менеджере. Показать его в системных «Файлах» и удалить — в «⋮».
  */
 @Composable
 fun DisksScreen(
@@ -168,25 +167,45 @@ fun DisksScreen(
                 Text(error, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
             }
         }
-        if (state.clouds.isEmpty()) {
-            item { ListHint(strings.noClouds) }
-        } else {
-            item { ListHint(strings.connectExplanation) }
-        }
+        // Пояснение про «Файлы» над списком убрано: теперь оно в самом пункте
+        // меню, там, где человек решает, включать или нет.
+        if (state.clouds.isEmpty()) item { ListHint(strings.noClouds) }
         items(state.clouds, key = { "cloud:" + it.name }) { cloud ->
             val connected = cloud.name in state.preferences.connected
+            var menu by remember { mutableStateOf(false) }
+            // Нажатие на строку — открыть диск, и больше ничего. В 0.5.6 рядом
+            // стояли переключатель и «Удалить»: переключатель с подписью
+            // «В «Файлах»» было непонятно зачем трогать, а промахнуться мимо
+            // строки и удалить облако — легко. Всё это теперь в «⋮».
             DiskRow(
                 glyph = "☁",
                 title = cloud.name,
-                subtitle = cloud.about?.describe(strings).orEmpty(),
+                subtitle = listOfNotNull(
+                    cloud.about?.describe(strings)?.takeIf { it.isNotEmpty() },
+                    strings.visibleInFiles.takeIf { connected },
+                ).joinToString("  ·  "),
                 onClick = { model.open(Disk.Cloud(cloud.name)) },
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Switch(checked = connected, onCheckedChange = { onConnect(cloud.name, it) })
-                    Text(strings.showInFiles, style = MaterialTheme.typography.labelSmall)
+                Box {
+                    TextButton(onClick = { menu = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(strings.showInFilesAction) },
+                            trailingIcon = { Checkbox(checked = connected, onCheckedChange = null) },
+                            onClick = {
+                                menu = false
+                                onConnect(cloud.name, !connected)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(strings.delete, color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                menu = false
+                                onDelete(cloud.name)
+                            },
+                        )
+                    }
                 }
-                // Кнопкой, а не долгим нажатием: долгое нажатие никто не находит.
-                TextButton(onClick = { onDelete(cloud.name) }) { Text(strings.delete) }
             }
             HorizontalDivider()
         }

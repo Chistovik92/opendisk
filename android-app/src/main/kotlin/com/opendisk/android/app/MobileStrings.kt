@@ -59,7 +59,15 @@ class MobileStrings(val russian: Boolean) {
             "storage or download cloud files into it.",
     )
     val grantStorageAccess = t("Разрешить доступ ко всем файлам", "Allow access to all files")
-    val showInFiles = t("В «Файлах»", "In Files")
+    /**
+     * Пункт меню облака. Длинно, но понятно: короткое «В «Файлах»» у
+     * переключателя в 0.5.6 не объясняло, что он делает.
+     */
+    val showInFilesAction = t(
+        "Показывать в системных «Файлах» и окнах выбора файла",
+        "Show in system Files and file pickers",
+    )
+    val visibleInFiles = t("видно в «Файлах»", "visible in Files")
 
     // --- Файловый менеджер ---------------------------------------------------
 
@@ -190,18 +198,6 @@ class MobileStrings(val russian: Boolean) {
     val connected = t("подключено", "connected")
     val notConnected = t("не подключено", "not connected")
 
-    /**
-     * Что значит «подключить» на телефоне. Диска, как на компьютере, здесь
-     * быть не может: Android не даёт приложению смонтировать файловую систему.
-     * Зато облако можно отдать системе поставщиком документов — и тогда оно
-     * видно в «Файлах» и в любом окне выбора файла.
-     */
-    val connectExplanation = t(
-        "Подключённое облако видно в системном приложении «Файлы» и в любом " +
-            "окне выбора файла — рядом с памятью телефона.",
-        "A connected cloud shows up in the system «Files» app and in every file " +
-            "picker, next to the phone storage.",
-    )
     val openInFiles = t("Открыть в «Файлах»", "Open in Files")
 
     // --- Уведомление ---------------------------------------------------------

@@ -46,18 +46,44 @@ class StatusService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Система подняла службу сама после того, как выгрузила приложение:
+        // экрана нет, и сводку взять неоткуда, кроме настроек. Подключённые
+        // облака — там; места в них не знаем, и это не страшно.
+        if (snapshot.clouds.isEmpty() && snapshot.signingIn == null) {
+            snapshot = StatusSnapshot(
+                clouds = MobileSettings(this).read().connected.sorted()
+                    .map { StatusSnapshot.CloudStatus(name = it, connected = true, space = "") },
+            )
+        }
         val notification = build(this, snapshot)
-        when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
-                startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
-                startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-            else -> startForeground(ID, notification)
+        // С Android 12 выйти на передний план из фона система разрешает не
+        // всегда — например, при её собственном перезапуске службы. Тогда
+        // тихо сдаёмся: падение приложения из-за значка хуже, чем без значка.
+        val foreground = runCatching {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+                    startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                    startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                else -> startForeground(ID, notification)
+            }
+        }.isSuccess
+        if (!foreground) {
+            stopSelf()
+            return START_NOT_STICKY
         }
         running = true
-        // Убитую системой службу поднимать заново незачем: без живого
-        // приложения отдавать облака и входить некому.
-        return START_NOT_STICKY
+        if (!snapshot.active) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        // Поднимать заново, если система выгрузила приложение. До 0.5.8 здесь
+        // было «не поднимать»: считалось, что без экрана отдавать облака
+        // некому. Но «Файлы» читают облако через поставщика документов, и
+        // экран для этого не нужен, а служба — нужна: без неё свёрнутому
+        // приложению телефон отрезает сеть, и облако в «Файлах» переставало
+        // открываться, как будто пропало.
+        return START_STICKY
     }
 
     override fun onDestroy() {

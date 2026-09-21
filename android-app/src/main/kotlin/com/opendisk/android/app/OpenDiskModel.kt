@@ -149,16 +149,28 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun statusSnapshot(current: MobileState) = StatusSnapshot(
-        clouds = current.clouds.map { cloud ->
-            StatusSnapshot.CloudStatus(
-                name = cloud.name,
-                connected = cloud.name in current.preferences.connected,
-                space = cloud.about?.describe(strings).orEmpty(),
-            )
-        },
-        signingIn = current.signIn?.cloud,
-    )
+    /**
+     * Подключённые — из настроек, а не из прочитанного списка облаков.
+     *
+     * Список rclone читает несколько секунд после запуска, и до 0.5.8 всё
+     * это время сводка говорила «подключённых нет»: служба останавливалась,
+     * значок пропадал, а через пару секунд появлялся снова. Облака, которые
+     * человек отдал системе, известны сразу — они в настройках.
+     */
+    private fun statusSnapshot(current: MobileState): StatusSnapshot {
+        val loaded = current.clouds.associateBy { it.name }
+        val names = (current.clouds.map { it.name } + current.preferences.connected).distinct()
+        return StatusSnapshot(
+            clouds = names.map { name ->
+                StatusSnapshot.CloudStatus(
+                    name = name,
+                    connected = name in current.preferences.connected,
+                    space = loaded[name]?.about?.describe(strings).orEmpty(),
+                )
+            },
+            signingIn = current.signIn?.cloud,
+        )
+    }
 
     fun reload() {
         val api = client ?: return
