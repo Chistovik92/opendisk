@@ -110,6 +110,21 @@ fi
 #
 # No percent signs in these comments: rpm expands macros in scriptlet text,
 # comments included - a mention of a section name here breaks the build.
+#
+# Before the ALT package existed (up to 0.5.2) ALT and Simply got the Fedora
+# rpm. That one puts its menu entry in place with xdg-desktop-menu, so the
+# file belongs to no package, and removes it only on a real uninstall, not on
+# an upgrade. Upgrading from it to this package therefore left that entry
+# behind next to ours, and the menu showed OpenDisk twice. Our own entry is
+# opendisk.desktop; the jpackage one is opendisk-OpenDisk.desktop.
+for leftover in /usr/share/applications/opendisk-OpenDisk.desktop \
+                /usr/local/share/applications/opendisk-OpenDisk.desktop; do
+    rm -f "$leftover"
+done
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications >/dev/null 2>&1 || true
+fi
+
 if [ -s /run/opendisk-restart.user ]; then
     od_user=$(cat /run/opendisk-restart.user)
     {

@@ -54,6 +54,16 @@ if [ -n "$prev_dir" ]; then
     echo "стоит: $(installed)"
 fi
 
+if [ "$expected" = rpm-alt ]; then
+    # До 0.5.2 на ALT ставился пакет для Fedora, и его ярлык меню, не
+    # принадлежащий ни одному пакету, переживал переход на ALT-овский —
+    # в меню Simply Linux OpenDisk оказывался дважды. Изображаем этот
+    # остаток и проверяем ниже, что новая версия его убрала.
+    mkdir -p /usr/share/applications
+    printf '[Desktop Entry]\nType=Application\nName=OpenDisk\nExec=/opt/opendisk/bin/OpenDisk\n' \
+        > /usr/share/applications/opendisk-OpenDisk.desktop
+fi
+
 step "Новая версия $new_version"
 OPENDISK_PACKAGE_DIR="$new_dir" sh "$installer"
 
@@ -68,6 +78,17 @@ if [ "$expected" = rpm-alt ]; then
         *-alt1) ;;
         *) fail "на ALT встал не ALT-овский пакет: $got" ;;
     esac
+fi
+
+step "Ярлык в меню ровно один"
+entries=$(grep -lsx 'Name=OpenDisk' /usr/share/applications/*.desktop /usr/local/share/applications/*.desktop || true)
+echo "${entries:-(нет)}"
+count=$(printf '%s' "$entries" | grep -c . || true)
+[ "$count" -le 1 ] || fail "OpenDisk в меню $count раза: $entries"
+# На ALT ярлык — файл самого пакета, он есть всегда. У deb и Fedora его
+# ставит xdg-desktop-menu, которого в голом контейнере может не оказаться.
+if [ "$expected" = rpm-alt ] && [ "$count" -ne 1 ]; then
+    fail "на ALT нет ярлыка в меню"
 fi
 
 step "Встроенный rclone"
