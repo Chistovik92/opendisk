@@ -66,6 +66,12 @@ function Show-InstallerLogs {
     $logs = @(Get-ChildItem $env:TEMP -Filter 'OpenDisk_*.log' -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime | Select-Object -Last 4)
     if ($logs.Count -eq 0) { Write-Host '  (журналов установщика в %TEMP% нет)' }
+    # Целиком — в артефакт рядом со снимками: последних строк бывает мало,
+    # действия установщика до сбоя остаются за кадром.
+    $saved = Join-Path $PSScriptRoot '..\verify-screenshots'
+    New-Item -ItemType Directory -Force $saved | Out-Null
+    Get-ChildItem $env:TEMP -Filter 'OpenDisk_*.log' -ErrorAction SilentlyContinue |
+        Copy-Item -Destination $saved -ErrorAction SilentlyContinue
     foreach ($log in $logs) {
         Write-Host ''
         Write-Host "--- $($log.Name), последние строки ---"

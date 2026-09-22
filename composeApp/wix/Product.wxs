@@ -141,10 +141,17 @@
 
       Return="ignore": не нашлось процессов или не хватило прав — установка
       всё равно продолжается, дальше сработает обычная проверка занятых файлов.
+
+      PowerShell — 64-битный ([System64Folder]), а путь к процессу берётся из
+      Win32_Process. В первой версии этого действия стоял [SystemFolder]: в
+      64-битном пакете это SysWOW64, 32-битный PowerShell не видит пути
+      64-битных процессов (Process.Path пустой), и фильтр по каталогу
+      установки молча не находил никого. Поймала проверка «обновление поверх
+      работающей копии» в CI.
     -->
     <CustomAction Id="StopOpenDisk"
                   Directory="TARGETDIR"
-                  ExeCommand="&quot;[SystemFolder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -Command &quot;$d = '[INSTALLDIR]'; if ($d) { $ps = Get-Process -Name OpenDisk, rclone -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith($d.ToLower()) }; $ps | Stop-Process -Force -ErrorAction SilentlyContinue; $ps | ForEach-Object { $null = $_.WaitForExit(30000) } }&quot;"
+                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -Command &quot;$d = '[INSTALLDIR]'.ToLower(); if ($d) { $ids = Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'OpenDisk.exe' -or $_.Name -eq 'rclone.exe') -and $_.ExecutablePath -and $_.ExecutablePath.ToLower().StartsWith($d) } | ForEach-Object { $_.ProcessId }; foreach ($id in $ids) { $p = Get-Process -Id $id -ErrorAction SilentlyContinue; if ($p) { $p.Kill(); $null = $p.WaitForExit(30000) } } }&quot;"
                   Execute="immediate"
                   Impersonate="yes"
                   Return="ignore" />
