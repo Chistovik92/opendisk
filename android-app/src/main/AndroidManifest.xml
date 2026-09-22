@@ -3,6 +3,16 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Один apk на телефоны, планшеты, приставки Android TV и часы Wear OS.
+      Ни сенсорный экран, ни телевизор, ни часы не обязательны: без
+      required="false" магазины и установщики отказали бы устройствам, у
+      которых этого нет, — телевизор без сенсора, телефон без пульта.
+    -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.type.watch" android:required="false" />
     <!-- Встроенный файловый менеджер (0.5.6): память телефона как диск рядом
          с облаками — открыть, скачать из облака, залить в облако.
          С Android 11 всё, кроме медиа, открывает только «доступ ко всем
@@ -28,11 +38,21 @@
 
     <application
         android:allowBackup="false"
+        android:banner="@drawable/tv_banner"
         android:icon="@mipmap/ic_launcher"
         android:label="OpenDisk"
         android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.OpenDisk">
+
+        <!-- Часы: приложение самостоятельное, телефон рядом не нужен —
+             rclone и облака живут на самих часах. -->
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="true" />
+        <uses-library
+            android:name="com.google.android.wearable"
+            android:required="false" />
 
         <activity
             android:name=".MainActivity"
@@ -42,6 +62,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Значок на главном экране Android TV. -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 

@@ -59,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -112,6 +113,8 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
         model.refreshVolumes()
     }
     val snackbar = remember { SnackbarHostState() }
+    val device = remember { DeviceKind.of(context) }
+    val roundScreen = LocalConfiguration.current.isScreenRound
 
     // Разрешения — сразу после запуска: значок в шторке и доступ ко всем
     // файлам. Без второго файловый менеджер не видит память телефона, и
@@ -141,11 +144,25 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     }
 
     Scaffold(
+        modifier = Modifier.padding(device.safePadding(roundScreen)),
         topBar = { AppBar(state, model, onNewFolder = { creatingFolder = true }) },
         bottomBar = {
             Column {
                 state.operation?.let { OperationBar(it) }
-                if (!state.starting && !state.settings) {
+                if (!state.starting && !state.settings && device == DeviceKind.WATCH) {
+                    // На часах полноразмерная панель вкладок заняла бы треть
+                    // экрана — две кнопки в строку делают то же самое.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        TextButton(onClick = {
+                            if (state.tab == MainTab.DISKS) model.closeBrowser()
+                            model.selectTab(MainTab.DISKS)
+                        }) { Text(strings.tabDisks) }
+                        TextButton(onClick = { model.selectTab(MainTab.ADD) }) { Text(strings.tabAdd) }
+                    }
+                } else if (!state.starting && !state.settings) {
                     NavigationBar {
                         NavigationBarItem(
                             selected = state.tab == MainTab.DISKS,
@@ -707,7 +724,7 @@ private fun SignInDialog(signIn: SignInState, model: OpenDiskModel) {
     val link = signIn.link
     LaunchedEffect(link) {
         if (link != null && opened != link) {
-            openInBrowser(context, link)
+            if (!openInBrowser(context, link)) model.showNotice(strings.noBrowser)
             opened = link
         }
     }
@@ -733,7 +750,9 @@ private fun SignInDialog(signIn: SignInState, model: OpenDiskModel) {
         },
         confirmButton = {
             if (link != null) {
-                TextButton(onClick = { openInBrowser(context, link) }) { Text(strings.openBrowserAgain) }
+                TextButton(onClick = {
+                    if (!openInBrowser(context, link)) model.showNotice(strings.noBrowser)
+                }) { Text(strings.openBrowserAgain) }
             }
         },
         dismissButton = {
@@ -742,11 +761,13 @@ private fun SignInDialog(signIn: SignInState, model: OpenDiskModel) {
     )
 }
 
-private fun openInBrowser(context: Context, link: String) {
-    runCatching {
-        CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, Uri.parse(link))
-    }
-}
+/**
+ * Открывает страницу входа. false — открыть нечем: на приставках и часах
+ * браузера часто нет вовсе, и молча ничего не делать тут хуже всего.
+ */
+private fun openInBrowser(context: Context, link: String): Boolean = runCatching {
+    CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, Uri.parse(link))
+}.isSuccess
 
 /**
  * Имя по умолчанию, свободное в списке: подставляем его, чтобы не заставлять

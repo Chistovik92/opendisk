@@ -95,9 +95,15 @@ fun rememberStorageAccessRequest(onResult: (Boolean) -> Unit): () -> Unit {
                 Uri.parse("package:${context.packageName}"),
             )
             // Часть прошивок не знает экрана «для этого приложения» — тогда общий список.
-            val launched = runCatching { settingsLauncher.launch(forApp) }.isSuccess
+            val launched = runCatching { settingsLauncher.launch(forApp) }.isSuccess ||
+                runCatching { settingsLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }.isSuccess
+            // На телевизорах и часах такого экрана настроек нет вовсе. Тогда
+            // хотя бы обычные разрешения: до Android 13 они открывают медиа
+            // и общие папки, и файловый менеджер не остаётся пустым.
             if (!launched) {
-                runCatching { settingsLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+                permissionLauncher.launch(
+                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                )
             }
         } else {
             permissionLauncher.launch(

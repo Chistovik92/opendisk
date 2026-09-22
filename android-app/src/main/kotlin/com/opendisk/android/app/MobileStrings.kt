@@ -168,6 +168,10 @@ class MobileStrings(val russian: Boolean) {
             "shade or just close the tab. The cloud will already be in the list.",
     )
     val openBrowserAgain = t("Открыть браузер снова", "Open the browser again")
+    val noBrowser = t(
+        "На этом устройстве нечем открыть страницу входа. Поставьте браузер или добавьте облако, которому хватает логина и пароля (WebDAV, S3, SFTP).",
+        "There is no browser on this device to open the sign-in page. Install one, or add a cloud that only needs a login and password (WebDAV, S3, SFTP).",
+    )
 
     val signInChannel = t("Вход через браузер", "Browser sign-in")
 
