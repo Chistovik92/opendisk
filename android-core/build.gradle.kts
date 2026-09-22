@@ -23,6 +23,12 @@ plugins {
 // ---------------------------------------------------------------------------
 
 val librcloneVersion = "1.75.1"
+// Ревизия сборки той же версии rclone (релиз librclone-v<версия>-<ревизия>).
+// Пустая — исходная сборка только под arm64 и x86_64. Сборка с 32-битной ARM
+// для приставок и часов публикуется ревизией r2 (workflow librclone-android,
+// revision=r2); после публикации сюда — "r2" и её SHA-256, а в abiFilters
+// ниже и в android-app — armeabi-v7a.
+val librcloneRevision = ""
 val librcloneSha256 = "0d38f3dffca6cf6127c31af1b96dd5beb6ce266c47bb2c6635b540ee1f81f031"
 
 // Библиотека кладётся в локальный репозиторий и подключается как обычная
@@ -43,6 +49,7 @@ val downloadLibrclone by tasks.registering {
     description = "Скачивает librclone $librcloneVersion для Android"
 
     val version = librcloneVersion
+    val revisionSuffix = librcloneRevision.let { if (it.isEmpty()) "" else "-$it" }
     val expectedSha = librcloneSha256
     val target = librcloneAar
 
@@ -56,7 +63,7 @@ val downloadLibrclone by tasks.registering {
 
         if (!file.exists() || sha256(file) != expectedSha) {
             val url = "https://github.com/Chistovik92/opendisk/releases/download/" +
-                "librclone-v$version/librclone.aar"
+                "librclone-v$version$revisionSuffix/librclone.aar"
             logger.lifecycle("Скачиваю librclone: $url (56 МБ, это надолго)")
             URI(url).toURL().openStream().use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
