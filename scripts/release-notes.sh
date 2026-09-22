@@ -36,6 +36,7 @@ alt=$(link alt1.x86_64.rpm RPM)
 appimage=$(link -x86_64.AppImage AppImage)
 apk_arm=$(link -arm64.apk APK)
 apk_all=$(link -universal.apk 'APK (универсальный)')
+apk_arm32=$(link -arm32.apk 'APK')
 ipa=$(link .ipa 'IPA ¹')
 
 cat <<EOF
@@ -45,11 +46,13 @@ cat <<EOF
 |---|---|---|---|---|---|---|---|---|
 | **x86-64** — Intel, AMD | $x64_exe | $x64_dmg | $deb | $rpm | $alt | $appimage | $apk_all | |
 | **ARM64** — Snapdragon, Apple Silicon, телефоны | $arm_exe | $arm_dmg | | | | | $apk_arm | $ipa |
+| **ARM32** — приставки Android TV, часы Wear OS | | | | | | | $apk_arm32 | |
 
 **Какой у меня процессор.** Windows: «Параметры» → «Система» → «О системе»,
 строка «Тип системы». Mac: меню Apple → «Об этом Mac» — «Чип Apple M…» значит
-Apple Silicon, «Процессор Intel» — Intel. Телефоны на Android почти все ARM64;
-если apk не встал, берите универсальный — он вдвое больше, но подходит любому.
+Apple Silicon, «Процессор Intel» — Intel. Телефоны на Android почти все ARM64,
+приставки Android TV и часы — чаще ARM32; если apk не встал, берите
+универсальный — он больше, но подходит любому.
 
 **Linux одной командой** — скрипт сам определит дистрибутив, возьмёт пакет
 именно под него и сверит контрольную сумму:

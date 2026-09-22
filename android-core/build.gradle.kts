@@ -24,12 +24,11 @@ plugins {
 
 val librcloneVersion = "1.75.1"
 // Ревизия сборки той же версии rclone (релиз librclone-v<версия>-<ревизия>).
-// Пустая — исходная сборка только под arm64 и x86_64. Сборка с 32-битной ARM
-// для приставок и часов публикуется ревизией r2 (workflow librclone-android,
-// revision=r2); после публикации сюда — "r2" и её SHA-256, а в abiFilters
-// ниже и в android-app — armeabi-v7a.
-val librcloneRevision = ""
-val librcloneSha256 = "0d38f3dffca6cf6127c31af1b96dd5beb6ce266c47bb2c6635b540ee1f81f031"
+// r2 — с 32-битной ARM (armeabi-v7a) для приставок Android TV и часов Wear OS:
+// у большинства из них 32-битная система. Исходная сборка без ревизии была
+// только под arm64 и x86_64.
+val librcloneRevision = "r2"
+val librcloneSha256 = "b44399708669e929eb3b5b6e28e0fec9806fcdb5f67eed18849736d09e864b7e"
 
 // Библиотека кладётся в локальный репозиторий и подключается как обычная
 // зависимость `org.rclone:librclone`, а не файлом.
@@ -102,7 +101,7 @@ android {
             // Ровно те архитектуры, что есть в .aar. Явный список нужен, чтобы
             // сборка падала при попытке собрать под архитектуру без библиотеки,
             // а не отдавала приложение, падающее при первом вызове.
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
         }
     }
 

@@ -487,10 +487,13 @@ jobs:
           out=android-app/build/outputs/apk/release
           mkdir -p build/android
 
-          # arm64 — все актуальные телефоны. universal — запасной вариант для
-          # тех, кто не знает архитектуру своего устройства: он вдвое больше,
-          # зато встанет куда угодно.
+          # arm64 — все актуальные телефоны. arm32 — приставки Android TV и
+          # часы Wear OS: у большинства из них 32-битная система даже на
+          # 64-битном процессоре. universal — запасной вариант для тех, кто
+          # не знает архитектуру своего устройства: он больше, зато встанет
+          # куда угодно.
           cp "$out/android-app-arm64-v8a-release.apk" "build/android/OpenDisk-$version-arm64.apk"
+          cp "$out/android-app-armeabi-v7a-release.apk" "build/android/OpenDisk-$version-arm32.apk"
           cp "$out/android-app-universal-release.apk" "build/android/OpenDisk-$version-universal.apk"
           ls -la build/android/
 
