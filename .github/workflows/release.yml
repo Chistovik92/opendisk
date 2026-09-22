@@ -635,7 +635,7 @@ jobs:
   #
   # На обеих архитектурах: ARM-сборка иначе не запускалась бы нигде вообще.
   verify-windows:
-    name: Проверка установки — Windows ${{ matrix.arch }}
+    name: Проверка установки — Windows ${{ matrix.scenario }}
     needs: package
     # Зависший установщик должен ронять проверку, а не держать раннер шесть
     # часов: так и было, когда обновление на ARM ждало ответа в диалоге.
@@ -655,6 +655,21 @@ jobs:
             requireAppStart: 'true'
             upgradeChain: 'true'
             testUninstall: 'true'
+            overRunning: 'false'
+            scenario: x64
+          # Обновление поверх работающей копии новым .exe напрямую — так его
+          # ставит человек, скачавший установщик сам. В 0.5.8 именно здесь
+          # установка ломалась, а проверка ходила только через сценарий
+          # приложения, который сначала дожидается его выхода.
+          - os: windows-latest
+            arch: x64
+            jdk: temurin
+            jdkArch: x64
+            requireAppStart: 'true'
+            upgradeChain: 'true'
+            testUninstall: 'false'
+            overRunning: 'true'
+            scenario: x64-over-running
           # ARM проверяется строго по запуску: проба в 0.5.2 показала, что
           # наш лаунчер на этом раннере стартует всеми тремя способами —
           # не стартовала именно сборка 0.5.0.
@@ -670,6 +685,8 @@ jobs:
             requireAppStart: 'true'
             upgradeChain: 'false'
             testUninstall: 'true'
+            overRunning: 'false'
+            scenario: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -738,7 +755,8 @@ jobs:
 
           ./scripts/verify-windows-install.ps1 -Installer $installer.FullName -ExpectedVersion $version @previous `
             -RequireAppStart ('${{ matrix.requireAppStart }}' -eq 'true') `
-            -TestUninstall ('${{ matrix.testUninstall }}' -eq 'true')
+            -TestUninstall ('${{ matrix.testUninstall }}' -eq 'true') `
+            -UpdateOverRunningApp ('${{ matrix.overRunning }}' -eq 'true')
 
       # Снимки экрана: приложение пишет причину сбоя в своё окно, а не в лог.
       # Всегда, а не только при провале: снимок бывает и при предупреждении.
@@ -746,7 +764,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: verify-windows-${{ matrix.arch }}-screenshots
+          name: verify-windows-${{ matrix.scenario }}-screenshots
           path: verify-screenshots/
           if-no-files-found: ignore
           retention-days: 14

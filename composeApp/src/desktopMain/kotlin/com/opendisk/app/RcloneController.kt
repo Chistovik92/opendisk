@@ -95,6 +95,15 @@ class RcloneController(
 
     fun start() {
         scope.launch {
+            // Запись автозапуска живёт отдельно от настроек и может пропасть,
+            // когда галка в них стоит: до 0.5.9 её стирало каждое обновление
+            // на Windows. Возвращаем молча — пользователь её не снимал.
+            if (settings.global().autostart) {
+                withContext(Dispatchers.IO) {
+                    if (Autostart.isSupported() && !Autostart.isEnabled()) Autostart.setEnabled(true)
+                }
+            }
+
             val located = locateRclone()
             if (located == null) {
                 _state.update {

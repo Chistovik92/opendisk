@@ -8,7 +8,9 @@
 #   1. стоит старая версия из .msi (0.4.x — так ставили до 0.5.0);
 #   2. поверх неё — прошлый .exe;
 #   3. приложение запущено, и обновление приходит к нему изнутри — тем самым
-#      сценарием, который запускает приложение (install-update.ps1);
+#      сценарием, который запускает приложение (install-update.ps1), или
+#      (-UpdateOverRunningApp) новый .exe просто запускают поверх работающей
+#      копии, как делает человек, скачавший установщик сам;
 #   4. старая копия закрыта, новая запущена и подняла свой rclone;
 #   5. удаление — тоже тем сценарием, который запускает приложение
 #      (uninstall-opendisk.ps1), и после него не остаётся ни файлов, ни
@@ -30,7 +32,11 @@ param(
     [bool]$RequireAppStart = $true,
     # Проверять удаление. Удаление вызывает лаунчер приложения с --cleanup и
     # ждёт его без предела: если лаунчер не завершается, висит и удаление.
-    [bool]$TestUninstall = $true
+    [bool]$TestUninstall = $true,
+    # Ставить новую версию поверх работающей копии напрямую, а не сценарием
+    # приложения (тот сначала дожидается её выхода). Именно так в 0.5.8
+    # ломалась установка: занятые файлы удалялись после перезагрузки.
+    [bool]$UpdateOverRunningApp = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -177,6 +183,15 @@ if (Test-Path -LiteralPath $launcher) {
 }
 $beforeUpdate = Get-Date
 
+# Метка в каталоге настроек: обновление не должно их стирать. До 0.5.9 старая
+# версия при снятии в ходе обновления запускала уборку, как при удалении.
+$settingsDir = Join-Path $env:APPDATA 'opendisk'
+$marker = Join-Path $settingsDir 'verify-marker.txt'
+if ($old) {
+    New-Item -ItemType Directory -Force $settingsDir | Out-Null
+    Set-Content -LiteralPath $marker -Value 'не стирать'
+}
+
 # Запуск сценария так, как это делает приложение: он получает номер процесса
 # приложения и ждёт его выхода. Приложение в жизни выходит само сразу после
 # запуска сценария; здесь его закрываем мы — старая версия этого не умеет.
@@ -191,15 +206,43 @@ function Invoke-AsTheApp([string]$script, [string]$arguments, $app) {
     return $runner.ExitCode
 }
 
-Write-Host "=== 4. Обновление тем же сценарием, что и в приложении: $Installer ==="
-$appPid = if ($old) { $old.Id } else { 0 }
-$code = Invoke-AsTheApp 'install-update.ps1' `
-    "-Installer `"$Installer`" -Launcher `"$launcher`" -WaitForPid $appPid" $old
+if ($UpdateOverRunningApp) {
+    Write-Host "=== 4. Новый установщик поверх работающей копии: $Installer ==="
+    if ($old) { $old.Refresh(); if ($old.HasExited) { Fail 'прошлая версия закрылась до обновления — проверять нечего' } }
+    $p = Start-Process $Installer -ArgumentList '/quiet', '/norestart' -PassThru
+    $null = $p.Handle
+    if (-not $p.WaitForExit(600000)) { Fail 'установщик не завершился за 10 минут' }
+    $code = $p.ExitCode
+    # Сам установщик в тихом режиме приложение не запускает — запускаем мы,
+    # как запустил бы человек.
+    if ($code -eq 0) { Start-Process -FilePath $launcher | Out-Null }
+} else {
+    Write-Host "=== 4. Обновление тем же сценарием, что и в приложении: $Installer ==="
+    $appPid = if ($old) { $old.Id } else { 0 }
+    $code = Invoke-AsTheApp 'install-update.ps1' `
+        "-Installer `"$Installer`" -Launcher `"$launcher`" -WaitForPid $appPid" $old
+}
 Write-Host "код установщика: $code"
 # 3010 больше не годится: он и означал, что файлы прошлой версии были заняты
 # и остались до перезагрузки, — ровно то, что исправлялось.
 if ($code -ne 0) { Fail "установщик завершился с кодом $code" }
 Assert-SingleVisible $ExpectedVersion
+
+# Образ цел и ничего не ждёт перезагрузки. В 0.5.8 обновление поверх
+# работающей копии откладывало удаление занятых jar до перезагрузки, и после
+# неё Windows удаляла уже новые файлы с теми же именами: код установщика
+# при этом был 0, а приложение после перезагрузки не запускалось.
+$appDir = Split-Path -Parent $launcher
+$pending = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' `
+    -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations |
+    Where-Object { $_ -and $_.IndexOf($appDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }
+if ($pending) { Fail "файлы приложения ждут перезагрузки:`n$($pending -join "`n")" }
+$missing = Get-Content -LiteralPath (Join-Path $appDir 'app\OpenDisk.cfg') |
+    Where-Object { $_ -like 'app.classpath=*' } |
+    ForEach-Object { $_.Substring('app.classpath='.Length).Replace('$APPDIR', (Join-Path $appDir 'app')) } |
+    Where-Object { -not (Test-Path -LiteralPath $_) }
+if ($missing) { Fail "после обновления не хватает файлов:`n$($missing -join "`n")" }
+if ($old -and -not (Test-Path -LiteralPath $marker)) { Fail "обновление стёрло настройки: нет $marker" }
 
 if ($old) {
     $old.Refresh()

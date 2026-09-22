@@ -11,8 +11,7 @@
   Файлы приложения сюда не перечисляются: их собирает heat.exe из готового
   образа (задача createDistributable) в группу компонентов AppFiles.
 -->
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
-     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 
   <Product Id="*"
            Name="OpenDisk"
@@ -92,6 +91,11 @@
       завершением процесса вручную. Минуты уборке хватает с запасом: это
       удаление нескольких файлов в профиле.
 
+      При обновлении уборки быть не должно (NOT UPGRADINGPRODUCTCODE): старая
+      версия снимается с флагом REMOVE=ALL, как при удалении, и до 0.5.9
+      каждое обновление стирало настройки — буквы дисков, язык, тему — и
+      выключало автозапуск.
+
       Список облаков (rclone.conf) и WinFsp здесь не трогаются: первое — данные
       пользователя, вторым могут пользоваться другие программы. Их удаление
       предлагается в самом приложении, где можно спросить.
@@ -104,41 +108,71 @@
                   Return="ignore" />
 
     <InstallExecuteSequence>
+      <Custom Action="StopOpenDisk" Before="InstallValidate" />
+      <Custom Action="BackupUserSettings" After="StopOpenDisk">WIX_UPGRADE_DETECTED</Custom>
       <Custom Action="SetArpInstallLocation" After="InstallValidate">NOT Installed</Custom>
-      <Custom Action="CleanUserData" Before="RemoveFiles">REMOVE="ALL"</Custom>
+      <Custom Action="CleanUserData" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="RestoreUserSettings" After="InstallFinalize">WIX_UPGRADE_DETECTED AND NOT REMOVE="ALL"</Custom>
     </InstallExecuteSequence>
 
     <!--
-      Ради этого всё и затевалось. Установщик находит работающий OpenDisk
-      и закрывает его до того, как трогать файлы.
+      Ради этого всё и затевалось: установщик закрывает работающий OpenDisk
+      до того, как трогать файлы.
 
-      TerminateProcess нужен, потому что окно приложения по крестику не
-      закрывается, а прячется в трей: одного WM_CLOSE недостаточно.
-      RebootPrompt="no" — перезагрузку не предлагаем: файлы уже свободны.
+      Раньше это делал util:CloseApplication, и в 0.5.8 он опаздывал. Его
+      закрытие стоит перед InstallFiles, а старая версия (MajorUpgrade
+      afterInstallInitialize) снимается раньше — пока приложение ещё работает.
+      Сообщение WM_CLOSE его не завершает, окно только прячется в трей; все jar
+      и runtime\lib\modules заняты, и Windows Installer откладывает их
+      удаление до перезагрузки. Новая версия тут же кладёт файлы с теми же
+      именами, а после перезагрузки система удаляет уже их: от образа
+      оставались три файла из пятидесяти, и приложение не запускалось.
+
+      Поэтому закрываем сами и раньше всего — перед InstallValidate, где
+      Windows Installer проверяет занятые файлы. Действие немедленное: так оно
+      успевает до снятия старой версии, которое запускается внутри
+      InstallInitialize.
+
+      Закрываются только OpenDisk.exe и rclone.exe из каталога установки:
+      rclone, запущенный пользователем отдельно, установщик больше не трогает.
+      Приложение завершается принудительно, его shutdown-hook не отработает,
+      поэтому rclone закрываем вместе с ним — иначе он пережил бы родителя
+      и держал собственный файл. Ждём завершения, иначе файлы ещё заняты.
+
+      Return="ignore": не нашлось процессов или не хватило прав — установка
+      всё равно продолжается, дальше сработает обычная проверка занятых файлов.
     -->
-    <util:CloseApplication Id="CloseOpenDisk"
-                           Target="OpenDisk.exe"
-                           Description="OpenDisk запущен. Установщик закроет его, чтобы продолжить."
-                           CloseMessage="yes"
-                           TerminateProcess="0"
-                           RebootPrompt="no" />
+    <CustomAction Id="StopOpenDisk"
+                  Directory="TARGETDIR"
+                  ExeCommand="&quot;[SystemFolder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -Command &quot;$d = '[INSTALLDIR]'; if ($d) { $ps = Get-Process -Name OpenDisk, rclone -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith($d.ToLower()) }; $ps | Stop-Process -Force -ErrorAction SilentlyContinue; $ps | ForEach-Object { $null = $_.WaitForExit(30000) } }&quot;"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore" />
 
     <!--
-      Дочерний rclone тоже нужно закрыть, и это не перестраховка: приложение
-      завершается принудительно, его shutdown-hook не отрабатывает, и rclone
-      переживает родителя. Он держит собственный файл в каталоге установки —
-      installer не может его заменить и требует перезагрузку (код 3010).
+      Настройки пользователя при обновлении.
 
-      Оговорка: закрывается любой rclone.exe, в том числе чужой, запущенный
-      пользователем вручную. Штатно закрыть только свой нельзя — WiX ищет
-      процессы по имени. Перезагрузка при каждом обновлении обошлась бы дороже.
+      Версии до 0.5.8 включительно при снятии в ходе обновления запускают
+      уборку и стирают каталог настроек. Их установщик уже на компьютере,
+      и поменять его нельзя, поэтому новая версия сохраняет каталог до снятия
+      старой и возвращает после, если его стёрли. Если не стёрли — копия
+      просто удаляется.
+
+      Автозапуск приложение восстанавливает само: галка в настройках
+      сохраняется, а запись в реестре при старте сверяется с ней.
     -->
-    <util:CloseApplication Id="CloseBundledRclone"
-                           Target="rclone.exe"
-                           Description="Установщик закроет фоновый процесс rclone."
-                           CloseMessage="yes"
-                           TerminateProcess="0"
-                           RebootPrompt="no" />
+    <CustomAction Id="BackupUserSettings"
+                  Directory="TARGETDIR"
+                  ExeCommand="&quot;[SystemFolder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -Command &quot;$s = Join-Path $env:APPDATA 'opendisk'; $b = Join-Path $env:APPDATA 'opendisk.upgrade'; if (Test-Path -LiteralPath $s) { Remove-Item -LiteralPath $b -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item -LiteralPath $s -Destination $b -Recurse -Force }&quot;"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore" />
+    <CustomAction Id="RestoreUserSettings"
+                  Directory="TARGETDIR"
+                  ExeCommand="&quot;[SystemFolder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -Command &quot;$s = Join-Path $env:APPDATA 'opendisk'; $b = Join-Path $env:APPDATA 'opendisk.upgrade'; if (Test-Path -LiteralPath $b) { if (-not (Test-Path -LiteralPath $s)) { Move-Item -LiteralPath $b -Destination $s } else { Remove-Item -LiteralPath $b -Recurse -Force } }&quot;"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore" />
 
     <!-- Перезагрузка не должна происходить сама по себе ни при каких условиях. -->
     <Property Id="REBOOT" Value="ReallySuppress" />
