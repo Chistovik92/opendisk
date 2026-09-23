@@ -202,13 +202,25 @@ if ($old) {
 # приложения и ждёт его выхода. Приложение в жизни выходит само сразу после
 # запуска сценария; здесь его закрываем мы — старая версия этого не умеет.
 function Invoke-AsTheApp([string]$script, [string]$arguments, $app) {
-    $runner = Start-Process powershell -PassThru -ArgumentList `
-        "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $scripts $script)`" $arguments"
+    # Вывод сценария — в файл рядом со снимками: он уезжает артефактом. Без
+    # него о провале известен только код выхода, а почему — неоткуда узнать.
+    $dir = Join-Path $PSScriptRoot '..\verify-screenshots'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $out = Join-Path $dir "$script.out.txt"
+    $err = Join-Path $dir "$script.err.txt"
+    $runner = Start-Process powershell -PassThru -RedirectStandardOutput $out -RedirectStandardError $err `
+        -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $scripts $script)`" $arguments"
     Start-Sleep -Seconds 3
     if ($app -and -not $app.HasExited) { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue }
     # Предел, а не бесконечное ожидание: зависший установщик должен ронять
     # проверку, а не держать раннер до конца его жизни.
     if (-not $runner.WaitForExit(600000)) { Fail "сценарий $script не завершился за 10 минут" }
+    foreach ($f in $out, $err) {
+        if ((Test-Path -LiteralPath $f) -and (Get-Item -LiteralPath $f).Length -gt 0) {
+            Write-Host "--- $(Split-Path -Leaf $f) ---"
+            Get-Content -LiteralPath $f | ForEach-Object { Write-Host "    $_" }
+        }
+    }
     return $runner.ExitCode
 }
 
