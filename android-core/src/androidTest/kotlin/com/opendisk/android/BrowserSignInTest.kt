@@ -9,6 +9,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.test.assertContains
@@ -29,6 +30,12 @@ import kotlin.test.assertTrue
  */
 @RunWith(AndroidJUnit4::class)
 class BrowserSignInTest {
+
+    // Путь к конфигу задаётся до первого обращения к rclone — как в приложении.
+    @Before
+    fun useConfig() {
+        TestConfig.use()
+    }
 
     @Test
     fun signInLinkReachesTheAppAndCancelWakesRclone() = runBlocking {

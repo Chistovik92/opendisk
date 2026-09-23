@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -324,8 +325,15 @@ fun FileBrowser(state: MobileState, open: Browsing, model: OpenDiskModel) {
                 open.loading -> CenteredNote(strings.readingFolder, spinner = true)
                 open.error != null -> CenteredNote(open.error)
                 open.entries.isEmpty() -> CenteredNote(strings.emptyFolder)
+                // Ключ с номером строки, а не один путь: Google Диск
+                // разрешает два файла с одинаковым именем в одной папке, и на
+                // таком списке приложение падало при прокрутке
+                // («Key … was already used»).
                 else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(open.entries, key = { it.path }) { entry ->
+                    itemsIndexed(
+                        open.entries,
+                        key = { index, entry -> "$index:" + entry.path },
+                    ) { _, entry ->
                         FileRow(
                             entry = entry,
                             disk = open.disk,

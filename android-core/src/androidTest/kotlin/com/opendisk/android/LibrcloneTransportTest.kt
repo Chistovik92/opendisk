@@ -10,8 +10,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -29,6 +31,12 @@ import kotlin.test.assertTrue
 @RunWith(AndroidJUnit4::class)
 class LibrcloneTransportTest {
 
+    // Путь к конфигу задаётся до первого обращения к rclone — как в приложении.
+    @Before
+    fun useConfig() {
+        TestConfig.use()
+    }
+
     @Test
     fun rcloneAnswersWithItsVersion() = runBlocking {
         val client = RcloneClient(LibrcloneTransport.get())
@@ -43,12 +51,41 @@ class LibrcloneTransportTest {
     }
 
     @Test
-    fun listRemotesWorksOnEmptyConfig() = runBlocking {
+    fun listRemotesWorksWithoutClouds() = runBlocking {
         val client = RcloneClient(LibrcloneTransport.get())
 
-        // Конфига на свежем устройстве нет — важно, что это не ошибка, а пустой
-        // список: с этого начинается любой первый запуск приложения.
-        assertTrue(client.listRemotes().isEmpty())
+        // Пустой конфиг — не ошибка, а пустой список: с этого начинается любой
+        // первый запуск приложения. Список может быть и непустым — соседние
+        // проверки заводят свои облака, — важно, что вызов проходит.
+        assertTrue(client.listRemotes().none { it.isBlank() })
+    }
+
+    /**
+     * Облако должно пережить перезапуск, а значит — попасть в файл.
+     *
+     * Написана по следам 0.5.9 на телефоне: rclone не знал пути к конфигу
+     * (переменная окружения выставлялась после загрузки нативной библиотеки,
+     * и Go её уже не видел), на каждое изменение отвечал «Failed to save
+     * config» в свой лог, а приложению — успехом. Облака жили до первой
+     * выгрузки процесса и пропадали; со стороны это выглядело как
+     * «настройки сбросились сами».
+     */
+    @Test
+    fun addedCloudIsWrittenToTheConfigFile() = runBlocking {
+        val file = TestConfig.use()
+        val client = RcloneClient(LibrcloneTransport.get())
+        val name = "конфиг-" + System.nanoTime()
+
+        try {
+            // memory — бэкенд без сети и без настроек: проверяем сохранение,
+            // а не работу конкретного облака.
+            client.createRemote(name, "memory", emptyMap())
+
+            assertTrue(file.isFile, "конфиг не создан: $file")
+            assertContains(file.readText(), name)
+        } finally {
+            runCatching { client.deleteRemote(name) }
+        }
     }
 
     @Test

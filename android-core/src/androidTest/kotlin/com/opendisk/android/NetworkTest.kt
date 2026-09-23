@@ -3,6 +3,7 @@ package com.opendisk.android
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.opendisk.bridge.RcloneClient
 import kotlinx.coroutines.runBlocking
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.test.assertTrue
@@ -20,6 +21,12 @@ import kotlin.test.assertTrue
  */
 @RunWith(AndroidJUnit4::class)
 class NetworkTest {
+
+    // Путь к конфигу задаётся до первого обращения к rclone — как в приложении.
+    @Before
+    fun useConfig() {
+        TestConfig.use()
+    }
 
     @Test
     fun rcloneResolvesHostnamesAndReadsOverHttps() = runBlocking {

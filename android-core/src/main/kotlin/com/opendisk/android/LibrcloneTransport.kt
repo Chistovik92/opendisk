@@ -7,6 +7,8 @@ import com.opendisk.bridge.parseRcloneResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.rclone.gomobile.Gomobile
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -70,16 +72,24 @@ class LibrcloneTransport private constructor() : RcloneTransport {
          *
          * Задавать обязательно и до первого обращения к [get]. Умолчание
          * rclone — `$HOME/.config/rclone/rclone.conf`, а на Android HOME
-         * указывает в место, куда приложению писать нельзя: конфиг молча
-         * не сохранялся бы, и добавленное облако исчезало при перезапуске.
+         * указывает в место, куда приложению писать нельзя.
          *
-         * Через переменную окружения, потому что настройка читается внутри Go
-         * при инициализации, а не передаётся вызовом: RC API умеет менять
-         * почти всё, кроме пути к собственному конфигу.
+         * Переменная окружения — только половина дела, и сама по себе она
+         * ненадёжна: Go снимает копию окружения один раз, когда загружается
+         * нативная библиотека, и выставленное позже он уже не видит. На
+         * телефоне это и случилось — rclone на каждое изменение отвечал
+         * «Failed to save config: failed to create config directory: mkdir :
+         * no such file or directory», то есть путь у него был пустой. Облака
+         * жили в памяти до первой выгрузки процесса и пропадали вместе с ней,
+         * а человек видел «настройки сбросились».
+         *
+         * Поэтому путь после инициализации задаётся ещё и самому rclone
+         * вызовом `config/setpath` — см. [applyConfigPath].
          */
         @Synchronized
         fun useConfig(file: File) {
             val path = file.absolutePath
+            configPath = path
 
             // Повторный вызов с тем же путём — обычное дело, а не ошибка:
             // экранная модель создаётся заново при каждом повороте экрана,
@@ -106,6 +116,26 @@ class LibrcloneTransport private constructor() : RcloneTransport {
         private const val CONFIG_ENV = "RCLONE_CONFIG"
 
         @Volatile
+        private var configPath: String? = null
+
+        /**
+         * Говорит rclone, где его конфиг, — вызовом, а не окружением.
+         *
+         * Единственный способ, который не зависит от того, когда загрузилась
+         * нативная библиотека. Молчать при отказе нельзя: без конфига облака
+         * пропадают при следующей выгрузке процесса, и лучше упасть сразу,
+         * чем потерять их у человека.
+         */
+        private fun applyConfigPath() {
+            val path = requireNotNull(configPath) {
+                "путь к конфигу rclone не задан — сначала useConfig(), потом get()"
+            }
+            val request = encodeRcloneRequest(buildJsonObject { put("path", path) })
+            val result = Gomobile.rcloneRPC("config/setpath", request)
+            parseRcloneResponse("config/setpath", result.status.toInt(), result.output.orEmpty())
+        }
+
+        @Volatile
         private var instance: LibrcloneTransport? = null
 
         /**
@@ -126,6 +156,7 @@ class LibrcloneTransport private constructor() : RcloneTransport {
                 // Без перехвата вход через браузер невозможен — ссылку rclone
                 // печатает именно туда.
                 RcloneOutput.capture()
+                applyConfigPath()
             }
             return LibrcloneTransport().also { instance = it }
         }

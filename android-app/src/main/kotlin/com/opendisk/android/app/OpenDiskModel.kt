@@ -564,8 +564,11 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             var created = false
             try {
+                // Переносы строк режем и здесь, а не только в поле ввода:
+                // rclone отказывается от значения с ними целиком, а причина
+                // в его ответе видна только ему самому.
                 val prepared = (service.fixed + values)
-                    .mapValues { (_, value) -> value.trim() }
+                    .mapValues { (_, value) -> oneLine(value) }
                     .filterValues { it.isNotEmpty() }
                     .mapValues { (key, value) ->
                         if (key in secretKeys) api.obscure(value) else value

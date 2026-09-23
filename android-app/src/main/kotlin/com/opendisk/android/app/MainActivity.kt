@@ -642,7 +642,7 @@ private fun ServiceFormDialog(
                 }
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { name = oneLine(it) },
                     label = { Text(strings.name) },
                     singleLine = true,
                     isError = nameTaken,
@@ -650,7 +650,7 @@ private fun ServiceFormDialog(
                 service.fields.forEach { field ->
                     OutlinedTextField(
                         value = values[field.key].orEmpty(),
-                        onValueChange = { values[field.key] = it },
+                        onValueChange = { values[field.key] = oneLine(it) },
                         label = { Text(field.label.pick(strings.russian) + if (field.required) " *" else "") },
                         supportingText = field.help?.let { help -> { Text(help.pick(strings.russian)) } },
                         singleLine = true,
@@ -768,6 +768,22 @@ private fun SignInDialog(signIn: SignInState, model: OpenDiskModel) {
 private fun openInBrowser(context: Context, link: String): Boolean = runCatching {
     CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, Uri.parse(link))
 }.isSuccess
+
+/**
+ * Строка без переносов — то, что можно отдать rclone.
+ *
+ * Поле помечено singleLine, но это про клавиатуру: вставка из буфера обмена
+ * переносы приносит. Идентификатор приложения Google, скопированный из
+ * консоли Google дважды, приезжал двумя строками, и rclone отвечал
+ * «invalid key or value contains 
+ or » — понять из этого, что не так
+ * с полем, человеку невозможно. Пробелы по краям убираем там же: в
+ * скопированном секрете они не значат ничего, а ломают вход.
+ */
+fun oneLine(value: String): String = value.replace(NEWLINES, "").trim()
+
+private val NEWLINES = Regex("[
+]+")
 
 /**
  * Имя по умолчанию, свободное в списке: подставляем его, чтобы не заставлять
