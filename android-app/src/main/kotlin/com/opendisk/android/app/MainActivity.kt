@@ -420,14 +420,16 @@ private fun SettingsScreen(state: MobileState, model: OpenDiskModel) {
                 }
             }
             Hint(strings.backgroundHint)
-            if (remember { BackgroundWork.hasVendorSettings(context) }) {
-                Hint(strings.backgroundVendorHint)
-                TextButton(onClick = {
-                    if (!BackgroundWork.openVendorSettings(context)) {
-                        model.showNotice(strings.backgroundSettingsMissing)
-                    }
-                }) { Text(strings.backgroundSettings) }
-            }
+            // Кнопка есть всегда: где у прошивки свой список автозапуска —
+            // ведёт в него, где нет (ColorOS 16, например, перенёс ограничения
+            // фона в обычные настройки приложения) — туда.
+            val vendor = remember { BackgroundWork.hasVendorSettings(context) }
+            Hint(strings.backgroundVendorHint)
+            TextButton(onClick = {
+                if (!BackgroundWork.openVendorSettings(context)) {
+                    model.showNotice(strings.backgroundSettingsMissing)
+                }
+            }) { Text(if (vendor) strings.backgroundSettings else strings.appSettings) }
         }
 
         SettingsSection(strings.notificationChannel) {

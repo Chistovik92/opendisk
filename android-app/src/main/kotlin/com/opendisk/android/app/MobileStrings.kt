@@ -241,6 +241,7 @@ class MobileStrings(val russian: Boolean) {
     val backgroundRestricted = t("Ограничена телефоном", "Restricted by the phone")
     val backgroundAllow = t("Разрешить", "Allow")
     val backgroundSettings = t("Настройки автозапуска", "Auto-start settings")
+    val appSettings = t("Настройки приложения", "App settings")
     val backgroundHint = t(
         "Пока OpenDisk не на экране, телефон вправе усыпить его и отрезать " +
             "сеть: тогда облако в «Файлах» не открывается, а вход через браузер " +
@@ -252,12 +253,15 @@ class MobileStrings(val russian: Boolean) {
             "where you lift the restriction for OpenDisk.",
     )
     val backgroundVendorHint = t(
-        "У Xiaomi, Oppo, Realme, vivo, Huawei и Samsung есть свой список " +
-            "автозапуска, и системного разрешения им мало: откройте его кнопкой " +
-            "ниже и разрешите OpenDisk работать в фоне.",
-        "Xiaomi, Oppo, Realme, vivo, Huawei and Samsung keep their own auto-start " +
-            "list, and the system permission alone is not enough for them: open it " +
-            "with the button below and let OpenDisk run in the background.",
+        "У Xiaomi, Oppo, Realme, vivo, Huawei и Samsung поверх Android есть свои " +
+            "ограничения фона, и системного разрешения им мало. Кнопка ниже ведёт " +
+            "прямо туда: в список автозапуска прошивки, а где его нет — в " +
+            "настройки приложения, раздел про батарею и фоновую работу.",
+        "Xiaomi, Oppo, Realme, vivo, Huawei and Samsung add their own background " +
+            "limits on top of Android, and the system permission alone is not " +
+            "enough for them. The button below goes straight there: to the " +
+            "firmware auto-start list, or, where there is none, to the app " +
+            "settings and their battery section.",
     )
     val backgroundSettingsMissing = t(
         "На этом телефоне такого экрана нет — откройте настройки приложения " +

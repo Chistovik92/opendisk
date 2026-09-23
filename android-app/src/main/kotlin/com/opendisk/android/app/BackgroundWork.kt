@@ -86,6 +86,8 @@ object BackgroundWork {
         // Xiaomi, Redmi, POCO
         component("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
         // Oppo, Realme, OnePlus
+        component("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity"),
+        component("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity"),
         component("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
         component("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
         component("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
