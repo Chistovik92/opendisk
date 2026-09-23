@@ -214,19 +214,56 @@ class MobileStrings(val russian: Boolean) {
         "Clouds connected: $connected of $total",
     )
 
+    val statusIcon = t("Значок в шторке всё время", "Keep the icon in the shade")
+    val statusIconHint = t(
+        "Обычно значок появляется только на время входа через браузер: пока " +
+            "впереди вкладка браузера, телефон иначе отнимает у приложения сеть. " +
+            "Для «Файлов» он не нужен — когда они читают облако, телефон и так " +
+            "считает приложение занятым делом. Включите, если облака в «Файлах» " +
+            "перестают открываться: некоторые телефоны обходятся с фоном строже.",
+        "Normally the icon shows only while you sign in through the browser: with " +
+            "the browser tab in front the phone would otherwise cut the app off the " +
+            "network. Files does not need it — while it reads a cloud, the phone " +
+            "already counts the app as busy. Turn it on if clouds stop opening in " +
+            "Files: some phones treat background apps more harshly.",
+    )
     val notificationHint = t(
-        "Пока есть подключённые облака или идёт вход через браузер, в шторке " +
-            "висит значок OpenDisk со сводкой: какие облака подключены и сколько " +
-            "в них занято. Это не только сводка: со значком телефон не отнимает " +
-            "у приложения сеть, когда оно в фоне, — иначе «Файлы» не смогли бы " +
-            "открыть файл из облака, а вход через браузер обрывался бы на " +
-            "последнем шаге.",
-        "While clouds are connected or a browser sign-in is running, the shade " +
-            "shows the OpenDisk icon with a summary: which clouds are connected and " +
-            "how much space they use. It is more than a summary: with it the phone " +
-            "keeps network access for the app in the background — otherwise Files " +
-            "could not open a cloud file, and browser sign-in would break at the " +
-            "last step.",
+        "Значок OpenDisk в шторке — это сводка: какие облака подключены и " +
+            "сколько в них занято.",
+        "The OpenDisk icon in the shade is a summary: which clouds are connected " +
+            "and how much space they use.",
+    )
+
+    // --- Работа в фоне --------------------------------------------------------
+
+    val background = t("Работа в фоне", "Working in the background")
+    val backgroundAllowed = t("Разрешена", "Allowed")
+    val backgroundRestricted = t("Ограничена телефоном", "Restricted by the phone")
+    val backgroundAllow = t("Разрешить", "Allow")
+    val backgroundSettings = t("Настройки автозапуска", "Auto-start settings")
+    val backgroundHint = t(
+        "Пока OpenDisk не на экране, телефон вправе усыпить его и отрезать " +
+            "сеть: тогда облако в «Файлах» не открывается, а вход через браузер " +
+            "обрывается на последнем шаге. «Разрешить» откроет системное окно " +
+            "Android, где нужно снять ограничение для OpenDisk.",
+        "While OpenDisk is off screen the phone may put it to sleep and cut it " +
+            "off the network: a cloud then fails to open in Files, and browser " +
+            "sign-in breaks at the last step. «Allow» opens the Android dialog " +
+            "where you lift the restriction for OpenDisk.",
+    )
+    val backgroundVendorHint = t(
+        "У Xiaomi, Oppo, Realme, vivo, Huawei и Samsung есть свой список " +
+            "автозапуска, и системного разрешения им мало: откройте его кнопкой " +
+            "ниже и разрешите OpenDisk работать в фоне.",
+        "Xiaomi, Oppo, Realme, vivo, Huawei and Samsung keep their own auto-start " +
+            "list, and the system permission alone is not enough for them: open it " +
+            "with the button below and let OpenDisk run in the background.",
+    )
+    val backgroundSettingsMissing = t(
+        "На этом телефоне такого экрана нет — откройте настройки приложения " +
+            "и разрешите работу в фоне там.",
+        "This phone has no such screen — open the app settings and allow " +
+            "background work there.",
     )
     val notificationsBlocked = t(
         "Уведомления запрещены в настройках Android — подключение работает, " +

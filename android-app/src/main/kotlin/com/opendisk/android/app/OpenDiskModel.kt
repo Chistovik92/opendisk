@@ -169,6 +169,7 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                 )
             },
             signingIn = current.signIn?.cloud,
+            alwaysOn = current.preferences.statusIcon,
         )
     }
 
@@ -348,6 +349,12 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
     fun openRequestHandled() = _state.update { it.copy(openRequest = null) }
 
     fun showNotice(text: String) = _state.update { it.copy(notice = text) }
+
+    fun backgroundAsked(): Boolean = settings.backgroundAsked
+
+    fun markBackgroundAsked() {
+        settings.backgroundAsked = true
+    }
 
     fun storageAccessAsked(): Boolean = settings.storageAccessAsked
 
@@ -662,6 +669,9 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
     fun setLanguage(language: MobileLanguage) =
         applyPreferences(_state.value.preferences.copy(language = language))
+
+    fun setStatusIcon(enabled: Boolean) =
+        applyPreferences(_state.value.preferences.copy(statusIcon = enabled))
 
     /**
      * Сохраняет настройки и рассказывает о них системе.

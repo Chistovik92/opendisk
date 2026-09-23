@@ -16,11 +16,24 @@ data class StatusSnapshot(
     val clouds: List<CloudStatus> = emptyList(),
     /** Облако, в которое сейчас идёт вход через браузер; null — вход не идёт. */
     val signingIn: String? = null,
+    /** Человек попросил держать значок всегда — настройка «значок в шторке». */
+    val alwaysOn: Boolean = false,
 ) {
     data class CloudStatus(val name: String, val connected: Boolean, val space: String)
 
-    /** Работа, ради которой нужна служба: отдаём облака системе или ждём браузера. */
-    val active: Boolean get() = signingIn != null || clouds.any { it.connected }
+    /**
+     * Нужна ли служба прямо сейчас.
+     *
+     * До 0.5.10 она держалась всё время, пока есть подключённое облако, — и
+     * значок в шторке висел сутками. Оказалось, ради «Файлов» этого не нужно:
+     * когда они читают облако, вызов идёт в наш поставщик документов, и
+     * процесс на это время получает важность того, кто его вызвал, — сеть
+     * ему остаётся. А вот вход через браузер идёт, когда впереди чужая
+     * вкладка и приложение в фоне: тут без службы телефон отрезает сеть,
+     * и вход падал на «no such host».
+     */
+    val active: Boolean
+        get() = signingIn != null || (alwaysOn && clouds.any { it.connected })
 }
 
 /**
@@ -50,9 +63,11 @@ class StatusService : Service() {
         // экрана нет, и сводку взять неоткуда, кроме настроек. Подключённые
         // облака — там; места в них не знаем, и это не страшно.
         if (snapshot.clouds.isEmpty() && snapshot.signingIn == null) {
+            val preferences = MobileSettings(this).read()
             snapshot = StatusSnapshot(
-                clouds = MobileSettings(this).read().connected.sorted()
+                clouds = preferences.connected.sorted()
                     .map { StatusSnapshot.CloudStatus(name = it, connected = true, space = "") },
+                alwaysOn = preferences.statusIcon,
             )
         }
         val notification = build(this, snapshot)

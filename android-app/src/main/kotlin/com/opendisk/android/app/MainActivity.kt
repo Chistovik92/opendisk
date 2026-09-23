@@ -39,6 +39,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 import com.opendisk.bridge.CatalogService
 import com.opendisk.bridge.CloudCatalog
 import com.opendisk.bridge.RcloneClient
@@ -202,6 +204,13 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
                         // Ещё раз — на случай, если при запуске человек отмахнулся:
                         // при подключении повод для значка очевиден.
                         if (connected) askForNotifications()
+                        // И разрешение работать в фоне: с этой минуты облако
+                        // читают «Файлы», когда нашего окна давно нет на экране.
+                        // Спрашиваем один раз, дальше — кнопкой в настройках.
+                        if (connected && !model.backgroundAsked() && !BackgroundWork.allowed(context)) {
+                            model.markBackgroundAsked()
+                            BackgroundWork.request(context)
+                        }
                         model.setConnected(cloud, connected)
                     },
                 )
@@ -380,7 +389,59 @@ private fun SettingsScreen(state: MobileState, model: OpenDiskModel) {
             Hint(strings.languageChangeHint)
         }
 
+        SettingsSection(strings.background) {
+            var allowed by remember { mutableStateOf(BackgroundWork.allowed(context)) }
+            // Ответ на системное окно приходит не к нам, а в сами настройки
+            // Android: узнать о нём можно, только переспросив. Пока раздел на
+            // экране — переспрашиваем, чтобы состояние менялось на глазах.
+            LaunchedEffect(Unit) {
+                while (true) {
+                    allowed = BackgroundWork.allowed(context)
+                    delay(1000)
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (allowed) strings.backgroundAllowed else strings.backgroundRestricted,
+                    modifier = Modifier.weight(1f),
+                    color = if (allowed) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
+                if (!allowed) {
+                    TextButton(onClick = { BackgroundWork.request(context) }) {
+                        Text(strings.backgroundAllow)
+                    }
+                }
+            }
+            Hint(strings.backgroundHint)
+            if (remember { BackgroundWork.hasVendorSettings(context) }) {
+                Hint(strings.backgroundVendorHint)
+                TextButton(onClick = {
+                    if (!BackgroundWork.openVendorSettings(context)) {
+                        model.showNotice(strings.backgroundSettingsMissing)
+                    }
+                }) { Text(strings.backgroundSettings) }
+            }
+        }
+
         SettingsSection(strings.notificationChannel) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(strings.statusIcon, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = state.preferences.statusIcon,
+                    onCheckedChange = { model.setStatusIcon(it) },
+                )
+            }
+            Hint(strings.statusIconHint)
             Hint(strings.notificationHint)
         }
 
@@ -776,12 +837,14 @@ private fun openInBrowser(context: Context, link: String): Boolean = runCatching
  * переносы приносит. Идентификатор приложения Google, скопированный из
  * консоли Google дважды, приезжал двумя строками, и rclone отвечал
  * «invalid key or value contains \\n or \\r» — понять из этого, что не так
- * с полем, человеку невозможно. Пробелы по краям убираем там же: в
- * скопированном секрете они не значат ничего, а ломают вход.
+ * с полем, человеку невозможно. Берём первую непустую строку, а не
+ * склеиваем всё в одну: вставленный дважды идентификатор склейкой стал
+ * бы одной длинной неверной строкой, и ошибка вышла бы только
+ * непонятнее. Пробелы по краям убираем там же: в скопированном секрете
+ * они не значат ничего, а вход ломают.
  */
-fun oneLine(value: String): String = value.replace(NEWLINES, "").trim()
-
-private val NEWLINES = Regex("[\r\n]+")
+fun oneLine(value: String): String =
+    value.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: value.trim()
 
 /**
  * Имя по умолчанию, свободное в списке: подставляем его, чтобы не заставлять

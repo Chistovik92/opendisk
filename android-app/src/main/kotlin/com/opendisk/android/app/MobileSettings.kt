@@ -13,6 +13,15 @@ data class MobilePreferences(
      * и поставщик документов — его система запускает сама, без экрана.
      */
     val connected: Set<String> = emptySet(),
+    /**
+     * Держать значок в шторке всё время, пока есть подключённые облака.
+     *
+     * По умолчанию выключено: значок нужен телефону как повод не отнимать
+     * у приложения сеть, но «Файлы» читают облако через поставщика
+     * документов, и на это время важность процессу даёт сам вызов. Кому
+     * телефон всё же режет фон — включают и живут со значком.
+     */
+    val statusIcon: Boolean = false,
 )
 
 /**
@@ -31,6 +40,7 @@ class MobileSettings(context: Context) {
         theme = MobileTheme.fromCode(prefs.getString(KEY_THEME, null)),
         language = MobileLanguage.fromCode(prefs.getString(KEY_LANGUAGE, null)),
         connected = prefs.getStringSet(KEY_CONNECTED, emptySet()).orEmpty().toSet(),
+        statusIcon = prefs.getBoolean(KEY_STATUS_ICON, false),
     )
 
     fun write(preferences: MobilePreferences) {
@@ -40,6 +50,7 @@ class MobileSettings(context: Context) {
             // Копия множества обязательна: SharedPreferences хранит переданный
             // набор по ссылке, и его последующая правка молча меняет сохранённое.
             .putStringSet(KEY_CONNECTED, preferences.connected.toSet())
+            .putBoolean(KEY_STATUS_ICON, preferences.statusIcon)
             .apply()
     }
 
@@ -50,6 +61,14 @@ class MobileSettings(context: Context) {
     var storageAccessAsked: Boolean
         get() = prefs.getBoolean(KEY_STORAGE_ASKED, false)
         set(value) = prefs.edit().putBoolean(KEY_STORAGE_ASKED, value).apply()
+
+    /**
+     * Спрашивали ли уже разрешение на работу в фоне. Системное окно показываем
+     * один раз — при первом подключении облака; дальше это кнопка в настройках.
+     */
+    var backgroundAsked: Boolean
+        get() = prefs.getBoolean(KEY_BACKGROUND_ASKED, false)
+        set(value) = prefs.edit().putBoolean(KEY_BACKGROUND_ASKED, value).apply()
 
     /** Переименование или удаление облака не должно оставлять его в списке. */
     fun forget(cloud: String) {
@@ -63,6 +82,8 @@ class MobileSettings(context: Context) {
         const val KEY_THEME = "theme"
         const val KEY_LANGUAGE = "language"
         const val KEY_CONNECTED = "connected"
+        const val KEY_STATUS_ICON = "status_icon"
         const val KEY_STORAGE_ASKED = "storage_asked"
+        const val KEY_BACKGROUND_ASKED = "background_asked"
     }
 }

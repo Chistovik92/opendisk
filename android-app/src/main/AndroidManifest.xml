@@ -26,6 +26,11 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+    <!-- Работа в фоне без сна: без неё телефон усыпляет приложение, и «Файлы»
+         не открывают облако, а вход через браузер обрывается на последнем шаге.
+         Разрешение только позволяет показать системное окно — решает человек,
+         а отказ ничего не ломает, кроме работы в фоне. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Значок в шторке со сводкой подключений. С Android 13 разрешение
          спрашивается у человека; отказ ничего не ломает, кроме самого значка. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
