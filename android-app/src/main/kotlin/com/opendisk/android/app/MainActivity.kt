@@ -775,15 +775,13 @@ private fun openInBrowser(context: Context, link: String): Boolean = runCatching
  * Поле помечено singleLine, но это про клавиатуру: вставка из буфера обмена
  * переносы приносит. Идентификатор приложения Google, скопированный из
  * консоли Google дважды, приезжал двумя строками, и rclone отвечал
- * «invalid key or value contains 
- or » — понять из этого, что не так
+ * «invalid key or value contains \\n or \\r» — понять из этого, что не так
  * с полем, человеку невозможно. Пробелы по краям убираем там же: в
  * скопированном секрете они не значат ничего, а ломают вход.
  */
 fun oneLine(value: String): String = value.replace(NEWLINES, "").trim()
 
-private val NEWLINES = Regex("[
-]+")
+private val NEWLINES = Regex("[\r\n]+")
 
 /**
  * Имя по умолчанию, свободное в списке: подставляем его, чтобы не заставлять
