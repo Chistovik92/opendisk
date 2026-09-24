@@ -40,6 +40,13 @@
 инструментальные тесты на эмуляторе (Android 10). Обычные JVM-тесты модуля
 `android-app` (`src/test`) он не запускает.
 
+**Перед тегом — зелёный `android.yml` на том же коммите.** `release.yml`
+тестов на эмуляторе не гоняет и опубликует выпуск и без них: так 0.5.10
+вышел с устаревшим красным `StatusServiceTest`. Локально JVM-тесты всех
+модулей: `./gradlew -Popendisk.android=true test :android-app:testDebugUnitTest`
+(нужны JDK 17 и Android SDK). Инструментальные на телефоне владельца не
+запускать: после прогона AGP удаляет приложение вместе с его облаками.
+
 ## Windows-установщик (composeApp/wix/Product.wxs) — на чём обжигались
 
 - **0.5.8 ломал установку при обновлении поверх работающего OpenDisk.**
@@ -84,7 +91,8 @@
   сумму. В выпуске apk: `-arm64`, `-arm32`, `-universal`.
 - Поставщик документов (`OpenDiskDocumentsProvider`) с 0.5.9 на запись:
   файл, открытый на запись, пишется в `cacheDir/uploads` и уходит в облако
-  при закрытии; не ушедший досылается при следующем обращении. Идентификатор
+  при закрытии; не ушедший досылает `UploadWorker` (WorkManager), когда
+  появится сеть. Кэш и очередь — в `CloudFiles`, скачивание атомарное. Идентификатор
   документа `облако/путь` хранится системой — формат не менять.
 - Подпись apk — только в CI, постоянным ключом из секретов
   (`ANDROID_KEYSTORE_BASE64` и др.); CI сверяет отпечаток сертификата.
@@ -94,7 +102,9 @@
 
 ## Машины разработки
 
-- Основная — Windows 11. На ней есть GitHub CLI
-  (`C:\Program Files\GitHub CLI\gh.exe`, вход выполнен), но только JDK 26:
-  Gradle 8.10 на нём не запускается, нужна JDK 17 (Temurin). Android SDK нет.
-  Пока их нет, собирать и проверять — через CI.
+- Основная — Windows 11: GitHub CLI (`C:\Program Files\GitHub CLI\gh.exe`,
+  вход выполнен), JDK 17 Temurin (`C:\Program Files\Eclipse Adoptium\jdk-17…`,
+  по умолчанию в системе JDK 26 — Gradle 8.10 на нём не запускается, задавать
+  `JAVA_HOME`), Android SDK в `%LOCALAPPDATA%\Android\Sdk` (платформа 35,
+  build-tools 35), adb. Телефон владельца (Oppo, Android 16) подключается по
+  USB — логи `adb logcat`, данные отладочной сборки через `adb shell run-as`.

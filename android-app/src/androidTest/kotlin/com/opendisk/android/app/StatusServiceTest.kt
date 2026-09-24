@@ -11,8 +11,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Значок в шторке появляется со сводкой подключений и исчезает, когда
- * подключений не осталось.
+ * Значок в шторке: на время входа через браузер — всегда, со сводкой
+ * подключений — только если человек попросил держать его всё время.
  *
  * Проверяется по тому, что система действительно показывает, а не по тому,
  * что приложение попросило показать: служба переднего плана без правильного
@@ -30,17 +30,27 @@ class StatusServiceTest {
         StatusService.sync(context, StatusSnapshot())
     }
 
+    private val clouds = listOf(
+        StatusSnapshot.CloudStatus("yandex", connected = true, space = "занято 1 ГБ из 10 ГБ"),
+        StatusSnapshot.CloudStatus("mail", connected = false, space = ""),
+    )
+
+    /**
+     * С 0.5.10 значок сам по себе не висит: подключённое облако «Файлы»
+     * читают и без службы. Он есть только на время входа через браузер.
+     */
     @Test
-    fun connectedCloudsShowASummaryInTheShade() {
-        StatusService.sync(
-            context,
-            StatusSnapshot(
-                clouds = listOf(
-                    StatusSnapshot.CloudStatus("yandex", connected = true, space = "занято 1 ГБ из 10 ГБ"),
-                    StatusSnapshot.CloudStatus("mail", connected = false, space = ""),
-                ),
-            ),
-        )
+    fun connectedCloudsAloneDoNotKeepAnIconInTheShade() {
+        StatusService.sync(context, StatusSnapshot(clouds = clouds))
+
+        Thread.sleep(1000)
+        assertTrue(ours() == null, "значок висит, хотя его не просили держать")
+    }
+
+    /** Выключатель «Значок в шторке всё время» — сводка подключений. */
+    @Test
+    fun connectedCloudsShowASummaryWhenAskedTo() {
+        StatusService.sync(context, StatusSnapshot(clouds = clouds, alwaysOn = true))
 
         val shown = waitFor { ours() != null }
         assertTrue(shown, "значка OpenDisk в шторке нет")
