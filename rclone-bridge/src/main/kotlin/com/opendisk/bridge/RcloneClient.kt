@@ -752,6 +752,54 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
     }
 
     @Serializable
+    private data class JobStarted(val jobid: Long = 0)
+
+    /**
+     * Копирует один файл так, что копирование можно прервать.
+     *
+     * Обычный [copyFile] держит вызов до конца передачи, и остановить его
+     * нечем. На телефоне это было заметно: «Файлы» просили открыть видео из
+     * облака, человек передумывал и закрывал окно, а rclone продолжал качать
+     * гигабайты в память телефона. Здесь копирование идёт асинхронной задачей
+     * rclone, и [cancelled] спрашивается между проверками её состояния.
+     *
+     * @throws java.util.concurrent.CancellationException если [cancelled]
+     *   ответил true — задача rclone к этому моменту уже остановлена.
+     * @throws RcloneRcException если копирование завершилось ошибкой.
+     */
+    suspend fun copyFileCancellable(
+        srcFs: String,
+        srcPath: String,
+        dstFs: String,
+        dstPath: String,
+        pollMillis: Long = 250,
+        cancelled: () -> Boolean,
+    ) {
+        val started: JobStarted = call(
+            "operations/copyfile",
+            buildJsonObject {
+                put("srcFs", srcFs)
+                put("srcRemote", srcPath)
+                put("dstFs", dstFs)
+                put("dstRemote", dstPath)
+                put("_async", true)
+            },
+        )
+        while (true) {
+            if (cancelled()) {
+                runCatching { stopJob(started.jobid) }
+                throw java.util.concurrent.CancellationException("копирование $srcFs$srcPath прервано")
+            }
+            val status = jobStatus(started.jobid)
+            if (status.finished) {
+                if (!status.success) throw RcloneRcException("operations/copyfile", 500, status.error)
+                return
+            }
+            kotlinx.coroutines.delay(pollMillis)
+        }
+    }
+
+    @Serializable
     data class VersionInfo(
         val version: String = "",
         val os: String = "",
