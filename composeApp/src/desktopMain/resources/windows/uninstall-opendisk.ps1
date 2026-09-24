@@ -51,7 +51,7 @@ $command = $null
 # удаление сняло её, оставив установленную версию на месте.
 $bundle = $entries |
     Where-Object { $_.BundleUpgradeCode -contains $BundleUpgradeCode } |
-    Sort-Object -Property @{ Expression = { [version]($_.DisplayVersion -replace '[^0-9.]', '') } } -Descending |
+    Sort-Object -Property @{ Expression = { $v = $null; if ([version]::TryParse(($_.DisplayVersion -replace '[^0-9.]', ''), [ref]$v)) { $v } else { [version]'0.0' } } } -Descending |
     Select-Object -First 1
 if ($bundle -and $bundle.BundleCachePath -and (Test-Path -LiteralPath $bundle.BundleCachePath)) {
     # Установка из .exe (0.5.0 и новее).
