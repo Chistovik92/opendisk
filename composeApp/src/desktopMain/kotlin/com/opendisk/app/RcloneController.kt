@@ -59,8 +59,7 @@ class RcloneController(
     private val staleCleanup: StaleRcloneCleanup =
         StaleRcloneCleanup(File(AppSettings.defaultFile().parentFile, "rcd.pid")),
     private val updateChecker: UpdateChecker = UpdateChecker(),
-    private val updateInstaller: UpdateInstaller =
-        UpdateInstaller(UpdateChecker.defaultHttpClient()),
+    private val updateInstaller: UpdateInstaller = UpdateInstaller(),
     /** Куда скачивать установщик обновления. Отдельно — чтобы подменить в тестах. */
     private val downloadDir: File = File(System.getProperty("java.io.tmpdir"), "opendisk"),
 ) {

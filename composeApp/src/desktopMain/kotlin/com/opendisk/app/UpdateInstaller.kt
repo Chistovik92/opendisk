@@ -1,7 +1,10 @@
 package com.opendisk.app
 
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
+import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
@@ -19,7 +22,7 @@ import java.util.concurrent.TimeUnit
  * от root — туда лезть из приложения неправильно, там открывается страница
  * выпуска.
  */
-class UpdateInstaller(private val httpClient: HttpClient) {
+class UpdateInstaller(private val httpClient: HttpClient = downloadHttpClient()) {
 
     sealed interface Result {
         /** Установщик запущен, приложение должно закрыться. */
@@ -43,14 +46,24 @@ class UpdateInstaller(private val httpClient: HttpClient) {
         val expected = fetchChecksum(checksumsUrl, assetName)
             ?: return Result.Failed(strings.updateNoChecksums)
 
+        // Установщики прошлых обновлений здесь больше не нужны, а весят по
+        // 90 МБ каждый — до 0.5.12 они копились во временной папке.
+        into.deleteRecursively()
         into.mkdirs()
         val file = File(into, assetName)
+        // Поток, а не httpClient.get(): тот сначала читает ответ в память
+        // целиком и только потом отдаёт его — 90 МБ в куче, и ни байта на
+        // диске, пока не скачается всё.
         val downloaded = runCatching {
-            val response = httpClient.get(assetUrl)
-            if (!response.status.isSuccess()) return Result.Failed(strings.updateDownloadFailed)
-            file.outputStream().use { output -> response.bodyAsChannel().copyTo(output) }
+            httpClient.prepareGet(assetUrl).execute { response ->
+                if (!response.status.isSuccess()) error("HTTP ${response.status}")
+                file.outputStream().use { output -> response.bodyAsChannel().copyTo(output) }
+            }
         }
-        if (downloaded.isFailure) return Result.Failed(strings.updateDownloadFailed)
+        if (downloaded.isFailure) {
+            file.delete()
+            return Result.Failed(strings.updateDownloadFailed)
+        }
 
         val actual = sha256(file)
         if (!actual.equals(expected, ignoreCase = true)) {
@@ -68,6 +81,31 @@ class UpdateInstaller(private val httpClient: HttpClient) {
     }.getOrNull()
 
     companion object {
+        /**
+         * Клиент для скачивания установщика — без предела на весь запрос.
+         *
+         * До 0.5.12 здесь был клиент проверки обновлений с `requestTimeout`
+         * 30 секунд, а в CIO этот предел покрывает и тело ответа. Установщик
+         * весит около 90 МБ: это 24 Мбит/с, чтобы успеть. На более медленной
+         * сети обновление обрывалось всегда и говорило только «не удалось
+         * скачать» — с 0.5.6 так и было у владельца проекта.
+         *
+         * Теперь обрыв ловится по тишине: соединение, по которому
+         * [SOCKET_TIMEOUT_MS] не пришло ни байта, считается мёртвым. Медленная,
+         * но живая сеть докачает сколько бы это ни заняло.
+         */
+        fun downloadHttpClient(): HttpClient = HttpClient(CIO) {
+            engine { requestTimeout = 0 }
+            install(HttpTimeout) {
+                requestTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
+                connectTimeoutMillis = CONNECT_TIMEOUT_MS
+                socketTimeoutMillis = SOCKET_TIMEOUT_MS
+            }
+        }
+
+        private const val CONNECT_TIMEOUT_MS = 30_000L
+        private const val SOCKET_TIMEOUT_MS = 60_000L
+
         /**
          * Достаёт сумму нужного файла из `SHA256SUMS-*`. Формат строки такой:
          *
