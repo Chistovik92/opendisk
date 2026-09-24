@@ -119,6 +119,8 @@ data class UiState(
     val availableUpdate: UpdateChecker.Update? = null,
     /** Идёт скачивание установщика новой версии. */
     val updateInProgress: Boolean = false,
+    /** Скачанная доля установщика, 0..1; null — размер неизвестен или ещё не начали. */
+    val updateProgress: Float? = null,
     /**
      * Итог последней проверки или установки обновления. Показывается только
      * в ответ на явную просьбу проверить: фоновая проверка молчит, если

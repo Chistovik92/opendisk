@@ -267,6 +267,7 @@ private fun ReadyContent(
         UpdateBanner(
             update = update,
             downloading = state.updateInProgress,
+            progress = state.updateProgress,
             // После запуска сценария обновления приложение выходит само: пока
             // оно работает, установщик не может удалить файлы прошлой версии.
             onInstall = { controller.installUpdate(onFinished = onQuit) },
@@ -512,13 +513,15 @@ private fun Banner(text: String) {
  *
  * Автоматически ничего не скачивается и не ставится: обновление меняет
  * программу на компьютере, и запускать это без нажатия неправильно. Кнопка
- * есть только там, где обновление можно поставить целиком — то есть на
- * Windows; иначе предлагается открыть страницу выпуска.
+ * есть там, где понятно, чем обновлять: установщик Windows, образ macOS,
+ * пакет deb или rpm, AppImage. Иначе — запуск из каталога сборки или пакет
+ * без pkexec — предлагается открыть страницу выпуска.
  */
 @Composable
 private fun UpdateBanner(
     update: UpdateChecker.Update,
     downloading: Boolean,
+    progress: Float?,
     onInstall: () -> Unit,
 ) {
     val strings = LocalStrings.current
@@ -538,8 +541,16 @@ private fun UpdateBanner(
                 )
             }
             if (downloading) {
-                CircularProgressIndicator(modifier = Modifier.width(24.dp))
-                Text(strings.updateDownloading, style = MaterialTheme.typography.bodySmall)
+                if (progress != null) {
+                    CircularProgressIndicator(progress = { progress }, modifier = Modifier.width(24.dp))
+                    Text(
+                        strings.updateDownloadingPercent((progress * 100).toInt()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    CircularProgressIndicator(modifier = Modifier.width(24.dp))
+                    Text(strings.updateDownloading, style = MaterialTheme.typography.bodySmall)
+                }
             } else if (update.assetUrl != null) {
                 Button(onClick = onInstall) { Text(strings.updateInstall) }
             } else {

@@ -1024,13 +1024,21 @@ class RcloneController(
     fun installUpdate(onFinished: () -> Unit = {}) {
         val update = state.value.availableUpdate ?: return
         scope.launch {
-            _state.update { it.copy(updateInProgress = true, updateMessage = null) }
+            _state.update { it.copy(updateInProgress = true, updateProgress = null, updateMessage = null) }
             val result = withContext(Dispatchers.IO) {
-                updateInstaller.download(update, File(downloadDir, "updates"), strings)
+                updateInstaller.download(update, File(downloadDir, "updates"), strings) { done, total ->
+                    val progress = total?.takeIf { it > 0 }?.let { (done.toDouble() / it).toFloat() }
+                    // Каждый кусок — 64 КБ; перерисовывать окно на каждый
+                    // незачем, достаточно смены целого процента.
+                    if (progress == null || (progress * 100).toInt() != ((state.value.updateProgress ?: -1f) * 100).toInt()) {
+                        _state.update { it.copy(updateProgress = progress) }
+                    }
+                }
             }
             _state.update {
                 it.copy(
                     updateInProgress = false,
+                    updateProgress = null,
                     updateMessage = when (result) {
                         is UpdateInstaller.Result.Started -> strings.updateInstallerStarted
                         is UpdateInstaller.Result.Failed -> result.reason

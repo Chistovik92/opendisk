@@ -9,65 +9,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Разбор контрольных сумм и команда запуска установщика.
+ * Команда запуска установки обновления.
  *
- * Сверка суммы — не формальность: файл приезжает из сети и запускается
- * с правами администратора. Ошибка в разборе означала бы, что сверять нечем,
- * а значит либо обновление не поставится никогда, либо — хуже — поставится
- * что-то непроверенное.
+ * Разбор контрольных сумм и само скачивание — общие с Android и проверяются
+ * в rclone-bridge (AppReleasesTest).
  *
  * Сам сценарий установки проверяется не здесь, а в CI на настоящей Windows:
  * scripts/verify-windows-install.ps1 запускает тот же файл ресурсов. Здесь —
  * только то, как приложение его вызывает.
  */
 class UpdateInstallerTest {
-
-    @Test
-    fun `checksum is found by the exact file name`() {
-        val sums = """
-            aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111  OpenDisk-0.5.2-x64.exe
-            bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222  OpenDisk-0.5.2-arm64.exe
-        """.trimIndent()
-
-        assertEquals(
-            "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111",
-            UpdateInstaller.checksumFor(sums, "OpenDisk-0.5.2-x64.exe"),
-        )
-    }
-
-    @Test
-    fun `binary marker before the name is not part of it`() {
-        // sha256sum помечает двоичные файлы звёздочкой перед именем.
-        val sums = "cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333 *OpenDisk-0.5.2-x64.exe"
-
-        assertEquals(
-            "cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333",
-            UpdateInstaller.checksumFor(sums, "OpenDisk-0.5.2-x64.exe"),
-        )
-    }
-
-    @Test
-    fun `name is matched whole, not by substring`() {
-        val sums = "dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444  x-OpenDisk-0.5.2-x64.exe"
-
-        // Иначе сумма чужого файла сошла бы за нашу.
-        assertNull(UpdateInstaller.checksumFor(sums, "OpenDisk-0.5.2-x64.exe"))
-    }
-
-    @Test
-    fun `a line without a proper hash is not a checksum`() {
-        assertNull(UpdateInstaller.checksumFor("коротко  OpenDisk-0.5.2-x64.exe", "OpenDisk-0.5.2-x64.exe"))
-        assertNull(UpdateInstaller.checksumFor("", "OpenDisk-0.5.2-x64.exe"))
-    }
-
-    @Test
-    fun `hash of a file is computed the same way as sha256sum`() {
-        val file = File(createTempDirectory("sha").toFile(), "data.bin")
-        file.writeText("opendisk")
-
-        assertEquals(64, UpdateInstaller.sha256(file).length)
-        assertEquals(UpdateInstaller.sha256(file), UpdateInstaller.sha256(file))
-    }
 
     @Test
     fun `installer path is passed as a parameter, quoted for the shell`() {
@@ -133,5 +84,46 @@ class UpdateInstallerTest {
         assertTrue(script.lines().none { it.trimStart().startsWith("#") })
         assertFalse(script.startsWith("\uFEFF"), "BOM внутри команды лишний")
         assertTrue(script.contains("param("))
+    }
+
+    @Test
+    fun `linux package is installed by its own kind, then the app is started again`() {
+        val file = File("/tmp/opendisk/updates/opendisk_0.5.12-1_amd64.deb")
+        val command = UpdateInstaller.shellCommand(
+            UpdateChecker.InstallTarget.DEB, file, "/opt/opendisk/bin/OpenDisk", ownPid = 4242,
+        )
+
+        assertEquals("linux/install-update.sh", command?.resource)
+        assertEquals(listOf("deb", file.absolutePath, "/opt/opendisk/bin/OpenDisk", "4242"), command?.args)
+        assertEquals(
+            "rpm-alt",
+            UpdateInstaller.shellCommand(UpdateChecker.InstallTarget.RPM_ALT, file, "/x", 1)?.args?.first(),
+        )
+    }
+
+    @Test
+    fun `on macos the whole app bundle is replaced, not the launcher inside it`() {
+        val command = UpdateInstaller.shellCommand(
+            UpdateChecker.InstallTarget.MACOS,
+            File("/tmp/OpenDisk-1.5.12-arm64.dmg"),
+            "/Applications/OpenDisk.app/Contents/MacOS/OpenDisk",
+            ownPid = 7,
+        )
+
+        assertEquals("macos/install-update.sh", command?.resource)
+        assertEquals("/Applications/OpenDisk.app", command?.args?.get(1))
+        // Лаунчер не из пакета приложения — заменять нечего.
+        assertNull(UpdateInstaller.shellCommand(UpdateChecker.InstallTarget.MACOS, File("/tmp/a.dmg"), "/usr/bin/x", 1))
+    }
+
+    @Test
+    fun `shell installers are shipped with the app and wait for it to exit`() {
+        for (resource in listOf("linux/install-update.sh", "macos/install-update.sh")) {
+            val script = UpdateInstaller.loadShellScript(resource)
+            assertTrue(script.startsWith("#!/bin/sh"), resource)
+            assertTrue(script.contains("kill -0 \"\$pid\""), "$resource: пока приложение работает, ставить нельзя")
+            // CRLF сломал бы sh: «\r» становится частью каждой команды.
+            assertFalse(script.contains("\r"), "$resource: переводы строк должны быть LF")
+        }
     }
 }

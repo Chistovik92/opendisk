@@ -1,113 +1,100 @@
 package com.opendisk.app
 
+import com.opendisk.app.UpdateChecker.InstallTarget
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 /**
- * Разбор списка выпусков GitHub.
+ * Какой файл выпуска брать — под то, как установлено приложение.
  *
- * Здесь несколько вещей, на которых легко ошибиться молча — проверка обновлений
- * просто перестанет находить установщик, и понять это можно будет только
- * по жалобе «а почему оно не обновляется». Ровно так и вышло в 0.5.0: выпуски
- * перешли на .exe, а здесь искался .msi.
+ * Ошибка здесь молчаливая: проверка обновлений просто перестанет находить
+ * установщик, и понять это можно будет только по жалобе «а почему оно не
+ * обновляется». Ровно так и вышло в 0.5.0: выпуски перешли на .exe, а здесь
+ * искался .msi.
+ *
+ * Сравнение версий и разбор списка выпусков — общие с Android и проверяются
+ * в rclone-bridge (AppReleasesTest).
  */
 class UpdateCheckerTest {
 
     @Test
-    fun `versions are compared as numbers, not as text`() {
-        assertTrue(AppVersion.isNewer("0.2.5", "0.1.25"))
-        // Строкой «0.2.10» меньше «0.2.9» — на этом обновление на десятый
-        // выпуск просто не предложилось бы.
-        assertTrue(AppVersion.isNewer("0.2.10", "0.2.9"))
-        assertTrue(AppVersion.isNewer("v0.2.6", "0.2.5"))
-        assertTrue(AppVersion.isNewer("1.0.0", "0.9.9"))
+    fun `x64 windows gets the full x64 installer and its checksums`() {
+        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", InstallTarget.WINDOWS, "amd64")
 
-        assertFalse(AppVersion.isNewer("0.2.5", "0.2.5"))
-        assertFalse(AppVersion.isNewer("0.2.4", "0.2.5"))
-        // Разной длины номера сравниваются как есть: 0.2 это то же, что 0.2.0.
-        assertFalse(AppVersion.isNewer("0.2", "0.2.0"))
-        assertTrue(AppVersion.isNewer("0.2.1", "0.2"))
-    }
-
-    @Test
-    fun `unparseable version never looks newer`() {
-        assertFalse(AppVersion.isNewer("librclone-v1.75.1", "0.2.5"))
-        assertFalse(AppVersion.isNewer("", "0.2.5"))
-        assertFalse(AppVersion.isNewer("завтрашняя", "0.2.5"))
-        assertEquals(emptyList(), AppVersion.parts("v"))
-    }
-
-    @Test
-    fun `release of the bundled library is not an application update`() {
-        // В том же репозитории лежат выпуски librclone. Без фильтра приложение
-        // однажды предложило бы «обновиться» до версии rclone.
-        assertFalse(UpdateChecker.isAppTag("librclone-v1.75.1"))
-        assertFalse(UpdateChecker.isAppTag("librclone-ios-v1.75.1"))
-        assertTrue(UpdateChecker.isAppTag("v0.2.5"))
-        assertFalse(UpdateChecker.isAppTag("0.2.5"))
-    }
-
-    @Test
-    fun `x64 machine gets the x64 installer and its checksums`() {
-        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", "Windows 11", "amd64")
-
-        assertEquals("0.5.2", update?.version)
-        assertEquals("OpenDisk-0.5.2-x64.exe", update?.assetName)
-        assertEquals("https://example.invalid/OpenDisk-0.5.2-x64.exe", update?.assetUrl)
+        assertEquals("0.5.12", update?.version)
+        assertEquals("OpenDisk-0.5.12-x64-offline.exe", update?.assetName)
         assertEquals("https://example.invalid/SHA256SUMS-Windows-x64", update?.checksumsUrl)
+        assertEquals(InstallTarget.WINDOWS, update?.target)
     }
 
     @Test
-    fun `arm machine gets the arm installer and its checksums`() {
+    fun `arm windows gets the arm installer and its checksums`() {
         // Установщик другой архитектуры встал бы, но работал бы под эмуляцией —
         // или не встал бы вовсе. Путать их нельзя.
-        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", "Windows 11", "aarch64")
+        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", InstallTarget.WINDOWS, "aarch64")
 
-        assertEquals("OpenDisk-0.5.2-arm64.exe", update?.assetName)
+        assertEquals("OpenDisk-0.5.12-arm64-offline.exe", update?.assetName)
         assertEquals("https://example.invalid/SHA256SUMS-Windows-arm64", update?.checksumsUrl)
     }
 
     @Test
-    fun `full installer is preferred over the web one`() {
-        // С 0.5.12 на «-x64.exe» — веб-установщик для старых версий, а полный
-        // называется «-x64-offline.exe». Новые версии берут полный, в каком
-        // бы порядке GitHub ни отдал файлы.
+    fun `release before 0_5_12 has only the old name, and it is the full installer`() {
         val json = """
-            [{"tag_name":"v0.5.12","html_url":"https://example.invalid/0.5.12","draft":false,
-              "assets":[
-                {"name":"OpenDisk-0.5.12-x64.exe","browser_download_url":"https://example.invalid/web.exe"},
-                {"name":"OpenDisk-0.5.12-x64-offline.exe","browser_download_url":"https://example.invalid/full.exe"},
-                {"name":"OpenDisk-0.5.12-arm64-offline.exe","browser_download_url":"https://example.invalid/arm.exe"}
-              ]}]
+            [{"tag_name":"v0.5.11","html_url":"https://example.invalid/0.5.11","draft":false,
+              "assets":[{"name":"OpenDisk-0.5.11-x64.exe","browser_download_url":"https://example.invalid/x.exe"}]}]
         """.trimIndent()
 
         assertEquals(
-            "OpenDisk-0.5.12-x64-offline.exe",
-            UpdateChecker.newestUpdate(json, "0.5.11", "Windows 11", "amd64")?.assetName,
-        )
-        assertEquals(
-            "OpenDisk-0.5.12-arm64-offline.exe",
-            UpdateChecker.newestUpdate(json, "0.5.11", "Windows 11", "aarch64")?.assetName,
+            "OpenDisk-0.5.11-x64.exe",
+            UpdateChecker.newestUpdate(json, "0.5.10", InstallTarget.WINDOWS)?.assetName,
         )
     }
 
     @Test
-    fun `release without a matching installer is offered as a page, not installed`() {
-        // Выпуск в старом формате, только с .msi. Показать обновление надо,
-        // а ставить нечего — остаётся ссылка на страницу.
-        val json = """
-            [{"tag_name":"v0.6.0","html_url":"https://example.invalid/0.6.0","draft":false,
-              "assets":[{"name":"OpenDisk-0.6.0.msi","browser_download_url":"https://example.invalid/x.msi"}]}]
-        """.trimIndent()
+    fun `each linux installation gets its own package`() {
+        fun assetFor(target: InstallTarget) = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", target)
 
-        val update = UpdateChecker.newestUpdate(json, "0.5.2", "Windows 11", "amd64")
+        assertEquals("opendisk_0.5.12-1_amd64.deb", assetFor(InstallTarget.DEB)?.assetName)
+        // rpm для Fedora и для ALT — разные пакеты с разными зависимостями.
+        // Один вместо другого не встанет.
+        assertEquals("opendisk-0.5.12-1.x86_64.rpm", assetFor(InstallTarget.RPM)?.assetName)
+        assertEquals("opendisk-0.5.12-alt1.x86_64.rpm", assetFor(InstallTarget.RPM_ALT)?.assetName)
+        assertEquals("OpenDisk-0.5.12-x86_64.AppImage", assetFor(InstallTarget.APPIMAGE)?.assetName)
+        assertEquals("https://example.invalid/SHA256SUMS-Linux", assetFor(InstallTarget.DEB)?.checksumsUrl)
+    }
 
-        assertEquals("0.6.0", update?.version)
+    @Test
+    fun `linux on arm has nothing to install`() {
+        // Под Linux собирается только x86-64.
+        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", InstallTarget.DEB, "aarch64")
+
+        assertEquals("0.5.12", update?.version)
+        assertNull(update?.asset)
+        assertNull(update?.target)
+    }
+
+    @Test
+    fun `mac gets the image for its processor`() {
+        // Имя образа — с единицей вместо нуля (macOS не принимает версию
+        // бандла с нулём в начале), поэтому ищем по окончанию.
+        assertEquals(
+            "OpenDisk-1.5.12-arm64.dmg",
+            UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", InstallTarget.MACOS, "aarch64")?.assetName,
+        )
+        assertEquals(
+            "https://example.invalid/SHA256SUMS-macOS-x64",
+            UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", InstallTarget.MACOS, "x86_64")?.checksumsUrl,
+        )
+    }
+
+    @Test
+    fun `unknown installation is offered as a page, not installed`() {
+        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", target = null)
+
+        assertEquals("0.5.12", update?.version)
         assertNull(update?.assetUrl)
-        assertEquals("https://example.invalid/0.6.0", update?.pageUrl)
+        assertEquals("https://example.invalid/0.5.12", update?.pageUrl)
     }
 
     @Test
@@ -119,38 +106,36 @@ class UpdateCheckerTest {
     }
 
     @Test
-    fun `nothing to update when the installed version is the newest`() {
-        assertNull(UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.2", "Windows 11"))
-        assertNull(UpdateChecker.newestUpdate(RELEASES_JSON, "1.0.0", "Windows 11"))
+    fun `installation kind is taken from how the app was installed`() {
+        val pkexec: (String) -> Boolean = { it == "/usr/bin/pkexec" }
+        fun linux(launcher: String?, appImage: String? = null, exists: (String) -> Boolean = pkexec) =
+            InstallTarget.detect("Linux", launcher, appImage, exists)
+
+        assertEquals(InstallTarget.WINDOWS, InstallTarget.detect("Windows 11", null, null) { false })
+        assertEquals(
+            InstallTarget.MACOS,
+            InstallTarget.detect("Mac OS X", "/Applications/OpenDisk.app/Contents/MacOS/OpenDisk", null) { false },
+        )
+        assertEquals(InstallTarget.APPIMAGE, linux("/home/u/OpenDisk.AppImage", appImage = "/home/u/OpenDisk.AppImage"))
+        assertEquals(
+            InstallTarget.DEB,
+            linux("/opt/opendisk/bin/OpenDisk") { pkexec(it) || it == "/var/lib/dpkg/info/opendisk.list" },
+        )
+        assertEquals(
+            InstallTarget.RPM_ALT,
+            linux("/opt/opendisk/bin/OpenDisk") { pkexec(it) || it == "/etc/altlinux-release" },
+        )
+        assertEquals(InstallTarget.RPM, linux("/opt/opendisk/bin/OpenDisk"))
     }
 
     @Test
-    fun `drafts are not offered`() {
-        val json = """
-            [
-              {"tag_name":"v9.9.9","html_url":"https://example.invalid/draft","draft":true,"assets":[]},
-              {"tag_name":"v0.2.5","html_url":"https://example.invalid/0.2.5","draft":false,"assets":[]}
-            ]
-        """.trimIndent()
-
-        assertEquals("0.2.5", UpdateChecker.newestUpdate(json, "0.1.0", "Windows 11")?.version)
-    }
-
-    @Test
-    fun `outside windows there is no package to install automatically`() {
-        val update = UpdateChecker.newestUpdate(RELEASES_JSON, "0.5.0", "Linux")
-
-        // Обновление показать нужно, но ставить пакет за пользователя нельзя:
-        // на Linux это дело пакетного менеджера. Остаётся ссылка на страницу.
-        assertEquals("0.5.2", update?.version)
-        assertNull(update?.assetUrl)
-        assertEquals("https://example.invalid/0.5.2", update?.pageUrl)
-    }
-
-    @Test
-    fun `broken response is not an update`() {
-        assertNull(UpdateChecker.newestUpdate("не json", "0.1.0", "Windows 11"))
-        assertNull(UpdateChecker.newestUpdate("[]", "0.1.0", "Windows 11"))
+    fun `nothing is installed where there is no way to do it`() {
+        // Запуск из исходников или распакованного каталога — ставить некуда.
+        assertNull(InstallTarget.detect("Linux", null, null) { true })
+        assertNull(InstallTarget.detect("Linux", "/home/u/opendisk/bin/OpenDisk", null) { true })
+        assertNull(InstallTarget.detect("Mac OS X", "/Users/u/build/OpenDisk", null) { true })
+        // Пакет стоит, но права спросить нечем: pkexec нет.
+        assertNull(InstallTarget.detect("Linux", "/opt/opendisk/bin/OpenDisk", null) { false })
     }
 
     private companion object {
@@ -164,15 +149,26 @@ class UpdateCheckerTest {
                 "assets": [{"name":"Librclone.xcframework.zip","browser_download_url":"https://example.invalid/x.zip"}]
               },
               {
-                "tag_name": "v0.5.2",
-                "html_url": "https://example.invalid/0.5.2",
+                "tag_name": "v0.5.12",
+                "html_url": "https://example.invalid/0.5.12",
                 "draft": false,
                 "assets": [
-                  {"name":"OpenDisk-0.5.2-x64.exe","browser_download_url":"https://example.invalid/OpenDisk-0.5.2-x64.exe"},
-                  {"name":"OpenDisk-0.5.2-arm64.exe","browser_download_url":"https://example.invalid/OpenDisk-0.5.2-arm64.exe"},
-                  {"name":"OpenDisk-0.5.2-x86_64.AppImage","browser_download_url":"https://example.invalid/x.AppImage"},
-                  {"name":"SHA256SUMS-Windows-x64","browser_download_url":"https://example.invalid/SHA256SUMS-Windows-x64"},
-                  {"name":"SHA256SUMS-Windows-arm64","browser_download_url":"https://example.invalid/SHA256SUMS-Windows-arm64"}
+                  ${asset("OpenDisk-0.5.12-x64.exe")},
+                  ${asset("OpenDisk-0.5.12-x64-offline.exe")},
+                  ${asset("OpenDisk-0.5.12-arm64.exe")},
+                  ${asset("OpenDisk-0.5.12-arm64-offline.exe")},
+                  ${asset("OpenDisk-0.5.12-x64.msi")},
+                  ${asset("OpenDisk-1.5.12-x64.dmg")},
+                  ${asset("OpenDisk-1.5.12-arm64.dmg")},
+                  ${asset("opendisk_0.5.12-1_amd64.deb")},
+                  ${asset("opendisk-0.5.12-1.x86_64.rpm")},
+                  ${asset("opendisk-0.5.12-alt1.x86_64.rpm")},
+                  ${asset("OpenDisk-0.5.12-x86_64.AppImage")},
+                  ${asset("SHA256SUMS-Windows-x64")},
+                  ${asset("SHA256SUMS-Windows-arm64")},
+                  ${asset("SHA256SUMS-macOS-x64")},
+                  ${asset("SHA256SUMS-macOS-arm64")},
+                  ${asset("SHA256SUMS-Linux")}
                 ]
               },
               {
@@ -183,5 +179,7 @@ class UpdateCheckerTest {
               }
             ]
         """.trimIndent()
+
+        fun asset(name: String) = """{"name":"$name","browser_download_url":"https://example.invalid/$name"}"""
     }
 }

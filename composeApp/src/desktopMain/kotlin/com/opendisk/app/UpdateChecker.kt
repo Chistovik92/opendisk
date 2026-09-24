@@ -1,15 +1,10 @@
 package com.opendisk.app
 
+import com.opendisk.bridge.AppReleases
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.isSuccess
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import java.io.Closeable
+import java.io.File
 
 /**
  * Проверка обновлений по списку выпусков на GitHub.
@@ -18,117 +13,123 @@ import java.io.Closeable
  * не сообщает, кроме обычного заголовка User-Agent, который GitHub требует.
  * Проверку можно выключить в настройках — на случай, если обращение к сети
  * при старте нежелательно.
+ *
+ * Что новее и как скачать — общее с Android ([AppReleases]); здесь только
+ * выбор файла под то, как приложение установлено.
  */
 class UpdateChecker(
     private val httpClient: HttpClient = defaultHttpClient(),
-    private val releasesUrl: String = RELEASES_URL,
+    private val releasesUrl: String = AppReleases.RELEASES_URL,
 ) : Closeable {
 
     /** Найденное обновление: что показать и что скачивать. */
     data class Update(
         val version: String,
         val pageUrl: String,
-        /** Файл под текущую систему; null — подходящего в выпуске нет. */
-        val assetUrl: String? = null,
-        val assetName: String? = null,
+        /** Файл под текущую установку; null — подходящего нет, остаётся страница выпуска. */
+        val asset: AppReleases.Asset? = null,
         /** Файл с контрольными суммами — без него скачанное проверять нечем. */
-        val checksumsUrl: String? = null,
-    )
+        val checksums: AppReleases.Asset? = null,
+        val target: InstallTarget? = null,
+    ) {
+        val assetName: String? get() = asset?.name
+        val assetUrl: String? get() = asset?.downloadUrl
+        val checksumsUrl: String? get() = checksums?.downloadUrl
+    }
+
+    /**
+     * Как установлено приложение — от этого зависят и файл, и способ установки.
+     *
+     * До 0.5.12 сам ставился только установщик Windows, а на Linux и macOS
+     * открывалась страница выпуска: пакет там ставится с правами root, и это
+     * казалось делом пакетного менеджера. Но человеку от этого не легче —
+     * обновление должно ставиться по кнопке везде. Права спрашивает система
+     * (pkexec на Linux, окно пароля на macOS), как и установщик на Windows.
+     */
+    enum class InstallTarget {
+        WINDOWS,
+        MACOS,
+        DEB,
+        RPM,
+        /** ALT и Simply Linux — у них свои имена зависимостей, rpm Fedora не встанет. */
+        RPM_ALT,
+        APPIMAGE,
+        ;
+
+        val isLinuxPackage: Boolean get() = this == DEB || this == RPM || this == RPM_ALT
+
+        companion object {
+            /**
+             * @return null — установка, которую обновлять нечем: запуск из
+             *         исходников или распакованного каталога, либо пакет без
+             *         pkexec, которым спросить права. Тогда остаётся страница.
+             */
+            fun detect(
+                osName: String = System.getProperty("os.name"),
+                launcher: String? = Autostart.launcherPath(),
+                appImage: String? = System.getenv("APPIMAGE"),
+                exists: (String) -> Boolean = { File(it).exists() },
+            ): InstallTarget? {
+                val os = osName.lowercase()
+                return when {
+                    os.contains("win") -> WINDOWS
+                    os.contains("mac") || os.contains("darwin") ->
+                        if (launcher != null && launcher.contains(".app/")) MACOS else null
+                    // AppImage — один файл, его можно просто заменить; права
+                    // нужны, только если он лежит в системном каталоге.
+                    !appImage.isNullOrBlank() -> APPIMAGE
+                    // Пакеты deb и rpm ставят приложение в /opt/opendisk.
+                    launcher == null || !launcher.startsWith(LINUX_PACKAGE_DIR) -> null
+                    PKEXEC_PATHS.none(exists) -> null
+                    // Не по дистрибутиву, а по тому, чем приложение поставлено:
+                    // на Debian можно поставить и rpm через alien, но обновлять
+                    // надо тем же, чем ставили.
+                    exists("/var/lib/dpkg/info/opendisk.list") -> DEB
+                    exists("/etc/altlinux-release") -> RPM_ALT
+                    else -> RPM
+                }
+            }
+
+            private const val LINUX_PACKAGE_DIR = "/opt/opendisk/"
+            internal val PKEXEC_PATHS = listOf("/usr/bin/pkexec", "/bin/pkexec")
+        }
+    }
 
     /**
      * @return более новый выпуск или null, если обновляться не на что
-     *         либо список не удалось получить. Ошибка сети здесь не повод
-     *         беспокоить пользователя: проверка фоновая и необязательная.
+     *         либо список не удалось получить.
      */
     suspend fun check(
         currentVersion: String,
-        osName: String = System.getProperty("os.name"),
+        target: InstallTarget? = InstallTarget.detect(),
         osArch: String = System.getProperty("os.arch"),
     ): Update? =
-        runCatching {
-            val response = httpClient.get(releasesUrl) {
-                header("Accept", "application/vnd.github+json")
-                header("User-Agent", USER_AGENT)
-            }
-            if (!response.status.isSuccess()) return null
-            newestUpdate(response.bodyAsText(), currentVersion, osName, osArch)
-        }.getOrNull()
-
-    @Serializable
-    internal data class Release(
-        @SerialName("tag_name") val tagName: String = "",
-        @SerialName("html_url") val htmlUrl: String = "",
-        val draft: Boolean = false,
-        val assets: List<Asset> = emptyList(),
-    )
-
-    @Serializable
-    internal data class Asset(
-        val name: String = "",
-        @SerialName("browser_download_url") val downloadUrl: String = "",
-    )
+        AppReleases.newest(httpClient, currentVersion, releasesUrl)?.let { toUpdate(it, target, osArch) }
 
     companion object {
-        const val RELEASES_URL = "https://api.github.com/repos/Chistovik92/opendisk/releases"
-        private const val USER_AGENT = "OpenDisk update check"
-
-        /**
-         * Берём весь список, а не `/releases/latest`.
-         *
-         * `latest` пропускает предварительные выпуски, а все выпуски OpenDisk
-         * пока именно такие — обновление не нашлось бы никогда. На тех же
-         * граблях стоял скрипт установки для Linux.
-         */
         internal fun newestUpdate(
             json: String,
             currentVersion: String,
-            osName: String,
+            target: InstallTarget?,
             osArch: String = "amd64",
-        ): Update? {
-            val releases = runCatching { lenientJson.decodeFromString<List<Release>>(json) }
-                .getOrNull()
-                ?: return null
+        ): Update? = AppReleases.newest(json, currentVersion)?.let { toUpdate(it, target, osArch) }
 
-            val newest = releases
-                .asSequence()
-                .filter { !it.draft }
-                // В том же репозитории лежат выпуски встроенной библиотеки
-                // (librclone-v1.75.1). Без этого фильтра приложение однажды
-                // предложило бы «обновиться» до версии rclone.
-                .filter { isAppTag(it.tagName) }
-                .filter { AppVersion.isNewer(it.tagName, currentVersion) }
-                // Самый новый из подходящих — по тому же сравнению, что и всё
-                // остальное. Порядок, в котором их отдал GitHub, не гарантирован.
-                .reduceOrNull { best, next ->
-                    if (AppVersion.isNewer(next.tagName, best.tagName)) next else best
-                }
-                ?: return null
-
-            val asset = assetFor(newest.assets, osName, osArch)
-            val checksums = checksumsNameFor(osName, osArch)
+        private fun toUpdate(release: AppReleases.Release, target: InstallTarget?, osArch: String): Update {
+            val asset = target?.let { assetFor(release.assets, it, osArch) }
             return Update(
-                version = newest.tagName.removePrefix("v"),
-                pageUrl = newest.htmlUrl,
-                assetUrl = asset?.downloadUrl,
-                assetName = asset?.name,
-                checksumsUrl = newest.assets.firstOrNull { it.name == checksums }?.downloadUrl,
+                version = release.version,
+                pageUrl = release.htmlUrl,
+                asset = asset,
+                checksums = target?.let { release.asset(checksumsNameFor(it, osArch)) },
+                target = asset?.let { target },
             )
         }
 
-        /** Тег выпуска приложения — «v» и дальше только числа с точками. */
-        internal fun isAppTag(tag: String): Boolean =
-            tag.startsWith("v") && AppVersion.parts(tag).isNotEmpty()
-
         /**
-         * Файл под текущую систему.
+         * Файл под текущую установку.
          *
-         * Автоматически ставится только Windows: там установщик один и умеет
-         * закрывать работающее приложение. На Linux пакет зависит от дистрибутива,
-         * а ставить его всё равно нужно с правами root через пакетный менеджер —
-         * поэтому там открывается страница выпуска.
-         *
-         * С 0.5.0 установщик — `.exe`, и их два, по архитектуре. До 0.5.2 здесь
-         * искался `.msi`, которого в выпусках больше нет, — встроенное
+         * Windows: с 0.5.0 установщик — `.exe`, их два, по архитектуре. До 0.5.2
+         * здесь искался `.msi`, которого в выпусках больше нет, — встроенное
          * обновление молча перестало ставить что-либо и только открывало
          * страницу выпуска.
          *
@@ -136,21 +137,30 @@ class UpdateChecker(
          * под эмуляцией JVM видит amd64 — и получает x64-установщик, то есть ту
          * же сборку, что уже стоит. Переход на родную ARM-сборку — осознанное
          * решение человека, а не побочный эффект обновления.
+         *
+         * Linux собирается только под x86-64 — на другом процессоре брать нечего.
          */
-        internal fun assetFor(assets: List<Asset>, osName: String, osArch: String): Asset? {
-            if (!osName.lowercase().contains("win")) return null
+        internal fun assetFor(assets: List<AppReleases.Asset>, target: InstallTarget, osArch: String): AppReleases.Asset? {
             val arch = installerArch(osArch)
-            // С 0.5.12 полный установщик — «-offline.exe», а прежнее имя носит
-            // веб-установщик для старых версий (см. wix/Bundle.wxs). Полный
-            // лучше: скачан и сверен здесь целиком, второй загрузки при
-            // установке не будет. Прежнее имя — для выпусков до 0.5.12.
-            return assets.firstOrNull { it.name.endsWith("-$arch-offline.exe", ignoreCase = true) }
-                ?: assets.firstOrNull { it.name.endsWith("-$arch.exe", ignoreCase = true) }
+            fun endingWith(suffix: String) = assets.firstOrNull { it.name.endsWith(suffix, ignoreCase = true) }
+            val linuxX64 = arch == "x64"
+            return when (target) {
+                // С 0.5.12 полный установщик — «-offline.exe», а прежнее имя носит
+                // веб-установщик для старых версий (см. wix/Bundle.wxs). Полный
+                // лучше: скачан и сверен здесь целиком, второй загрузки при
+                // установке не будет. Прежнее имя — для выпусков до 0.5.12.
+                InstallTarget.WINDOWS -> endingWith("-$arch-offline.exe") ?: endingWith("-$arch.exe")
+                InstallTarget.MACOS -> endingWith("-$arch.dmg")
+                InstallTarget.DEB -> if (linuxX64) endingWith("_amd64.deb") else null
+                InstallTarget.RPM -> if (linuxX64) endingWith("-1.x86_64.rpm") else null
+                InstallTarget.RPM_ALT -> if (linuxX64) endingWith("-alt1.x86_64.rpm") else null
+                InstallTarget.APPIMAGE -> if (linuxX64) endingWith("-x86_64.AppImage") else null
+            }
         }
 
-        internal fun checksumsNameFor(osName: String, osArch: String): String = when {
-            osName.lowercase().contains("win") -> "SHA256SUMS-Windows-${installerArch(osArch)}"
-            osName.lowercase().contains("mac") -> "SHA256SUMS-macOS-${installerArch(osArch)}"
+        internal fun checksumsNameFor(target: InstallTarget, osArch: String): String = when (target) {
+            InstallTarget.WINDOWS -> "SHA256SUMS-Windows-${installerArch(osArch)}"
+            InstallTarget.MACOS -> "SHA256SUMS-macOS-${installerArch(osArch)}"
             else -> "SHA256SUMS-Linux"
         }
 
@@ -162,11 +172,6 @@ class UpdateChecker(
 
         fun defaultHttpClient(): HttpClient = HttpClient(CIO) {
             engine { requestTimeout = 30_000 }
-        }
-
-        private val lenientJson = Json {
-            ignoreUnknownKeys = true
-            isLenient = true
         }
     }
 

@@ -1,31 +1,23 @@
 package com.opendisk.app
 
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.request.get
-import io.ktor.client.request.prepareGet
-import io.ktor.client.statement.bodyAsChannel
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.isSuccess
-import io.ktor.utils.io.jvm.javaio.copyTo
+import com.opendisk.app.UpdateChecker.InstallTarget
+import com.opendisk.bridge.UpdateDownloader
 import java.io.File
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /**
- * Скачивает установщик новой версии и запускает его.
+ * Скачивает новую версию и запускает её установку.
  *
- * Только Windows: там установщик один на всех и умеет закрывать работающее
- * приложение (см. `util:CloseApplication` в composeApp/wix/Product.wxs).
- * На Linux пакет зависит от дистрибутива и ставится пакетным менеджером
- * от root — туда лезть из приложения неправильно, там открывается страница
- * выпуска.
+ * Установка везде устроена одинаково: сценарий ждёт, пока приложение выйдет,
+ * ставит обновление и запускает приложение обратно. Выйти приложению после
+ * этого — забота вызывающего ([RcloneController.installUpdate]). Права
+ * администратора спрашивает система: UAC на Windows, pkexec на Linux, окно
+ * пароля на macOS.
  */
-class UpdateInstaller(private val httpClient: HttpClient = downloadHttpClient()) {
+class UpdateInstaller(private val downloader: UpdateDownloader = UpdateDownloader()) {
 
     sealed interface Result {
-        /** Установщик запущен, приложение должно закрыться. */
+        /** Установка запущена, приложение должно закрыться. */
         data object Started : Result
 
         data class Failed(val reason: String) : Result
@@ -35,109 +27,37 @@ class UpdateInstaller(private val httpClient: HttpClient = downloadHttpClient())
      * Скачивает файл, сверяет SHA-256 и запускает установку.
      *
      * Сверка обязательна и без неё скачанное не запускается: файл приезжает
-     * из сети и исполняется с правами администратора. Не с чем сверять —
+     * из сети и ставится с правами администратора. Не с чем сверять —
      * значит, не запускаем.
      */
-    suspend fun download(update: UpdateChecker.Update, into: File, strings: Strings): Result {
-        val assetUrl = update.assetUrl ?: return Result.Failed(strings.updateNoPackage)
-        val assetName = update.assetName ?: return Result.Failed(strings.updateNoPackage)
-        val checksumsUrl = update.checksumsUrl ?: return Result.Failed(strings.updateNoChecksums)
+    suspend fun download(
+        update: UpdateChecker.Update,
+        into: File,
+        strings: Strings,
+        onProgress: (downloaded: Long, total: Long?) -> Unit = { _, _ -> },
+    ): Result {
+        val asset = update.asset ?: return Result.Failed(strings.updateNoPackage)
+        val target = update.target ?: return Result.Failed(strings.updateNoPackage)
 
-        val expected = fetchChecksum(checksumsUrl, assetName)
-            ?: return Result.Failed(strings.updateNoChecksums)
-
-        // Установщики прошлых обновлений здесь больше не нужны, а весят по
-        // 90 МБ каждый — до 0.5.12 они копились во временной папке.
-        into.deleteRecursively()
-        into.mkdirs()
-        val file = File(into, assetName)
-        // Поток, а не httpClient.get(): тот сначала читает ответ в память
-        // целиком и только потом отдаёт его — 90 МБ в куче, и ни байта на
-        // диске, пока не скачается всё.
-        val downloaded = runCatching {
-            httpClient.prepareGet(assetUrl).execute { response ->
-                if (!response.status.isSuccess()) error("HTTP ${response.status}")
-                file.outputStream().use { output -> response.bodyAsChannel().copyTo(output) }
-            }
-        }
-        if (downloaded.isFailure) {
-            file.delete()
-            return Result.Failed(strings.updateDownloadFailed)
+        val file = when (val result = downloader.download(asset, update.checksums, into, onProgress)) {
+            is UpdateDownloader.Result.Downloaded -> result.file
+            is UpdateDownloader.Result.Failed -> return Result.Failed(
+                when (result.reason) {
+                    UpdateDownloader.Reason.NO_CHECKSUMS -> strings.updateNoChecksums
+                    UpdateDownloader.Reason.DOWNLOAD_FAILED -> strings.updateDownloadFailed
+                    UpdateDownloader.Reason.CHECKSUM_MISMATCH -> strings.updateChecksumMismatch
+                },
+            )
         }
 
-        val actual = sha256(file)
-        if (!actual.equals(expected, ignoreCase = true)) {
-            file.delete()
-            return Result.Failed(strings.updateChecksumMismatch)
+        val started = when (target) {
+            InstallTarget.WINDOWS -> launchInstaller(file)
+            else -> launchShellInstaller(target, file)
         }
-
-        return if (launchInstaller(file)) Result.Started else Result.Failed(strings.updateLaunchFailed)
+        return if (started) Result.Started else Result.Failed(strings.updateLaunchFailed)
     }
 
-    private suspend fun fetchChecksum(url: String, assetName: String): String? = runCatching {
-        val response = httpClient.get(url)
-        if (!response.status.isSuccess()) return null
-        checksumFor(response.bodyAsText(), assetName)
-    }.getOrNull()
-
     companion object {
-        /**
-         * Клиент для скачивания установщика — без предела на весь запрос.
-         *
-         * До 0.5.12 здесь был клиент проверки обновлений с `requestTimeout`
-         * 30 секунд, а в CIO этот предел покрывает и тело ответа. Установщик
-         * весит около 90 МБ: это 24 Мбит/с, чтобы успеть. На более медленной
-         * сети обновление обрывалось всегда и говорило только «не удалось
-         * скачать» — с 0.5.6 так и было у владельца проекта.
-         *
-         * Теперь обрыв ловится по тишине: соединение, по которому
-         * [SOCKET_TIMEOUT_MS] не пришло ни байта, считается мёртвым. Медленная,
-         * но живая сеть докачает сколько бы это ни заняло.
-         */
-        fun downloadHttpClient(): HttpClient = HttpClient(CIO) {
-            engine { requestTimeout = 0 }
-            install(HttpTimeout) {
-                requestTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS
-                connectTimeoutMillis = CONNECT_TIMEOUT_MS
-                socketTimeoutMillis = SOCKET_TIMEOUT_MS
-            }
-        }
-
-        private const val CONNECT_TIMEOUT_MS = 30_000L
-        private const val SOCKET_TIMEOUT_MS = 60_000L
-
-        /**
-         * Достаёт сумму нужного файла из `SHA256SUMS-*`. Формат строки такой:
-         *
-         * ```
-         * b1946ac9...  OpenDisk-0.2.5.msi
-         * ```
-         *
-         * Имя сверяем целиком, а не по вхождению: `OpenDisk-0.2.5.msi` иначе
-         * совпало бы с чем угодно, что его содержит.
-         */
-        internal fun checksumFor(sums: String, assetName: String): String? =
-            sums.lineSequence()
-                .map { it.trim() }
-                .firstOrNull { line ->
-                    line.substringAfterLast(' ').trimStart('*') == assetName
-                }
-                ?.substringBefore(' ')
-                ?.takeIf { it.length == SHA256_HEX_LENGTH }
-
-        internal fun sha256(file: File): String {
-            val digest = MessageDigest.getInstance("SHA-256")
-            file.inputStream().use { input ->
-                val buffer = ByteArray(1 shl 16)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read <= 0) break
-                    digest.update(buffer, 0, read)
-                }
-            }
-            return digest.digest().joinToString("") { "%02x".format(it) }
-        }
-
         /**
          * Запускает сценарий обновления и говорит, начал ли он работу.
          *
@@ -147,8 +67,7 @@ class UpdateInstaller(private val httpClient: HttpClient = downloadHttpClient())
          *
          * Сценарий ждёт выхода приложения и только потом ставит обновление,
          * поэтому его конца отсюда не дождаться — да и незачем. Проверяем
-         * одно: он не упал сразу же. Выйти приложению после этого — забота
-         * вызывающего ([RcloneController.installUpdate]).
+         * одно: он не упал сразу же.
          */
         internal fun launchInstaller(installer: File): Boolean = runCatching {
             val process = PowerShellScript.start(installScript(installer.absolutePath, Autostart.launcherPath()))
@@ -176,11 +95,64 @@ class UpdateInstaller(private val httpClient: HttpClient = downloadHttpClient())
             )
 
         /**
+         * Linux и macOS: linux/install-update.sh или macos/install-update.sh.
+         *
+         * Сценарий кладётся файлом рядом со скачанным пакетом и пишет вывод
+         * в журнал там же (install-update.log) — окна у него нет, и иначе
+         * причину неудачи не узнать. Вывод в файл нужен и затем, чтобы
+         * сценарий пережил выход приложения: пиши он в трубу, после выхода
+         * читать её было бы некому.
+         */
+        internal fun launchShellInstaller(target: InstallTarget, file: File): Boolean = runCatching {
+            val launcher = Autostart.launcherPath() ?: return false
+            val command = shellCommand(target, file, launcher, ProcessHandle.current().pid()) ?: return false
+            val dir = file.parentFile
+            val script = File(dir, "install-update.sh")
+            script.writeText(loadShellScript(command.resource))
+            val process = ProcessBuilder(listOf("/bin/sh", script.absolutePath) + command.args)
+                .directory(dir)
+                .redirectErrorStream(true)
+                .redirectOutput(File(dir, "install-update.log"))
+                .redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
+                .start()
+            !process.waitFor(LAUNCH_CHECK_SECONDS, TimeUnit.SECONDS)
+        }.getOrDefault(false)
+
+        internal data class ShellCommand(val resource: String, val args: List<String>)
+
+        /** Какой сценарий и с чем запустить; null — ставить этим путём нечего. */
+        internal fun shellCommand(target: InstallTarget, file: File, launcher: String, ownPid: Long): ShellCommand? {
+            val pid = ownPid.toString()
+            return when (target) {
+                InstallTarget.WINDOWS -> null
+                // Лаунчер — OpenDisk.app/Contents/MacOS/OpenDisk, а заменять
+                // нужно весь пакет приложения.
+                InstallTarget.MACOS -> {
+                    val bundle = launcher.substringBefore(".app/", missingDelimiterValue = "")
+                        .takeIf { it.isNotEmpty() } ?: return null
+                    ShellCommand("macos/install-update.sh", listOf(file.absolutePath, "$bundle.app", pid))
+                }
+                else -> {
+                    val kind = when (target) {
+                        InstallTarget.DEB -> "deb"
+                        InstallTarget.RPM -> "rpm"
+                        InstallTarget.RPM_ALT -> "rpm-alt"
+                        else -> "appimage"
+                    }
+                    ShellCommand("linux/install-update.sh", listOf(kind, file.absolutePath, launcher, pid))
+                }
+            }
+        }
+
+        internal fun loadShellScript(resource: String): String =
+            UpdateInstaller::class.java.getResourceAsStream("/$resource")
+                ?.use { it.readBytes().toString(Charsets.UTF_8) }
+                ?: error("в сборке нет сценария $resource")
+
+        /**
          * Сколько ждём, не упал ли сценарий сразу. Упасть он может только на
-         * разборе или на старте PowerShell — это доли секунды.
+         * разборе или на старте оболочки — это доли секунды.
          */
         private const val LAUNCH_CHECK_SECONDS = 5L
-
-        private const val SHA256_HEX_LENGTH = 64
     }
 }

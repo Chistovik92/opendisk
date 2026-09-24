@@ -248,6 +248,7 @@ class Strings(val russian: Boolean) {
     val updateInstall = t("Обновить", "Update")
     val updateOpenPage = t("Открыть страницу выпуска", "Open the release page")
     val updateDownloading = t("Скачиваю установщик...", "Downloading the installer...")
+    fun updateDownloadingPercent(percent: Int) = t("Скачиваю установщик: $percent%", "Downloading the installer: $percent%")
     fun updateUpToDate(version: String) = t(
         "Установлена последняя версия ($version).",
         "You have the latest version ($version).",
@@ -257,14 +258,14 @@ class Strings(val russian: Boolean) {
         "Nothing to update: the application is running from a build directory.",
     )
     val updateInstallerStarted = t(
-        "Установщик запущен. Он закроет OpenDisk и поставит новую версию.",
-        "The installer has started. It will close OpenDisk and install the new version.",
+        "Установка запущена: OpenDisk закроется, поставит новую версию и откроется снова.",
+        "The update has started: OpenDisk will close, install the new version and open again.",
     )
     val updateNoPackage = t(
-        "Для этой системы автоматическое обновление не сделано — откройте " +
-            "страницу выпуска и поставьте пакет обычным способом.",
-        "Automatic updates are not available for this system — open the release " +
-            "page and install the package the usual way.",
+        "Эту установку обновить отсюда нельзя — откройте страницу выпуска " +
+            "и поставьте новую версию обычным способом.",
+        "This installation cannot be updated from here — open the release " +
+            "page and install the new version the usual way.",
     )
     val updateNoChecksums = t(
         "В выпуске нет файла контрольных сумм. Скачанный установщик не с чем " +
@@ -272,7 +273,10 @@ class Strings(val russian: Boolean) {
         "The release has no checksum file. There is nothing to verify the downloaded " +
             "installer against, so it will not be run.",
     )
-    val updateDownloadFailed = t("Не удалось скачать установщик.", "Could not download the installer.")
+    val updateDownloadFailed = t(
+        "Не удалось скачать установщик. Проверьте подключение и нажмите «Обновить» ещё раз.",
+        "Could not download the installer. Check the connection and press Update again.",
+    )
     val updateChecksumMismatch = t(
         "Контрольная сумма скачанного файла не совпала. Файл удалён и запущен не будет.",
         "The checksum of the downloaded file did not match. It has been deleted and will not be run.",
