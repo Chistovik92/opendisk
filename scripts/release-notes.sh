@@ -28,6 +28,9 @@ link() {
 
 x64_exe=$(link -x64.exe EXE)
 arm_exe=$(link -arm64.exe EXE)
+# Полный установщик, без докачки: для машин без выхода в интернет.
+x64_offline=$(link -x64-offline.exe "полный ²")
+arm_offline=$(link -arm64-offline.exe "полный ²")
 x64_dmg=$(link -x64.dmg DMG)
 arm_dmg=$(link -arm64.dmg DMG)
 deb=$(link _amd64.deb DEB)
@@ -44,8 +47,8 @@ cat <<EOF
 
 | Процессор | Windows | macOS | Debian, Ubuntu, Mint, Astra | Fedora, RHEL, RED OS, openSUSE | ALT, Simply Linux | Любой Linux | Android | iPhone, iPad |
 |---|---|---|---|---|---|---|---|---|
-| **x86-64** — Intel, AMD | $x64_exe | $x64_dmg | $deb | $rpm | $alt | $appimage | $apk_all | |
-| **ARM64** — Snapdragon, Apple Silicon, телефоны | $arm_exe | $arm_dmg | | | | | $apk_arm | $ipa |
+| **x86-64** — Intel, AMD | $x64_exe ${x64_offline:+· $x64_offline} | $x64_dmg | $deb | $rpm | $alt | $appimage | $apk_all | |
+| **ARM64** — Snapdragon, Apple Silicon, телефоны | $arm_exe ${arm_offline:+· $arm_offline} | $arm_dmg | | | | | $apk_arm | $ipa |
 | **ARM32** — приставки Android TV, часы Wear OS | | | | | | | $apk_arm32 | |
 
 **Какой у меня процессор.** Windows: «Параметры» → «Система» → «О системе»,
@@ -63,6 +66,9 @@ curl -fsSL https://raw.githubusercontent.com/$repo/main/scripts/install.sh | sh
 
 ¹ Без подписи Apple: ставится через AltStore, SideStore или Sideloadly, подпись
 живёт семь дней. Как и чем — [docs/IOS.md](https://github.com/$repo/blob/main/docs/IOS.md).
+
+² EXE для Windows маленький и докачивает остальное при установке. Полный
+установщик ставится без интернета.
 
 Установщики для Windows, Linux и Android перед выпуском ставятся на настоящие
 системы. \`.dmg\` и \`.ipa\` только собираются — ни Mac, ни iPhone для проверки

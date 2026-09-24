@@ -71,6 +71,30 @@ class UpdateCheckerTest {
     }
 
     @Test
+    fun `full installer is preferred over the web one`() {
+        // С 0.5.12 на «-x64.exe» — веб-установщик для старых версий, а полный
+        // называется «-x64-offline.exe». Новые версии берут полный, в каком
+        // бы порядке GitHub ни отдал файлы.
+        val json = """
+            [{"tag_name":"v0.5.12","html_url":"https://example.invalid/0.5.12","draft":false,
+              "assets":[
+                {"name":"OpenDisk-0.5.12-x64.exe","browser_download_url":"https://example.invalid/web.exe"},
+                {"name":"OpenDisk-0.5.12-x64-offline.exe","browser_download_url":"https://example.invalid/full.exe"},
+                {"name":"OpenDisk-0.5.12-arm64-offline.exe","browser_download_url":"https://example.invalid/arm.exe"}
+              ]}]
+        """.trimIndent()
+
+        assertEquals(
+            "OpenDisk-0.5.12-x64-offline.exe",
+            UpdateChecker.newestUpdate(json, "0.5.11", "Windows 11", "amd64")?.assetName,
+        )
+        assertEquals(
+            "OpenDisk-0.5.12-arm64-offline.exe",
+            UpdateChecker.newestUpdate(json, "0.5.11", "Windows 11", "aarch64")?.assetName,
+        )
+    }
+
+    @Test
     fun `release without a matching installer is offered as a page, not installed`() {
         // Выпуск в старом формате, только с .msi. Показать обновление надо,
         // а ставить нечего — остаётся ссылка на страницу.

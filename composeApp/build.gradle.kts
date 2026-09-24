@@ -271,6 +271,7 @@ val packageWixMsi by tasks.registering {
     val productWxs = layout.projectDirectory.file("wix/Product.wxs")
     val licenseRtf = layout.projectDirectory.file("wix/License.rtf")
     val version = project.version.toString()
+    val arch = installerArch
     val tools = wixDir
     val work = wixWorkDir
     val output = wixOutputDir
@@ -278,7 +279,7 @@ val packageWixMsi by tasks.registering {
     inputs.file(productWxs)
     inputs.file(licenseRtf)
     inputs.property("version", version)
-    outputs.file(output.map { it.file("OpenDisk-$version.msi") })
+    outputs.file(output.map { it.file("OpenDisk-$version-$arch.msi") })
 
     doLast {
         val toolsDir = tools.get().asFile
@@ -331,7 +332,9 @@ val packageWixMsi by tasks.registering {
             harvested.absolutePath,
         )
 
-        val msi = File(output.get().asFile, "OpenDisk-$version.msi")
+        // С архитектурой в имени: MSI выкладывается в выпуск — его докачивает
+        // веб-установщик (см. wix/Bundle.wxs), а x64 и arm64 лежат рядом.
+        val msi = File(output.get().asFile, "OpenDisk-$version-$arch.msi")
         msi.parentFile.mkdirs()
 
         // ICE60 ругается на файлы без версии в компонентах — для образа JVM
@@ -373,7 +376,7 @@ val installerArch: String = when (System.getProperty("os.arch").lowercase()) {
 
 val packageWixExe by tasks.registering {
     group = "compose desktop"
-    description = "Собирает .exe: обёртку Burn поверх нашего MSI"
+    description = "Собирает .exe: обёртки Burn поверх нашего MSI — полную и веб"
 
     dependsOn(packageWixMsi, ":unzipWix")
 
@@ -391,45 +394,56 @@ val packageWixExe by tasks.registering {
     inputs.property("version", version)
     inputs.property("arch", arch)
     outputs.file(output.map { it.file("OpenDisk-$version-$arch.exe") })
+    outputs.file(output.map { it.file("OpenDisk-$version-$arch-offline.exe") })
 
     doLast {
         val toolsDir = tools.get().asFile
-        val workDir = work.get().asFile
-        workDir.deleteRecursively()
-        workDir.mkdirs()
-
-        val msi = File(output.get().asFile, "OpenDisk-$version.msi")
+        val msi = File(output.get().asFile, "OpenDisk-$version-$arch.msi")
         check(msi.isFile) { "MSI для обёртки не собран: $msi" }
 
-        runWixTool(
-            File(toolsDir, "candle.exe").absolutePath,
-            "-nologo",
-            // Загрузчик Burn всегда 32-битный — он лишь распаковывает и
-            // запускает MSI, и на любой Windows это работает. Разрядность
-            // самого приложения задаётся тем, что лежит внутри MSI.
-            "-arch", "x86",
-            "-dVersion=$version",
-            "-dLicenseRtf=${licenseRtf.asFile.absolutePath}",
-            "-dIconFile=${iconFile.asFile.absolutePath}",
-            "-dMsiFile=${msi.absolutePath}",
-            "-ext", "WixBalExtension",
-            "-out", workDir.absolutePath + File.separator,
-            bundleWxs.asFile.absolutePath,
-        )
+        // Откуда веб-установщик докачивает MSI. Ссылка на тот же выпуск, куда
+        // уходит и сам установщик: release.yml выкладывает MSI рядом с ним.
+        val msiUrl = "https://github.com/Chistovik92/opendisk/releases/download/v$version/${msi.name}"
 
-        val exe = File(output.get().asFile, "OpenDisk-$version-$arch.exe")
-        runWixTool(
-            File(toolsDir, "light.exe").absolutePath,
-            "-nologo",
-            // Тот же довод, что и у MSI: без явной культуры строки установщика
-            // собираются в кодовой странице 1252 и кириллица всё ломает.
-            "-cultures:ru-ru",
-            "-ext", "WixBalExtension",
-            "-out", exe.absolutePath,
-            File(workDir, "Bundle.wixobj").absolutePath,
-        )
+        fun bundle(web: Boolean, exe: File) {
+            val workDir = File(work.get().asFile, if (web) "web" else "offline")
+            workDir.deleteRecursively()
+            workDir.mkdirs()
 
-        logger.lifecycle("Установщик .exe собран: ${exe.absolutePath}")
+            runWixTool(
+                File(toolsDir, "candle.exe").absolutePath,
+                "-nologo",
+                // Загрузчик Burn всегда 32-битный — он лишь распаковывает и
+                // запускает MSI, и на любой Windows это работает. Разрядность
+                // самого приложения задаётся тем, что лежит внутри MSI.
+                "-arch", "x86",
+                "-dVersion=$version",
+                "-dLicenseRtf=${licenseRtf.asFile.absolutePath}",
+                "-dIconFile=${iconFile.asFile.absolutePath}",
+                "-dMsiFile=${msi.absolutePath}",
+                "-dMsiName=${msi.name}",
+                "-dMsiUrl=$msiUrl",
+                "-dWeb=${if (web) "yes" else "no"}",
+                "-ext", "WixBalExtension",
+                "-out", workDir.absolutePath + File.separator,
+                bundleWxs.asFile.absolutePath,
+            )
+
+            runWixTool(
+                File(toolsDir, "light.exe").absolutePath,
+                "-nologo",
+                // Тот же довод, что и у MSI: без явной культуры строки установщика
+                // собираются в кодовой странице 1252 и кириллица всё ломает.
+                "-cultures:ru-ru",
+                "-ext", "WixBalExtension",
+                "-out", exe.absolutePath,
+                File(workDir, "Bundle.wixobj").absolutePath,
+            )
+            logger.lifecycle("Установщик .exe собран: ${exe.absolutePath} (${exe.length() / 1024} КБ)")
+        }
+
+        bundle(web = false, exe = File(output.get().asFile, "OpenDisk-$version-$arch-offline.exe"))
+        bundle(web = true, exe = File(output.get().asFile, "OpenDisk-$version-$arch.exe"))
     }
 }
 

@@ -139,8 +139,13 @@ class UpdateChecker(
          */
         internal fun assetFor(assets: List<Asset>, osName: String, osArch: String): Asset? {
             if (!osName.lowercase().contains("win")) return null
-            val suffix = "-${installerArch(osArch)}.exe"
-            return assets.firstOrNull { it.name.endsWith(suffix, ignoreCase = true) }
+            val arch = installerArch(osArch)
+            // С 0.5.12 полный установщик — «-offline.exe», а прежнее имя носит
+            // веб-установщик для старых версий (см. wix/Bundle.wxs). Полный
+            // лучше: скачан и сверен здесь целиком, второй загрузки при
+            // установке не будет. Прежнее имя — для выпусков до 0.5.12.
+            return assets.firstOrNull { it.name.endsWith("-$arch-offline.exe", ignoreCase = true) }
+                ?: assets.firstOrNull { it.name.endsWith("-$arch.exe", ignoreCase = true) }
         }
 
         internal fun checksumsNameFor(osName: String, osArch: String): String = when {

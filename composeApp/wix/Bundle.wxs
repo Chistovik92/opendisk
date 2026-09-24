@@ -63,7 +63,35 @@
         Vital и Permanent по умолчанию: пакет один, и если он не поставился,
         ставить дальше нечего. DisplayInternalUI не включаем намеренно —
         два окна установщика подряд выглядели бы поломкой.
+
+        Из этого файла собираются два установщика (задача packageWixExe):
+
+        - полный, OpenDisk-<версия>-<арх>-offline.exe, — MSI внутри, сеть
+          не нужна. Его скачивает обновление из приложения начиная с 0.5.12;
+        - веб-установщик, OpenDisk-<версия>-<арх>.exe, в сотню раз меньше:
+          MSI он докачивает сам из того же выпуска. Он носит прежнее имя
+          ради версий 0.5.0–0.5.11: их обновление ищет файл на «-x64.exe»
+          и обрывает загрузку через 30 секунд, а 90 МБ на медленной сети
+          за это время не скачать. Маленький файл успевает, а дальше
+          качает уже Burn, без всяких пределов.
+
+        Скачанный MSI Burn сверяет с хешем, записанным в него при сборке, —
+        подменённый или битый файл не поставится. Если MSI с тем же именем
+        лежит рядом с установщиком, Burn берёт его и в сеть не ходит: так
+        веб-установщик проверяется в CI, пока выпуск ещё черновик и его
+        файлы по ссылке не отдаются.
       -->
+<?if $(var.Web) = "yes" ?>
+      <MsiPackage Id="OpenDiskMsi"
+                  SourceFile="$(var.MsiFile)"
+                  Name="$(var.MsiName)"
+                  Compressed="no"
+                  DownloadUrl="$(var.MsiUrl)"
+                  DisplayInternalUI="no"
+                  Vital="yes">
+        <MsiProperty Name="INSTALLDIR" Value="[InstallFolder]" />
+      </MsiPackage>
+<?else?>
       <MsiPackage Id="OpenDiskMsi"
                   SourceFile="$(var.MsiFile)"
                   Compressed="yes"
@@ -71,6 +99,7 @@
                   Vital="yes">
         <MsiProperty Name="INSTALLDIR" Value="[InstallFolder]" />
       </MsiPackage>
+<?endif?>
     </Chain>
   </Bundle>
 </Wix>

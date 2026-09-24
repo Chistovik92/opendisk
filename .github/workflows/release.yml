@@ -338,9 +338,10 @@ jobs:
           path: ${{ matrix.artifacts }}
           if-no-files-found: error
 
-      # Сам MSI в выпуск не идёт — он внутри .exe, — но нужен проверке: из него
-      # без установки достаются файлы, чтобы проверить запуск приложения
-      # отдельно от установщика.
+      # MSI нужен проверке: из него без установки достаются файлы, чтобы
+      # проверить запуск приложения отдельно от установщика, а рядом с ним
+      # проверяется веб-установщик. В выпуск он тоже уходит — его докачивает
+      # веб-установщик (см. wix/Bundle.wxs).
       - name: MSI для проверки запуска
         if: startsWith(matrix.os, 'windows')
         uses: actions/upload-artifact@v7
@@ -388,7 +389,7 @@ jobs:
             composeApp/build/compose/binaries/main/rpm \
             composeApp/build/compose/binaries/main/dmg \
             -maxdepth 1 -type f \
-            \( -name '*.exe' -o -name '*.deb' -o -name '*.rpm' \
+            \( -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \
                -o -name '*.dmg' -o -name '*.AppImage' \) \
             2>/dev/null || true)
           if [ -z "$files" ]; then
@@ -673,6 +674,21 @@ jobs:
             testUninstall: 'false'
             overRunning: 'true'
             scenario: x64-over-running
+          # Веб-установщик — тот, что получают при обновлении версии 0.5.0–0.5.11
+          # (см. wix/Bundle.wxs). Проходит ту же цепочку обновления, но MSI
+          # берёт не из сети, а лежащий рядом: выпуск пока черновик, и по
+          # ссылке его файлы не отдаются. Что по ссылке MSI действительно
+          # лежит, проверяет publish.
+          - os: windows-latest
+            arch: x64
+            jdk: temurin
+            jdkArch: x64
+            requireAppStart: 'true'
+            upgradeChain: 'true'
+            testUninstall: 'false'
+            overRunning: 'false'
+            web: 'true'
+            scenario: x64-web
           # ARM проверяется строго по запуску: проба в 0.5.2 показала, что
           # наш лаунчер на этом раннере стартует всеми тремя способами —
           # не стартовала именно сборка 0.5.0.
@@ -728,8 +744,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = (Select-String -Path build.gradle.kts -Pattern '^\s*version = "(.*)"').Matches[0].Groups[1].Value
-          $installer = Get-ChildItem built -Recurse -Filter "*-${{ matrix.arch }}.exe" | Select-Object -First 1
-          if (-not $installer) { throw 'собранного установщика нет среди артефактов' }
+          # Полный установщик — его ставят новые версии приложения и те, кто
+          # скачал его сам; веб-установщик — отдельным сценарием, с MSI рядом.
+          if ('${{ matrix.web }}' -eq 'true') {
+            $installer = Get-ChildItem built -Recurse -Filter "*-${{ matrix.arch }}.exe" | Select-Object -First 1
+            if (-not $installer) { throw 'веб-установщика нет среди артефактов' }
+            $msi = Get-ChildItem msi -Recurse -Filter "*-${{ matrix.arch }}.msi" | Select-Object -First 1
+            Copy-Item $msi.FullName $installer.DirectoryName
+          } else {
+            $installer = Get-ChildItem built -Recurse -Filter "*-${{ matrix.arch }}-offline.exe" | Select-Object -First 1
+            if (-not $installer) { throw 'собранного установщика нет среди артефактов' }
+          }
 
           # Прошлые установщики — с опубликованных выпусков. Через API, а не gh:
           # на ARM-раннере GitHub CLI может не оказаться, а PowerShell есть везде.
@@ -748,7 +773,12 @@ jobs:
 
             $exe = $releases |
               Where-Object { -not $_.draft -and $_.tag_name -match '^v\d' -and $_.tag_name -ne "v$version" } |
-              ForEach-Object { $_.assets | Where-Object { $_.name -like "*-${{ matrix.arch }}.exe" } } |
+              ForEach-Object {
+                # С 0.5.12 полный установщик называется «-offline.exe», а на
+                # «-<арх>.exe» — веб-установщик, которому нужна сеть.
+                $full = $_.assets | Where-Object { $_.name -like "*-${{ matrix.arch }}-offline.exe" }
+                if ($full) { $full } else { $_.assets | Where-Object { $_.name -like "*-${{ matrix.arch }}.exe" } }
+              } |
               Select-Object -First 1
             $exePath = Join-Path $PWD "prev\$($exe.name)"
             Invoke-WebRequest $exe.browser_download_url -OutFile $exePath
@@ -888,7 +918,8 @@ jobs:
           # Один вместо другого поставить нельзя.
           missing=""
           for kind in \
-              -x64.exe -arm64.exe \
+              -x64.exe -arm64.exe -x64-offline.exe -arm64-offline.exe \
+              -x64.msi -arm64.msi \
               _amd64.deb -1.x86_64.rpm alt1.x86_64.rpm -x86_64.AppImage \
               -x64.dmg -arm64.dmg \
               SHA256SUMS-Windows-x64 SHA256SUMS-Windows-arm64 \
@@ -908,3 +939,14 @@ jobs:
           # Только теперь релиз становится видимым.
           gh release edit "$tag" --draft=false
           echo "Релиз $tag опубликован: установщики есть под все платформы."
+
+          # Веб-установщик качает MSI по ссылке, зашитой при сборке
+          # (composeApp/build.gradle.kts, packageWixExe). До публикации она
+          # не отвечает, поэтому проверить её можно только теперь: разойдись
+          # имя файла или путь — обновление с 0.5.0–0.5.11 не поставится.
+          version="${tag#v}"
+          for arch in x64 arm64; do
+            url="https://github.com/$GH_REPO/releases/download/$tag/OpenDisk-$version-$arch.msi"
+            curl -fsSLI --retry 5 --retry-delay 10 -o /dev/null "$url" ||
+              { echo "Веб-установщик не скачает MSI: $url не отвечает" >&2; exit 1; }
+          done
