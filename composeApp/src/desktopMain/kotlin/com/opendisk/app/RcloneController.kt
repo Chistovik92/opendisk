@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.ConcurrentHashMap
@@ -477,39 +479,52 @@ class RcloneController(
                 )
             }
 
-            // Google Диск без своего идентификатора приложения работает через
-            // общий, и это видно невооружённым глазом: на живом диске список
-            // из 65 файлов занимал 33 секунды против секунды у Яндекса.
-            // Проверка местная, по конфигу, в сеть не ходит.
-            names.forEach { name ->
-                val config = runCatching { api.getRemote(name) }.getOrNull() ?: return@forEach
-                val warning = googleWithoutClientId(config)
-                if (warning) updateCloud(name) { it.copy(warning = strings.googleSharedClientId) }
+            // Сведения об облаках — каждое отдельно и все сразу. Раньше шли по
+            // очереди, и одно медленное облако держало остальные: Google Диск
+            // на общем идентификаторе отвечает до полуминуты, и всё это время
+            // у соседей не было ни места, ни кнопки ссылки. Предел по времени —
+            // чтобы зависшее облако не держало и само обновление.
+            coroutineScope {
+                names.forEach { name ->
+                    launch { withTimeoutOrNull(CLOUD_INFO_TIMEOUT_MILLIS) { loadCloudInfo(api, name) } }
+                }
             }
-
-            // Место спрашиваем отдельно и по одному: запрос ходит в сеть, а часть
-            // бэкендов его вовсе не поддерживает — общий список не должен от этого страдать.
-            names.forEach { name ->
-                val about = runCatching { api.about(name) }
-                    .onFailure { e ->
-                        // Истёкший доступ видно уже здесь — говорим сразу, а не
-                        // когда человек нажмёт «Подключить» и получит отказ.
-                        val message = (e as? RcloneRcException)?.rcloneError.orEmpty()
-                        if (AuthErrors.isExpired(message)) updateCloud(name) { it.copy(error = message) }
-                    }
-                    .getOrNull() ?: return@forEach
-                updateCloud(name) { it.copy(about = about) }
-            }
-
-            // Умеет ли облако ссылки — спрашиваем там же и так же осторожно.
-            // Ответ нужен до того, как человек нажмёт кнопку: показывать её,
-            // зная, что бэкенд так не умеет, значит обещать несбыточное.
-            names.forEach { name ->
-                val info = runCatching { api.fsInfo(name) }.getOrNull() ?: return@forEach
-                updateCloud(name) { it.copy(supportsLinks = info.supportsPublicLink) }
-            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: RcloneRcException) {
             _state.update { it.copy(globalError = e.rcloneError) }
+        } catch (e: Exception) {
+            // Не только отказ rclone: пока rcd перезапускается, соединение
+            // рвётся, и это исключение раньше уходило наружу из обновления.
+            _state.update { it.copy(globalError = e.message ?: e::class.simpleName.orEmpty()) }
+        }
+    }
+
+    private suspend fun loadCloudInfo(api: RcloneClient, name: String) {
+        // Google Диск без своего идентификатора приложения работает через
+        // общий, и это видно невооружённым глазом: на живом диске список
+        // из 65 файлов занимал 33 секунды против секунды у Яндекса.
+        // Проверка местная, по конфигу, в сеть не ходит.
+        runCatching { api.getRemote(name) }.getOrNull()?.let { config ->
+            if (googleWithoutClientId(config)) updateCloud(name) { it.copy(warning = strings.googleSharedClientId) }
+        }
+
+        // Место: запрос ходит в сеть, а часть бэкендов его вовсе не
+        // поддерживает — отказ здесь не ошибка списка.
+        runCatching { api.about(name) }
+            .onFailure { e ->
+                // Истёкший доступ видно уже здесь — говорим сразу, а не
+                // когда человек нажмёт «Подключить» и получит отказ.
+                val message = (e as? RcloneRcException)?.rcloneError.orEmpty()
+                if (AuthErrors.isExpired(message)) updateCloud(name) { it.copy(error = message) }
+            }
+            .getOrNull()?.let { about -> updateCloud(name) { it.copy(about = about) } }
+
+        // Умеет ли облако ссылки. Ответ нужен до того, как человек нажмёт
+        // кнопку: показывать её, зная, что бэкенд так не умеет, значит
+        // обещать несбыточное.
+        runCatching { api.fsInfo(name) }.getOrNull()?.let { info ->
+            updateCloud(name) { it.copy(supportsLinks = info.supportsPublicLink) }
         }
     }
 
@@ -1085,6 +1100,9 @@ class RcloneController(
 
     companion object {
         private const val OAUTH_LINK_POLL_MILLIS = 400L
+
+        /** Сколько ждать сведений об одном облаке, прежде чем махнуть на него рукой. */
+        private const val CLOUD_INFO_TIMEOUT_MILLIS = 45_000L
         private const val RCD_WATCH_MILLIS = 3_000L
         private const val RESTART_WINDOW_MILLIS = 10 * 60_000L
         private const val MAX_RESTARTS = 3

@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 /** Одно облако в списке. */
@@ -190,15 +191,21 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                // Место и возможность ссылок спрашиваем по одному и молча
-                // проглатываем отказы: часть бэкендов этого не умеет, и общий
-                // список не должен из-за них оставаться пустым.
+                // Место и возможность ссылок — каждое облако отдельно и все
+                // сразу, отказы молча проглатываем: часть бэкендов этого не
+                // умеет. Раньше облака спрашивались по очереди, и одно
+                // медленное (Google Диск на общем идентификаторе отвечает до
+                // полуминуты) держало сведения всех остальных.
                 names.forEach { name ->
-                    runCatching { api.about(name) }.getOrNull()?.let { about ->
-                        updateCloud(name) { it.copy(about = about) }
-                    }
-                    runCatching { api.fsInfo(name) }.getOrNull()?.let { info ->
-                        updateCloud(name) { it.copy(supportsLinks = info.supportsPublicLink) }
+                    launch {
+                        withTimeoutOrNull(CLOUD_INFO_TIMEOUT_MILLIS) {
+                            runCatching { api.about(name) }.getOrNull()?.let { about ->
+                                updateCloud(name) { it.copy(about = about) }
+                            }
+                            runCatching { api.fsInfo(name) }.getOrNull()?.let { info ->
+                                updateCloud(name) { it.copy(supportsLinks = info.supportsPublicLink) }
+                            }
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -713,6 +720,9 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         (e as? RcloneRcException)?.rcloneError ?: e.message ?: e::class.simpleName.orEmpty()
 
     private companion object {
+        /** Сколько ждать сведений об одном облаке, прежде чем махнуть на него рукой. */
+        const val CLOUD_INFO_TIMEOUT_MILLIS = 45_000L
+
         /** Куда скачиваются файлы в памяти телефона. */
         const val DOWNLOAD_DIR = "Download/OpenDisk"
 
