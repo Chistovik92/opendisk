@@ -50,6 +50,7 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
      */
     private val closeHandler by lazy { Handler(HandlerThread("opendisk-documents").apply { start() }.looper) }
     private val uploads = Executors.newSingleThreadExecutor()
+    private val files by lazy { CloudFiles(requireNotNull(context)) }
 
     override fun onCreate(): Boolean = true
 
@@ -68,7 +69,7 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
         LibrcloneTransport.useConfig(File(context.filesDir, "rclone.conf"))
         return RcloneClient(LibrcloneTransport.get()).also {
             client = it
-            resumePendingUploads()
+            files.pendingUploads().forEach(::enqueueUpload)
         }
     }
 
@@ -160,23 +161,35 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
         // Файл, который ещё не долетел до облака, читаем из очереди заливок:
         // иначе приложение, только что сохранившее документ, открыло бы
         // его прежнюю версию.
-        pendingUpload(documentId)?.let {
+        files.pendingUpload(documentId)?.let {
             return ParcelFileDescriptor.open(it, ParcelFileDescriptor.MODE_READ_ONLY)
         }
 
         val entry = stat(cloud, path) ?: throw FileNotFoundException("в облаке «$cloud» нет «$path»")
-        val cacheDir = dir(CACHE_DIR)
-        val base = DocumentIds.localName(documentId)
-        val localName = base + "." + DocumentIds.version(entry.size, entry.modTime)
-        val local = File(cacheDir, localName)
-
-        if (!local.isFile) {
-            // Прежние версии этого же файла больше не понадобятся.
-            cacheDir.listFiles { f -> f.name.startsWith("$base.") }?.forEach { it.delete() }
-            call { client().copyToLocal(cloud, path, cacheDir.absolutePath, localName) }
-        }
+        val local = files.cached(documentId, entry) { dir, name -> download(cloud, path, dir, name, signal) }
         signal?.throwIfCanceled()
         return ParcelFileDescriptor.open(local, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
+    /**
+     * Скачивание, которое останавливается, когда приложение передумало.
+     * «Файлы» отменяют открытие, если человек закрыл окно, — раньше rclone
+     * при этом продолжал качать файл целиком.
+     */
+    private fun download(cloud: String, path: String, dir: File, name: String, signal: CancellationSignal?) {
+        try {
+            runBlocking {
+                client().copyFileCancellable(
+                    RcloneClient.cloudFs(cloud), path, dir.absolutePath, name,
+                ) { signal?.isCanceled == true }
+            }
+        } catch (e: java.util.concurrent.CancellationException) {
+            throw android.os.OperationCanceledException(e.message)
+        } catch (e: FileNotFoundException) {
+            throw e
+        } catch (e: Exception) {
+            throw FileNotFoundException(e.message ?: e::class.simpleName.orEmpty())
+        }
     }
 
     private fun openForWrite(
@@ -188,15 +201,15 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
         val (cloud, path) = DocumentIds.split(documentId)
         if (path.isEmpty()) throw FileNotFoundException("корень облака «$cloud» — не файл")
 
-        val uploadsDir = dir(UPLOADS_DIR)
-        val local = File(uploadsDir, DocumentIds.localName(documentId))
-        File(uploadsDir, local.name + TARGET_SUFFIX).writeText(documentId)
+        val local = files.uploadFile(documentId)
 
         if (open.needsExistingContent && !local.isFile) {
             // «Дописать» или «прочитать и изменить»: начинаем с того, что уже
-            // лежит в облаке. Файла там нет — начинаем с пустого.
-            if (stat(cloud, path) != null) {
-                call { client().copyToLocal(cloud, path, uploadsDir.absolutePath, local.name) }
+            // лежит в облаке. Файла там нет — начинаем с пустого. Через кэш —
+            // там скачивание целиком или никак, недокачанное не подсунется.
+            stat(cloud, path)?.let { entry ->
+                files.cached(documentId, entry) { dir, name -> download(cloud, path, dir, name, signal) }
+                    .copyTo(local, overwrite = true)
             }
         }
         if (!local.exists()) local.createNewFile()
@@ -229,7 +242,7 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
         if (mimeType == Document.MIME_TYPE_DIR) {
             call { client().mkdir(fs, path) }
         } else {
-            val empty = File(dir(UPLOADS_DIR), "empty").apply { writeBytes(ByteArray(0)) }
+            val empty = files.emptyFile()
             call { client().copyFile(empty.parent!!, empty.name, fs, path) }
         }
         notifyChildrenChanged(parentDocumentId)
@@ -242,7 +255,7 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
         val entry = stat(cloud, path) ?: throw FileNotFoundException("в облаке «$cloud» нет «$path»")
         val fs = RcloneClient.cloudFs(cloud)
         call { if (entry.isDir) client().purge(fs, path) else client().deleteFile(fs, path) }
-        forgetLocalCopies(documentId)
+        files.forget(documentId)
         revokeDocumentPermission(documentId)
         DocumentIds.parent(documentId)?.let(::notifyChildrenChanged)
     }
@@ -254,6 +267,12 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
             ?: throw FileNotFoundException("облако переименовывается в самом OpenDisk")
         val target = DocumentIds.child(parent, displayName)
         if (target == documentId) return documentId
+        // rclone переносит поверх: переименование в занятое имя молча
+        // заменило бы соседний файл, и вернуть его было бы неоткуда.
+        val (cloud, targetPath) = DocumentIds.split(target)
+        if (stat(cloud, targetPath) != null) {
+            throw FileNotFoundException("«$displayName» здесь уже есть")
+        }
         transfer(documentId, target, move = true)
         revokeDocumentPermission(documentId)
         notifyChildrenChanged(parent)
@@ -265,7 +284,9 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
         sourceParentDocumentId: String,
         targetParentDocumentId: String,
     ): String {
-        val target = DocumentIds.child(targetParentDocumentId, nameOf(sourceDocumentId))
+        // Как при копировании: занятое имя — повод для «(2)», а не для замены
+        // файла, который уже лежит в папке назначения.
+        val target = freeTarget(targetParentDocumentId, nameOf(sourceDocumentId))
         transfer(sourceDocumentId, target, move = true)
         revokeDocumentPermission(sourceDocumentId)
         notifyChildrenChanged(sourceParentDocumentId)
@@ -274,13 +295,17 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
     }
 
     override fun copyDocument(sourceDocumentId: String, targetParentDocumentId: String): String {
-        val (targetCloud, targetParentPath) = DocumentIds.split(targetParentDocumentId)
-        val taken = call { client().list(targetCloud, targetParentPath) }.map { it.name }.toSet()
-        val name = nameOf(sourceDocumentId).let { if (it in taken) copyName(it, taken) else it }
-        val target = DocumentIds.child(targetParentDocumentId, name)
+        val target = freeTarget(targetParentDocumentId, nameOf(sourceDocumentId))
         transfer(sourceDocumentId, target, move = false)
         notifyChildrenChanged(targetParentDocumentId)
         return target
+    }
+
+    /** Место в папке под файл с этим именем; занято — «имя (2)». */
+    private fun freeTarget(parentId: String, name: String): String {
+        val (cloud, parentPath) = DocumentIds.split(parentId)
+        val taken = call { client().list(cloud, parentPath) }.map { it.name }.toSet()
+        return DocumentIds.child(parentId, if (name in taken) copyName(name, taken) else name)
     }
 
     /**
@@ -304,55 +329,21 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
                 else -> api.copyFile(srcFs, srcPath, dstFs, dstPath)
             }
         }
-        if (move) forgetLocalCopies(sourceId)
+        if (move) files.forget(sourceId)
     }
 
     // --- Заливка в облако ----------------------------------------------------
 
-    private fun enqueueUpload(local: File) {
-        uploads.execute { upload(local) }
-    }
-
     /**
-     * Отправляет файл в облако. Не вышло — файл остаётся в очереди и уйдёт
-     * при следующем обращении к облаку: потерять сохранённое хуже, чем
-     * отправить его позже.
+     * Отправляет файл сразу, пока процесс жив. Не вышло — в план системы:
+     * [UploadWorker] дошлёт, когда появится сеть, даже если облако больше
+     * никто не откроет.
      */
-    private fun upload(local: File) {
-        val targetFile = File(local.parentFile, local.name + TARGET_SUFFIX)
-        val documentId = targetFile.takeIf { it.isFile }?.readText() ?: return
-        if (!local.isFile) return
-        val (cloud, path) = DocumentIds.split(documentId)
-        val sent = local.lastModified() to local.length()
-        try {
-            runBlocking { client().copyFile(local.parent!!, local.name, RcloneClient.cloudFs(cloud), path) }
-        } catch (e: Exception) {
-            Log.w(TAG, "не удалось отправить $documentId, повторю позже", e)
-            return
+    private fun enqueueUpload(local: File) {
+        uploads.execute {
+            val sent = runCatching { files.upload(local, client()) }.getOrDefault(false)
+            if (!sent) context?.let(UploadWorker::schedule)
         }
-        // Пока шла отправка, файл могли открыть и изменить снова — тогда
-        // его отправит следующая заливка, а удалять его нельзя.
-        if ((local.lastModified() to local.length()) == sent) forgetLocalCopies(documentId)
-        DocumentIds.parent(documentId)?.let(::notifyChildrenChanged)
-        notifyDocumentChanged(documentId)
-    }
-
-    private fun resumePendingUploads() {
-        val dir = File(requireNotNull(context).cacheDir, UPLOADS_DIR)
-        dir.listFiles { f -> f.name.endsWith(TARGET_SUFFIX) }?.forEach { target ->
-            val local = File(dir, target.name.removeSuffix(TARGET_SUFFIX))
-            if (local.isFile) enqueueUpload(local) else target.delete()
-        }
-    }
-
-    private fun pendingUpload(documentId: String): File? =
-        File(dir(UPLOADS_DIR), DocumentIds.localName(documentId)).takeIf { it.isFile }
-
-    private fun forgetLocalCopies(documentId: String) {
-        val base = DocumentIds.localName(documentId)
-        dir(CACHE_DIR).listFiles { f -> f.name.startsWith("$base.") }?.forEach { it.delete() }
-        File(dir(UPLOADS_DIR), base).delete()
-        File(dir(UPLOADS_DIR), base + TARGET_SUFFIX).delete()
     }
 
     // --- Мелочи ---------------------------------------------------------------
@@ -395,19 +386,12 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
 
     private fun stat(cloud: String, path: String): RcloneClient.Entry? = call { client().stat(cloud, path) }
 
-    private fun dir(name: String): File =
-        File(requireNotNull(context).cacheDir, name).apply { mkdirs() }
-
     private fun rootsUri(): Uri = DocumentsContract.buildRootsUri(AUTHORITY)
 
     private fun childrenUri(parentId: String): Uri = DocumentsContract.buildChildDocumentsUri(AUTHORITY, parentId)
 
     private fun notifyChildrenChanged(parentId: String) {
         context?.contentResolver?.notifyChange(childrenUri(parentId), null, false)
-    }
-
-    private fun notifyDocumentChanged(documentId: String) {
-        context?.contentResolver?.notifyChange(DocumentsContract.buildDocumentUri(AUTHORITY, documentId), null, false)
     }
 
     /**
@@ -431,9 +415,6 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
         const val AUTHORITY = "com.opendisk.android.documents"
 
         private const val TAG = "OpenDiskDocuments"
-        private const val CACHE_DIR = "documents"
-        private const val UPLOADS_DIR = "uploads"
-        private const val TARGET_SUFFIX = ".target"
 
         /** Общее для файлов и папок: удалить, переименовать, перенести, скопировать. */
         private const val EDITABLE = Document.FLAG_SUPPORTS_DELETE or

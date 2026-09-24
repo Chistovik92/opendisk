@@ -96,6 +96,9 @@ dependencies {
     // Вход через браузер: вкладка Custom Tabs поверх приложения. Встроенное
     // окно не годится — Google не пускает на вход из встроенных браузеров.
     implementation("androidx.browser:browser:1.8.0")
+    // Досылка сохранённого в облако, когда появится сеть (UploadWorker):
+    // работу в фоне выдаёт система, без службы и без значка в шторке.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)

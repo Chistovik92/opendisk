@@ -118,6 +118,9 @@ class LibrcloneTransport private constructor() : RcloneTransport {
         @Volatile
         private var configPath: String? = null
 
+        @Volatile
+        private var configApplied = false
+
         /**
          * Говорит rclone, где его конфиг, — вызовом, а не окружением.
          *
@@ -156,7 +159,14 @@ class LibrcloneTransport private constructor() : RcloneTransport {
                 // Без перехвата вход через браузер невозможен — ссылку rclone
                 // печатает именно туда.
                 RcloneOutput.capture()
+            }
+            // Отдельно от инициализации и до выдачи экземпляра: если путь
+            // однажды не встал, следующее обращение попробует снова, а не
+            // получит rclone без конфига — ровно ту поломку, от которой
+            // облака пропадали.
+            if (!configApplied) {
                 applyConfigPath()
+                configApplied = true
             }
             return LibrcloneTransport().also { instance = it }
         }
@@ -173,6 +183,7 @@ class LibrcloneTransport private constructor() : RcloneTransport {
             if (initialized.compareAndSet(true, false)) {
                 Gomobile.rcloneFinalize()
                 instance = null
+                configApplied = false
             }
         }
     }
