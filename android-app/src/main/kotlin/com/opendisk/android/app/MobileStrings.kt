@@ -300,6 +300,48 @@ class MobileStrings(val russian: Boolean) {
     val builtOnRclone = t("Работает на rclone", "Powered by rclone")
     val projectPage = t("Страница проекта", "Project page")
 
+    // --- Обновление ------------------------------------------------------------
+
+    val checkUpdates = t("Проверять обновления при запуске", "Check for updates on start")
+    val checkUpdatesHint = t(
+        "Спрашивает у GitHub, не вышла ли новая версия. Ставится она только по кнопке.",
+        "Asks GitHub whether a new version is out. It is installed only when you press the button.",
+    )
+    val checkNow = t("Проверить обновления", "Check for updates")
+    fun updateAvailable(version: String) = t("Вышла OpenDisk $version", "OpenDisk $version is out")
+    val updateInstall = t("Обновить", "Update")
+    val updateOpenPage = t("Страница выпуска", "Release page")
+    fun updateDownloading(percent: Int?) =
+        if (percent == null) t("Скачиваю…", "Downloading…") else t("Скачиваю: $percent%", "Downloading: $percent%")
+    fun updateUpToDate(version: String) = t(
+        "Установлена последняя версия ($version).",
+        "You have the latest version ($version).",
+    )
+    val updateAllowInstall = t(
+        "Разрешите OpenDisk устанавливать приложения и нажмите «Обновить» ещё раз.",
+        "Allow OpenDisk to install apps, then press Update again.",
+    )
+    val updateNoPackage = t(
+        "В выпуске нет apk для этого устройства — откройте страницу выпуска.",
+        "The release has no apk for this device — open the release page.",
+    )
+    val updateNoChecksums = t(
+        "В выпуске нет контрольных сумм — скачанное не с чем сверить, ставить нельзя.",
+        "The release has no checksums — nothing to verify the download against, so it won't be installed.",
+    )
+    val updateDownloadFailed = t(
+        "Не удалось скачать обновление. Проверьте сеть и нажмите «Обновить» ещё раз.",
+        "Could not download the update. Check the connection and press Update again.",
+    )
+    val updateChecksumMismatch = t(
+        "Контрольная сумма не совпала — файл удалён и ставиться не будет.",
+        "The checksum did not match — the file was deleted and will not be installed.",
+    )
+    fun updateInstallFailed(reason: String?) = t(
+        "Обновление не установилось" + (reason?.let { ": $it" } ?: "."),
+        "The update was not installed" + (reason?.let { ": $it" } ?: "."),
+    )
+
     // --- Размеры -------------------------------------------------------------
 
     val bytes = t("Б", "B")

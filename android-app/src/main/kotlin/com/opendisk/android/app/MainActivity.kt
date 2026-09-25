@@ -151,6 +151,7 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
         bottomBar = {
             Column {
                 state.operation?.let { OperationBar(it) }
+                state.update?.takeIf { !state.starting && !state.settings }?.let { UpdateBar(it, model) }
                 if (!state.starting && !state.settings && device == DeviceKind.WATCH) {
                     // На часах полноразмерная панель вкладок заняла бы треть
                     // экрана — две кнопки в строку делают то же самое.
@@ -449,6 +450,19 @@ private fun SettingsScreen(state: MobileState, model: OpenDiskModel) {
 
         SettingsSection(strings.about) {
             Text("${strings.version}: ${appVersion ?: "—"}")
+            state.update?.let { UpdateBar(it, model) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(strings.checkUpdates, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = state.preferences.checkUpdates,
+                    onCheckedChange = { model.setCheckUpdates(it) },
+                )
+            }
+            Hint(strings.checkUpdatesHint)
+            TextButton(onClick = { model.checkForUpdates(manual = true) }) { Text(strings.checkNow) }
             state.rcloneVersion?.let { Text("${strings.builtOnRclone} $it") }
             Text("${strings.projectPage}: $PROJECT_URL")
         }
@@ -822,6 +836,46 @@ private fun SignInDialog(signIn: SignInState, model: OpenDiskModel) {
             TextButton(onClick = model::cancelSignIn, enabled = !signIn.cancelled) { Text(strings.cancel) }
         },
     )
+}
+
+/**
+ * Вышла новая версия: кнопка «Обновить» или ход скачивания.
+ *
+ * Внизу главного экрана, как полоса копирования, — чтобы было видно на любой
+ * вкладке, и в настройках, где её ищут. Нет apk под устройство — ссылка на
+ * страницу выпуска.
+ */
+@Composable
+private fun UpdateBar(update: MobileUpdate, model: OpenDiskModel) {
+    val strings = model.strings
+    val context = LocalContext.current
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val percent = update.progress?.let { (it * 100).toInt() }
+            Text(
+                if (update.downloading) strings.updateDownloading(percent) else strings.updateAvailable(update.version),
+                modifier = Modifier.weight(1f),
+            )
+            when {
+                update.downloading -> {
+                    val progress = update.progress
+                    if (progress != null) {
+                        CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(24.dp))
+                    } else {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    }
+                }
+                update.asset != null -> Button(onClick = model::installUpdate) { Text(strings.updateInstall) }
+                else -> TextButton(onClick = {
+                    if (!openInBrowser(context, update.pageUrl)) model.showNotice(update.pageUrl)
+                }) { Text(strings.updateOpenPage) }
+            }
+        }
+    }
 }
 
 /**

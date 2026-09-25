@@ -40,6 +40,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Обновление из приложения (0.5.12): скачанный и сверенный apk
+         отдаётся системному установщику. Разрешение только позволяет
+         попросить — установку каждый раз подтверждает человек. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
       Экраны автозапуска прошивок, которые открывает BackgroundWork.
@@ -103,6 +107,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Отдаёт подключённые облака системному выбору файлов и держит сервер подтверждения входа через браузер" />
         </service>
+
+        <!-- Итог установки обновления: окно подтверждения или ошибка.
+             Зовёт его только наша же сессия установки, снаружи не нужен. -->
+        <receiver
+            android:name=".InstallResultReceiver"
+            android:exported="false" />
 
         <!-- Файл из встроенного файлового менеджера открывается в другом
              приложении по адресу content://, а не по пути: чужому приложению

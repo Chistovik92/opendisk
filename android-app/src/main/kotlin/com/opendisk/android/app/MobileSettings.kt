@@ -22,6 +22,12 @@ data class MobilePreferences(
      * телефон всё же режет фон — включают и живут со значком.
      */
     val statusIcon: Boolean = false,
+    /**
+     * Спрашивать у GitHub при запуске, не вышла ли новая версия. Как на
+     * компьютере: включено, но выключается — это обращение в сеть помимо
+     * самих облаков.
+     */
+    val checkUpdates: Boolean = true,
 )
 
 /**
@@ -41,6 +47,7 @@ class MobileSettings(context: Context) {
         language = MobileLanguage.fromCode(prefs.getString(KEY_LANGUAGE, null)),
         connected = prefs.getStringSet(KEY_CONNECTED, emptySet()).orEmpty().toSet(),
         statusIcon = prefs.getBoolean(KEY_STATUS_ICON, false),
+        checkUpdates = prefs.getBoolean(KEY_CHECK_UPDATES, true),
     )
 
     fun write(preferences: MobilePreferences) {
@@ -51,6 +58,7 @@ class MobileSettings(context: Context) {
             // набор по ссылке, и его последующая правка молча меняет сохранённое.
             .putStringSet(KEY_CONNECTED, preferences.connected.toSet())
             .putBoolean(KEY_STATUS_ICON, preferences.statusIcon)
+            .putBoolean(KEY_CHECK_UPDATES, preferences.checkUpdates)
             .apply()
     }
 
@@ -83,6 +91,7 @@ class MobileSettings(context: Context) {
         const val KEY_LANGUAGE = "language"
         const val KEY_CONNECTED = "connected"
         const val KEY_STATUS_ICON = "status_icon"
+        const val KEY_CHECK_UPDATES = "check_updates"
         const val KEY_STORAGE_ASKED = "storage_asked"
         const val KEY_BACKGROUND_ASKED = "background_asked"
     }

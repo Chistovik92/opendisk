@@ -6,12 +6,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.opendisk.android.LibrcloneTransport
 import com.opendisk.android.RcloneOutput
+import com.opendisk.bridge.AppReleases
 import com.opendisk.bridge.CatalogService
 import com.opendisk.bridge.CloudCatalog
 import com.opendisk.bridge.OAuthLink
 import com.opendisk.bridge.PublicLinkUnsupportedException
 import com.opendisk.bridge.RcloneClient
 import com.opendisk.bridge.RcloneRcException
+import com.opendisk.bridge.UpdateDownloader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,6 +95,20 @@ data class MobileState(
     val allServices: List<CatalogService> = emptyList(),
     /** Идёт вход через браузер; null — не идёт. */
     val signIn: SignInState? = null,
+    /** Вышла новая версия; null — проверки не было или обновляться не на что. */
+    val update: MobileUpdate? = null,
+)
+
+/** Найденное обновление и ход его скачивания. */
+data class MobileUpdate(
+    val version: String,
+    val pageUrl: String,
+    /** apk под процессор устройства; null — подходящего в выпуске нет. */
+    val asset: AppReleases.Asset?,
+    val checksums: AppReleases.Asset?,
+    val downloading: Boolean = false,
+    /** Скачанная доля, 0..1; null — размер неизвестен. */
+    val progress: Float? = null,
 )
 
 /** Вход через браузер в процессе. */
@@ -137,6 +153,14 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(starting = false) }
             notifySystem()
             reload()
+            if (_state.value.preferences.checkUpdates) checkForUpdates()
+        }
+
+        // Итог установки обновления приходит от системы в InstallResultReceiver.
+        viewModelScope.launch {
+            AppUpdate.outcomes.collect { outcome ->
+                if (outcome is AppUpdate.Outcome.Failed) showNotice(strings.updateInstallFailed(outcome.message))
+            }
         }
 
         // Значок в шторке следит за состоянием сам: облака, их место,
@@ -679,6 +703,94 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
     fun setStatusIcon(enabled: Boolean) =
         applyPreferences(_state.value.preferences.copy(statusIcon = enabled))
+
+    fun setCheckUpdates(enabled: Boolean) =
+        applyPreferences(_state.value.preferences.copy(checkUpdates = enabled))
+
+    // --- Обновление приложения ----------------------------------------------
+
+    /** Без предела на весь запрос: apk весит до сотни мегабайт, см. UpdateDownloader. */
+    private val updateHttp by lazy { UpdateDownloader.downloadHttpClient() }
+
+    private fun appVersion(): String? = runCatching {
+        val context = getApplication<Application>()
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    }.getOrNull()
+
+    /**
+     * @param manual по кнопке. Проверка при запуске молчит, если обновляться
+     *        не на что или сети нет; по кнопке молчать нельзя — человек ждёт ответа.
+     */
+    fun checkForUpdates(manual: Boolean = false) {
+        val current = appVersion() ?: return
+        viewModelScope.launch {
+            val release = withContext(Dispatchers.IO) { AppReleases.newest(updateHttp, current) }
+            if (release == null) {
+                if (manual) showNotice(strings.updateUpToDate(current))
+                return@launch
+            }
+            _state.update {
+                it.copy(
+                    update = MobileUpdate(
+                        version = release.version,
+                        pageUrl = release.htmlUrl,
+                        asset = AppUpdate.assetFor(release.assets, AppUpdate.deviceAbis()),
+                        checksums = release.asset(AppUpdate.CHECKSUMS),
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * Скачивает apk, сверяет сумму и отдаёт системному установщику.
+     *
+     * Первый раз Android попросит разрешить OpenDisk установку приложений —
+     * тогда открываем этот экран и ждём второго нажатия: вернуться сюда
+     * сами мы не можем, ответ приходит в настройки системы.
+     */
+    fun installUpdate() {
+        val update = _state.value.update ?: return
+        if (update.downloading) return
+        val context = getApplication<Application>()
+        val asset = update.asset ?: return showNotice(strings.updateNoPackage)
+        if (!AppUpdate.canInstall(context)) {
+            showNotice(strings.updateAllowInstall)
+            AppUpdate.requestInstallPermission(context)
+            return
+        }
+
+        setUpdate { it.copy(downloading = true, progress = null) }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                UpdateDownloader(updateHttp).download(asset, update.checksums, File(context.cacheDir, "updates")) { done, total ->
+                    val progress = total?.takeIf { it > 0 }?.let { (done.toDouble() / it).toFloat() }
+                    // Перерисовывать экран на каждые 64 КБ незачем — хватит
+                    // смены целого процента.
+                    val shown = _state.value.update?.progress
+                    if (progress == null || shown == null || (progress * 100).toInt() != (shown * 100).toInt()) {
+                        setUpdate { it.copy(progress = progress) }
+                    }
+                }
+            }
+            setUpdate { it.copy(downloading = false, progress = null) }
+            when (result) {
+                is UpdateDownloader.Result.Downloaded ->
+                    runCatching { withContext(Dispatchers.IO) { AppUpdate.install(context, result.file) } }
+                        .onFailure { showNotice(strings.updateInstallFailed(it.message)) }
+                is UpdateDownloader.Result.Failed -> showNotice(
+                    when (result.reason) {
+                        UpdateDownloader.Reason.NO_CHECKSUMS -> strings.updateNoChecksums
+                        UpdateDownloader.Reason.DOWNLOAD_FAILED -> strings.updateDownloadFailed
+                        UpdateDownloader.Reason.CHECKSUM_MISMATCH -> strings.updateChecksumMismatch
+                    },
+                )
+            }
+        }
+    }
+
+    private fun setUpdate(change: (MobileUpdate) -> MobileUpdate) =
+        _state.update { current -> current.copy(update = current.update?.let(change)) }
 
     /**
      * Сохраняет настройки и рассказывает о них системе.
