@@ -140,6 +140,13 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
     private var client: RcloneClient? = null
 
+    /**
+     * Без предела на весь запрос: apk весит до сотни мегабайт, см. UpdateDownloader.
+     * Объявлен до `init`: тот зовёт проверку обновлений, а свойства класса
+     * инициализируются по порядку — ниже блока `init` здесь был бы null.
+     */
+    private val updateHttp by lazy { UpdateDownloader.downloadHttpClient() }
+
     init {
         viewModelScope.launch {
             // Первый вызов распаковывает нативную библиотеку — это заметно
@@ -708,9 +715,6 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         applyPreferences(_state.value.preferences.copy(checkUpdates = enabled))
 
     // --- Обновление приложения ----------------------------------------------
-
-    /** Без предела на весь запрос: apk весит до сотни мегабайт, см. UpdateDownloader. */
-    private val updateHttp by lazy { UpdateDownloader.downloadHttpClient() }
 
     private fun appVersion(): String? = runCatching {
         val context = getApplication<Application>()
