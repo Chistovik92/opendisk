@@ -229,7 +229,7 @@ class RcloneController(
                 return@launch
             }
 
-            client = RcloneClient(rcd.rcBaseUrl)
+            client = RcloneClient(rcd.rcBaseUrl, credentials = rcd.credentials)
             becomeReadyOrAskPassword()
         }
     }
@@ -312,7 +312,7 @@ class RcloneController(
             // Следующий круг сторожа попробует ещё раз, пока не кончится лимит.
             return
         }
-        client = RcloneClient(rcd.rcBaseUrl)
+        client = RcloneClient(rcd.rcBaseUrl, credentials = rcd.credentials)
         pendingRemount = wereMounted
         becomeReadyOrAskPassword()
     }

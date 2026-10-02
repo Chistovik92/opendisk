@@ -37,6 +37,12 @@ class RcloneProcess(
     private var process: Process? = null
 
     /**
+     * Пароль к RC API этого запуска. Свой у каждого экземпляра: rcd слушает
+     * порт на всей машине, и без пароля команды ему мог бы слать кто угодно.
+     */
+    val credentials: RcCredentials = RcCredentials.random()
+
+    /**
      * Последние строки вывода rcd. Нужны, чтобы при падении процесса показать
      * пользователю причину, а не просто "не удалось запустить".
      */
@@ -52,7 +58,6 @@ class RcloneProcess(
             rclonePath,
             "rcd",
             "--rc-addr=$rcAddr",
-            "--rc-no-auth", // локальный процесс на localhost, отдельная авторизация избыточна
             // Пароль от зашифрованного конфига спрашивает GUI и передаёт сюда.
             // Без этого флага rcd на зашифрованном конфиге просто повиснет,
             // ожидая ввода пароля в stdin, которого у него нет.
@@ -69,6 +74,10 @@ class RcloneProcess(
                     configPassword?.let { password ->
                         environment()[RcloneConfigFile.PASSWORD_ENV] = password
                     }
+                    // Пароль к RC API — туда же и по той же причине. rclone читает
+                    // флаги --rc-user и --rc-pass из этих переменных.
+                    environment()["RCLONE_RC_USER"] = credentials.user
+                    environment()["RCLONE_RC_PASS"] = credentials.password
                 }
                 .start()
         } catch (e: IOException) {

@@ -31,6 +31,28 @@ class RcloneProcessTest {
         }
 
     @Test
+    fun `every process gets its own long random password`() {
+        val first = RcloneProcess(rclonePath = "x").credentials
+        val second = RcloneProcess(rclonePath = "x").credentials
+
+        assertTrue(first.password.length >= 40, "256 бит в base64 — не короче 43 знаков")
+        assertTrue(first.password != second.password)
+        assertEquals("opendisk", first.user)
+    }
+
+    @Test
+    fun `password does not leak through toString`() {
+        val credentials = RcCredentials("opendisk", "секрет")
+        assertTrue("секрет" !in credentials.toString())
+    }
+
+    @Test
+    fun `basic auth header is standard`() {
+        // «opendisk:pass» в base64 — как это делает любой клиент.
+        assertEquals("Basic b3BlbmRpc2s6cGFzcw==", RcCredentials("opendisk", "pass").basicAuthHeader())
+    }
+
+    @Test
     fun `rcBaseUrl formats address correctly`() {
         val process = RcloneProcess(rclonePath = "rclone", rcAddr = "127.0.0.1:5572")
         assertTrue(process.rcBaseUrl == "http://127.0.0.1:5572")

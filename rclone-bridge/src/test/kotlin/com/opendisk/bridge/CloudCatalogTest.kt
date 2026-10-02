@@ -123,7 +123,7 @@ class CloudCatalogTest {
         process.start()
         runBlocking { process.awaitReady() }
 
-        val providers = RcloneClient(process.rcBaseUrl).use { runBlocking { it.providers() } }
+        val providers = RcloneClient(process.rcBaseUrl, credentials = process.credentials).use { runBlocking { it.providers() } }
             .associateBy { it.type }
 
         val problems = CloudCatalog.services.flatMap { service ->

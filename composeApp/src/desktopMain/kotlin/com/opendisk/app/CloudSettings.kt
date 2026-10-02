@@ -3,6 +3,9 @@ package com.opendisk.app
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * Настройки подключения одного облака.
@@ -105,33 +108,46 @@ class AppSettings(private val file: File) {
         val global: GlobalSettings = GlobalSettings(),
     )
 
-    private fun read(): Stored = runCatching {
+    /**
+     * Читать и менять настройки приходится из разных корутин: «прочитал, поправил,
+     * записал» без замка теряло правку соседа — настройки двух облаков,
+     * сохранённые одновременно, затирали друг друга.
+     */
+    private val lock = Any()
+
+    private fun read(): Stored {
         if (!file.isFile) return Stored()
-        json.decodeFromString<Stored>(file.readText())
-    }.getOrDefault(Stored())
+        return runCatching { json.decodeFromString<Stored>(file.readText()) }.getOrElse {
+            // Испорченный файл не выбрасываем молча: следующая запись положила
+            // бы на его место значения по умолчанию, и точки подключения всех
+            // облаков пропали бы насовсем. Копия остаётся рядом.
+            runCatching { file.copyTo(File(file.parentFile, file.name + ".broken"), overwrite = true) }
+            Stored()
+        }
+    }
 
-    fun load(): Map<String, CloudSettings> = read().clouds
+    fun load(): Map<String, CloudSettings> = synchronized(lock) { read().clouds }
 
-    fun global(): GlobalSettings = read().global
+    fun global(): GlobalSettings = synchronized(lock) { read().global }
 
-    fun updateGlobal(updated: GlobalSettings) {
+    fun updateGlobal(updated: GlobalSettings) = synchronized(lock) {
         write(read().copy(global = updated))
     }
 
     fun forCloud(name: String): CloudSettings = load()[name] ?: CloudSettings()
 
-    fun update(name: String, settings: CloudSettings) {
-        save(load() + (name to settings))
+    fun update(name: String, settings: CloudSettings) = synchronized(lock) {
+        save(read().clouds + (name to settings))
     }
 
-    fun forget(name: String) {
-        save(load() - name)
+    fun forget(name: String) = synchronized(lock) {
+        save(read().clouds - name)
     }
 
     /** При переименовании облака настройки должны переехать вместе с ним. */
-    fun rename(from: String, to: String) {
-        val current = load()
-        val moved = current[from] ?: return
+    fun rename(from: String, to: String) = synchronized(lock) {
+        val current = read().clouds
+        val moved = current[from] ?: return@synchronized
         save(current - from + (to to moved))
     }
 
@@ -139,10 +155,21 @@ class AppSettings(private val file: File) {
         write(read().copy(clouds = clouds))
     }
 
+    /**
+     * Запись через временный файл и переименование: обрыв посередине (питание,
+     * убитый процесс, полный диск) оставляет прежний файл целым, а не обрезок,
+     * из которого потом читаются одни значения по умолчанию.
+     */
     private fun write(stored: Stored) {
         runCatching {
             file.parentFile?.mkdirs()
-            file.writeText(json.encodeToString(Stored.serializer(), stored))
+            val temp = File(file.parentFile, file.name + ".tmp")
+            temp.writeText(json.encodeToString(Stored.serializer(), stored))
+            try {
+                Files.move(temp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (e: AtomicMoveNotSupportedException) {
+                Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
         }
     }
 

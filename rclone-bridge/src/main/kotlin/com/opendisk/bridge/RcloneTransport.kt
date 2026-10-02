@@ -2,14 +2,18 @@ package com.opendisk.bridge
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.io.Closeable
+import java.security.SecureRandom
+import java.util.Base64
 
 /**
  * Способ доставки вызова до rclone.
@@ -37,17 +41,19 @@ interface RcloneTransport : Closeable {
 /**
  * Транспорт до отдельно запущенного `rclone rcd` по HTTP.
  *
- * Адрес берётся у [RcloneProcess.rcBaseUrl]. Аутентификации нет — процесс
+ * Адрес берётся у [RcloneProcess.rcBaseUrl], пароль — у [RcloneProcess.credentials]. Процесс
  * поднимается на петлевом интерфейсе со случайным портом и живёт ровно столько,
  * сколько приложение.
  */
 class HttpRcloneTransport(
     private val baseUrl: String,
     private val httpClient: HttpClient = defaultHttpClient(),
+    private val credentials: RcCredentials? = null,
 ) : RcloneTransport {
 
     override suspend fun rpc(endpoint: String, body: JsonObject): JsonObject {
         val response = httpClient.post("$baseUrl/$endpoint") {
+            credentials?.let { header(HttpHeaders.Authorization, it.basicAuthHeader()) }
             contentType(ContentType.Application.Json)
             // Тело сериализуем сами, а не отдаём объектом на откуп ContentNegotiation:
             // клиент сюда можно передать любой, и без установленного плагина
@@ -140,4 +146,33 @@ internal fun parseObject(endpoint: String, rawBody: String): JsonObject {
         statusCode = 200,
         rcloneError = "ожидался JSON-объект, получено: ${rawBody.take(200)}",
     )
+}
+
+/**
+ * Логин и пароль к RC API запущенного `rclone rcd`.
+ *
+ * До 0.6.0 rcd запускался с `--rc-no-auth`: «это локальный процесс, кому он
+ * нужен». Нужен любому, кто умеет отправить запрос на 127.0.0.1, — другой
+ * программе или другому пользователю этой же машины, а при формате запроса
+ * «как у формы» и обычной веб-странице. Через RC можно удалить файлы на
+ * подключённом диске или скопировать их куда угодно, поэтому теперь у каждого
+ * запуска свой случайный пароль: его знает только приложение, запустившее rcd.
+ */
+class RcCredentials(val user: String, val password: String) {
+
+    fun basicAuthHeader(): String =
+        "Basic " + Base64.getEncoder().encodeToString("$user:$password".toByteArray(Charsets.UTF_8))
+
+    // Пароль не должен попасть в журнал вместе с объектом.
+    override fun toString() = "RcCredentials(user=$user, password=***)"
+
+    companion object {
+        const val USER = "opendisk"
+
+        /** 256 бит из защищённого генератора: подобрать за время жизни процесса нельзя. */
+        fun random(): RcCredentials {
+            val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
+            return RcCredentials(USER, Base64.getUrlEncoder().withoutPadding().encodeToString(bytes))
+        }
+    }
 }

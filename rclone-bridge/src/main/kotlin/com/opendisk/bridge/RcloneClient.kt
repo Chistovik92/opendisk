@@ -49,7 +49,8 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
     constructor(
         baseUrl: String,
         httpClient: HttpClient = HttpRcloneTransport.defaultHttpClient(),
-    ) : this(HttpRcloneTransport(baseUrl, httpClient))
+        credentials: RcCredentials? = null,
+    ) : this(HttpRcloneTransport(baseUrl, httpClient, credentials))
 
     // --- Облака (remotes) ---------------------------------------------------
 

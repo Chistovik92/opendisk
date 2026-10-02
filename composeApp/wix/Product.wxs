@@ -33,7 +33,7 @@
              Languages="1049"
              SummaryCodepage="1251" />
 
-    <MediaTemplate EmbedCab="yes" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <!--
       UpgradeCode совпадает с тем, что использовал jpackage, — иначе новая

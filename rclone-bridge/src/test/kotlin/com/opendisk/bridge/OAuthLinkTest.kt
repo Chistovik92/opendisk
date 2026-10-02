@@ -65,7 +65,7 @@ class OAuthLinkTest {
         process.start()
         runBlocking { process.awaitReady() }
 
-        RcloneClient(process.rcBaseUrl).use { client ->
+        RcloneClient(process.rcBaseUrl, credentials = process.credentials).use { client ->
             runBlocking {
                 val creation = async(Dispatchers.IO) {
                     runCatching { client.createRemote("g", "drive", emptyMap()) }

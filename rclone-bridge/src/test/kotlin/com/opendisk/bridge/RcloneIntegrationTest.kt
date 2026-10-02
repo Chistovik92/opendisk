@@ -54,7 +54,28 @@ class RcloneIntegrationTest {
         rclone = process
         process.start()
         runBlocking { process.awaitReady() }
-        return process to RcloneClient(process.rcBaseUrl)
+        return process to RcloneClient(process.rcBaseUrl, credentials = process.credentials)
+    }
+
+    @Test
+    fun `a real rclone rcd refuses requests without the password`() {
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
+
+        val (process, client) = startRcd(plainConfig())
+        client.use {
+            // С паролем — работает.
+            assertTrue(runBlocking { client.version() }.version.startsWith("v"))
+
+            // Без пароля и с чужим — отказ 401. Раньше rcd запускался с
+            // --rc-no-auth, и команды ему мог слать кто угодно на этой машине.
+            for (credentials in listOf(null, RcCredentials("opendisk", "не тот пароль"), RcCredentials("кто-то", process.credentials.password))) {
+                val stranger = RcloneClient(process.rcBaseUrl, credentials = credentials)
+                stranger.use {
+                    val error = assertFailsWith<RcloneRcException> { runBlocking { stranger.version() } }
+                    assertEquals(401, error.statusCode, "credentials=$credentials")
+                }
+            }
+        }
     }
 
     @Test
