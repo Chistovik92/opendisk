@@ -1,0 +1,25 @@
+
+  # Проверка логики файлового менеджера — без приложения и без симулятора.
+  #
+  # Это чистые файлы на одном Foundation (список папки, закладки, категории,
+  # zip), и собираются они в отдельный пакет тестов для macOS: так проверка
+  # идёт за минуту на любом раннере, а не ждёт симулятор iPhone. Те же случаи
+  # проверяет android-app/src/test — интерфейс на телефонах один
+  # (docs/MOBILE-UI.md), и расхождение логики между ними — ошибка.
+  OpenDiskLogicTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources:
+      - path: OpenDiskTests
+      - path: OpenDisk/Entry.swift
+      - path: OpenDisk/FileListing.swift
+      - path: OpenDisk/Disks.swift
+      - path: OpenDisk/ZipArchive.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.opendisk.logictests
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        SWIFT_VERSION: "5.9"

@@ -11,16 +11,6 @@ struct RcloneError: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// Файл или папка в облаке. Поля названы как в ответе rclone.
-struct Entry: Decodable, Identifiable {
-    let Path: String
-    let Name: String
-    let Size: Int64
-    let IsDir: Bool
-
-    var id: String { Path }
-}
-
 /// Занятое и свободное место. Не каждый бэкенд это сообщает — отсюда
 /// необязательные поля.
 struct AboutInfo: Decodable {
@@ -276,6 +266,83 @@ final class Rclone: @unchecked Sendable {
                 ? $0.Name.lowercased() < $1.Name.lowercased()
                 : $0.IsDir
         }
+    }
+
+
+    // MARK: - Файловые операции
+    //
+    // Те же вызовы RC API, что на компьютере и Android (RcloneClient.kt):
+    // облако и папка на телефоне читаются одним rclone, поэтому копирование
+    // между ними — один вызов, без своего кода передачи.
+
+    /// Файловая система rclone для диска: у облака это «имя:», у папки на
+    /// телефоне — её путь.
+    func fs(for disk: Disk) -> String {
+        switch disk {
+        case .local: return Rclone.localRoot.path
+        case .cloud(let name): return "\(name):"
+        }
+    }
+
+    /// Папка OpenDisk на телефоне — «Документы» приложения, видны в «Файлах».
+    static var localRoot: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    /// Содержимое папки. Порядок rclone не обещает — упорядочивает экран ([arrange]).
+    /// `recursive` — всё поддерево сразу: так собираются категории.
+    func list(fs: String, path: String = "", recursive: Bool = false) async throws -> [Entry] {
+        var input: [String: Any] = ["fs": fs, "remote": path]
+        if recursive { input["opt"] = ["recurse": true, "noMimeType": true, "noModTime": false] }
+        return try await decode(ListResponse.self, "operations/list", input).list ?? []
+    }
+
+    /// `fs` + путь так, как rclone ждёт папку-источник: `облако:путь`.
+    static func joinFs(_ fs: String, _ path: String) -> String {
+        if path.isEmpty { return fs }
+        if fs.hasSuffix(":") { return fs + path }
+        return fs.hasSuffix("/") ? fs + path : fs + "/" + path
+    }
+
+    func mkdir(fs: String, path: String) async throws {
+        _ = try await call("operations/mkdir", ["fs": fs, "remote": path])
+    }
+
+    func deleteFile(fs: String, path: String) async throws {
+        _ = try await call("operations/deletefile", ["fs": fs, "remote": path])
+    }
+
+    /// Папка вместе со всем содержимым: `rmdir` убрал бы только пустую.
+    func purge(fs: String, path: String) async throws {
+        _ = try await call("operations/purge", ["fs": fs, "remote": path])
+    }
+
+    func copyFile(from srcFs: String, _ srcPath: String, to dstFs: String, _ dstPath: String) async throws {
+        _ = try await call("operations/copyfile", ["srcFs": srcFs, "srcRemote": srcPath, "dstFs": dstFs, "dstRemote": dstPath])
+    }
+
+    func moveFile(from srcFs: String, _ srcPath: String, to dstFs: String, _ dstPath: String) async throws {
+        _ = try await call("operations/movefile", ["srcFs": srcFs, "srcRemote": srcPath, "dstFs": dstFs, "dstRemote": dstPath])
+    }
+
+    /// У `copyfile` папок нет — для них `sync/copy`, где источник и цель уже сами папки.
+    func copyDir(from srcFs: String, _ srcPath: String, to dstFs: String, _ dstPath: String) async throws {
+        _ = try await call("sync/copy", [
+            "srcFs": Rclone.joinFs(srcFs, srcPath),
+            "dstFs": Rclone.joinFs(dstFs, dstPath),
+            "createEmptySrcDirs": true,
+        ])
+    }
+
+    func moveDir(from srcFs: String, _ srcPath: String, to dstFs: String, _ dstPath: String) async throws {
+        _ = try await call("sync/move", [
+            "srcFs": Rclone.joinFs(srcFs, srcPath),
+            "dstFs": Rclone.joinFs(dstFs, dstPath),
+            "createEmptySrcDirs": true,
+            "deleteEmptySrcDirs": true,
+        ])
+        // sync/move оставляет саму папку-источник, даже пустую.
+        _ = try? await call("operations/rmdirs", ["fs": srcFs, "remote": srcPath])
     }
 
     private struct LinkResponse: Decodable { let url: String }

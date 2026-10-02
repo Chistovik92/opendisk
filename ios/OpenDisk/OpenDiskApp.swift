@@ -5,16 +5,23 @@ struct OpenDiskApp: App {
 
     @AppStorage("theme") private var theme = AppTheme.auto.rawValue
     @AppStorage("language") private var language = AppLanguage.auto.rawValue
+    /// Общее состояние файлового менеджера: буфер, вид списка, закладки.
+    @StateObject private var files = FilesModel(strings: Strings.of(.auto))
 
     var body: some Scene {
         WindowGroup {
-            CloudListView(strings: Strings.of(AppLanguage(rawValue: language) ?? .auto))
+            CloudListView(strings: currentStrings)
+                .environmentObject(files)
+                .onAppear { files.strings = currentStrings }
+                .onChange(of: language) { _ in files.strings = currentStrings }
                 // Тема — из системы, пока человек не попросил иначе: nil
                 // означает «как на телефоне», включая переключение по
                 // расписанию.
                 .preferredColorScheme(colorScheme)
         }
     }
+
+    private var currentStrings: Strings { Strings.of(AppLanguage(rawValue: language) ?? .auto) }
 
     private var colorScheme: ColorScheme? {
         switch AppTheme(rawValue: theme) ?? .auto {

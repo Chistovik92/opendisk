@@ -1,0 +1,76 @@
+name: iOS
+
+# Быстрая проверка iPhone-части на каждое изменение: логика проверяется
+# тестами, приложение — сборкой. Полный выпуск (release.yml) идёт долго и
+# нужен ради .ipa, а здесь ответ приходит за несколько минут.
+#
+# Swift тут пишется без Mac под рукой, и компилятор на раннере — единственное
+# место, где его проверяют.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ios/**'
+      - 'docs/MOBILE-UI.md'
+      - '.github/workflows/ios.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  logic:
+    name: Тесты логики
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: XcodeGen
+        run: brew install xcodegen
+
+      - name: Тесты
+        run: |
+          cd ios
+          xcodegen generate
+          xcodebuild test \
+            -project OpenDisk.xcodeproj \
+            -scheme OpenDiskLogicTests \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+  build:
+    name: Сборка приложения
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ядро rclone для iOS
+        run: sh scripts/fetch-librclone-ios.sh
+
+      - name: JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Каталог сервисов
+        run: ./gradlew :rclone-bridge:exportCatalog --no-daemon
+
+      - name: XcodeGen
+        run: brew install xcodegen
+
+      - name: Собрать без подписи
+        run: |
+          cd ios
+          xcodegen generate
+          xcodebuild \
+            -project OpenDisk.xcodeproj \
+            -scheme OpenDisk \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
