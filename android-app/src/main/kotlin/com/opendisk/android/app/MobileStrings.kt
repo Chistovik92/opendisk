@@ -47,6 +47,14 @@ class MobileStrings(val russian: Boolean) {
     val catDocuments = t("Документы", "Documents")
     val catDownloads = t("Загрузки", "Downloads")
     val catNew = t("Новые", "New")
+    val needsSignIn = t("Нужно войти заново", "Sign-in needed")
+    val signInAgain = t("Войти заново", "Sign in again")
+    fun reauthNotificationTitle(cloud: String) = t("Нужно войти в «$cloud» заново", "Sign in to «$cloud» again")
+    val reauthNotificationText = t(
+        "Доступ к облаку истёк. Откройте OpenDisk и нажмите «Войти заново».",
+        "Access to the cloud has expired. Open OpenDisk and press “Sign in again”.",
+    )
+    val tokenChannel = t("Доступ к облакам", "Cloud access")
     val addBookmark = t("В закладки", "Add bookmark")
     val removeBookmark = t("Убрать из закладок", "Remove bookmark")
     val noBookmarks = t("Папку можно добавить в закладки через меню «⋮» в ней.", "Add a folder to bookmarks from the ⋮ menu inside it.")

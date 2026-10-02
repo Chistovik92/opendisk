@@ -87,6 +87,16 @@ class MobileSettings(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_STORAGE_ASKED, value).apply()
 
     /**
+     * Облака, у которых истёк доступ. Помнится между запусками: проверка идёт в
+     * фоне (TokenRefreshWorker), приложение при этом может быть закрыто, а
+     * человек должен увидеть «войти заново», как только его откроет.
+     */
+    var needsSignIn: Set<String>
+        get() = prefs.getStringSet(KEY_NEEDS_SIGN_IN, emptySet()).orEmpty().toSet()
+        // Копия обязательна: SharedPreferences хранит переданный набор по ссылке.
+        set(value) = prefs.edit().putStringSet(KEY_NEEDS_SIGN_IN, value.toSet()).apply()
+
+    /**
      * Спрашивали ли уже разрешение на работу в фоне. Системное окно показываем
      * один раз — при первом подключении облака; дальше это кнопка в настройках.
      */
@@ -108,6 +118,7 @@ class MobileSettings(context: Context) {
         const val KEY_CONNECTED = "connected"
         const val KEY_STATUS_ICON = "status_icon"
         const val KEY_CHECK_UPDATES = "check_updates"
+        const val KEY_NEEDS_SIGN_IN = "needs_sign_in"
         const val KEY_BOOKMARKS = "bookmarks"
         const val KEY_SORT = "sort"
         const val KEY_SORT_DESC = "sort_desc"

@@ -156,6 +156,7 @@ fun DisksScreen(
                 glyph = "☁",
                 title = cloud.name,
                 subtitle = listOfNotNull(
+                    strings.needsSignIn.takeIf { cloud.needsSignIn },
                     cloud.about?.describe(strings)?.takeIf { it.isNotEmpty() },
                     strings.visibleInFiles.takeIf { connected },
                 ).joinToString("  ·  "),
@@ -164,6 +165,18 @@ fun DisksScreen(
                 Box {
                     TextButton(onClick = { menu = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    strings.signInAgain,
+                                    color = if (cloud.needsSignIn) MaterialTheme.colorScheme.error else Color.Unspecified,
+                                )
+                            },
+                            onClick = {
+                                menu = false
+                                model.signInAgain(cloud.name)
+                            },
+                        )
                         DropdownMenuItem(
                             text = { Text(strings.showInFilesAction) },
                             trailingIcon = { Checkbox(checked = connected, onCheckedChange = null) },

@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.opendisk.android.LibrcloneTransport
 import com.opendisk.android.RcloneOutput
 import com.opendisk.bridge.AppReleases
+import com.opendisk.bridge.AuthErrors
 import com.opendisk.bridge.CatalogService
 import com.opendisk.bridge.CloudCatalog
 import com.opendisk.bridge.OAuthLink
@@ -32,6 +33,13 @@ data class CloudRow(
     val name: String,
     val about: RcloneClient.AboutInfo? = null,
     val supportsLinks: Boolean = false,
+    /**
+     * Доступ к облаку истёк — токен протух или отозван: нужно войти заново.
+     * У Google в режиме тестирования это случается раз в неделю, и вернуть
+     * облако на телефоне раньше можно было, только удалив и добавив его снова
+     * — с потерей настроек.
+     */
+    val needsSignIn: Boolean = false,
 )
 
 /** Вкладки внизу экрана. */
@@ -233,7 +241,7 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                     current.copy(
                         error = null,
                         clouds = names.map { name ->
-                            current.clouds.firstOrNull { it.name == name } ?: CloudRow(name)
+                            current.clouds.firstOrNull { it.name == name } ?: CloudRow(name, needsSignIn = name in settings.needsSignIn)
                         },
                     )
                 }
@@ -246,9 +254,14 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                 names.forEach { name ->
                     launch {
                         withTimeoutOrNull(CLOUD_INFO_TIMEOUT_MILLIS) {
-                            runCatching { api.about(name) }.getOrNull()?.let { about ->
-                                updateCloud(name) { it.copy(about = about) }
+                            val about = runCatching { api.about(name) }
+                            about.getOrNull()?.let { info ->
+                                updateCloud(name) { it.copy(about = info) }
+                                markSignedIn(name)
                             }
+                            // Протухший токен виден по ответу: отказ «не умею about» у части
+                            // бэкендов — обычное дело, а «invalid_grant» — нет.
+                            about.exceptionOrNull()?.let { e -> if (AuthErrors.isExpired(describe(e))) markNeedsSignIn(name) }
                             runCatching { api.fsInfo(name) }.getOrNull()?.let { info ->
                                 updateCloud(name) { it.copy(supportsLinks = info.supportsPublicLink) }
                             }
@@ -300,6 +313,9 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                     current.copy(browsing = open.copy(entries = entries, loading = false))
                 }
             } catch (e: Exception) {
+                // Вне update: тот может выполниться заново, а отметка протухшего
+                // доступа пишет в настройки.
+                noteCloudError(disk, describe(e))
                 _state.update { current ->
                     val open = current.browsing ?: return@update current
                     if (open.disk != disk || open.path != path) return@update current
@@ -844,6 +860,65 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                         reload()
                     }
                 }
+            }
+        }
+    }
+
+    // --- Повторный вход ---------------------------------------------------------
+
+    /** Облако признано протухшим: запоминаем, чтобы показать и после перезапуска. */
+    private fun markNeedsSignIn(name: String) {
+        settings.needsSignIn = settings.needsSignIn + name
+        updateCloud(name) { it.copy(needsSignIn = true) }
+    }
+
+    private fun markSignedIn(name: String) {
+        if (name in settings.needsSignIn) settings.needsSignIn = settings.needsSignIn - name
+        updateCloud(name) { it.copy(needsSignIn = false) }
+    }
+
+    /** Ошибка при чтении папки облака — протухший доступ ловится и здесь. */
+    private fun noteCloudError(disk: Disk, message: String) {
+        if (disk is Disk.Cloud && AuthErrors.isExpired(message)) markNeedsSignIn(disk.name)
+    }
+
+    /**
+     * Повторный вход в облако, у которого истёк доступ, — вместо совета rclone
+     * «rclone config reconnect», которого человеку с телефоном не выполнить.
+     * Имя и настройки остаются прежними, меняется только токен; вход идёт
+     * тем же путём, что и при добавлении, — вкладкой браузера.
+     */
+    fun signInAgain(name: String) {
+        val api = client ?: return
+        val staleLinks = RcloneOutput.recentLines().mapNotNull(OAuthLink::find).toSet()
+        val listener: (String) -> Unit = { line ->
+            val link = OAuthLink.find(line)?.takeIf { it !in staleLinks }
+            if (link != null) {
+                var cancelledEarly = false
+                _state.update { current ->
+                    val signIn = current.signIn
+                    if (signIn == null || signIn.link != null) return@update current
+                    cancelledEarly = signIn.cancelled
+                    current.copy(signIn = signIn.copy(link = link))
+                }
+                if (cancelledEarly) OAuthLink.cancel(link)
+            }
+        }
+        _state.update { it.copy(signIn = SignInState(cloud = name)) }
+        RcloneOutput.addListener(listener)
+        viewModelScope.launch {
+            try {
+                api.reauthorize(name)
+                markSignedIn(name)
+                _state.update { it.copy(signIn = null) }
+                reload()
+            } catch (e: Exception) {
+                val cancelled = _state.value.signIn?.cancelled == true
+                _state.update { it.copy(signIn = null) }
+                // Отменённый вход — не ошибка, говорить о нём нечего.
+                if (!cancelled) showNotice(describe(e))
+            } finally {
+                RcloneOutput.removeListener(listener)
             }
         }
     }

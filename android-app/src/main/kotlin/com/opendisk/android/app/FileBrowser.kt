@@ -57,6 +57,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.opendisk.bridge.AuthErrors
 import com.opendisk.bridge.RcloneClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -116,7 +117,17 @@ fun FileBrowser(state: MobileState, open: Browsing, model: OpenDiskModel) {
             Box(modifier = Modifier.weight(1f)) {
                 when {
                     open.loading -> CenteredNote(strings.readingFolder, spinner = true)
-                    open.error != null -> CenteredNote(open.error)
+                    open.error != null -> Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(open.error, modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // Доступ к облаку истёк — предлагаем вернуть его, а не оставляем с ошибкой.
+                        (open.disk as? Disk.Cloud)?.takeIf { AuthErrors.isExpired(open.error) }?.let { cloud ->
+                            Button(onClick = { model.signInAgain(cloud.name) }) { Text(strings.signInAgain) }
+                        }
+                    }
                     open.entries.isEmpty() -> CenteredNote(strings.emptyFolder)
                     shown.isEmpty() -> CenteredNote(strings.nothingFound)
                     options.view == ViewMode.GRID -> FileGrid(shown, open, strings, model)

@@ -89,6 +89,8 @@ import com.opendisk.bridge.RcloneClient
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Раз в сутки поддерживает токены облаков живыми (см. TokenRefreshWorker).
+        TokenRefreshWorker.schedule(applicationContext)
         setContent {
             val model: OpenDiskModel = viewModel()
             val state by model.state.collectAsState()
