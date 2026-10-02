@@ -118,3 +118,32 @@ enum FileCategory: CaseIterable {
         return parser.date(from: trimmed)?.timeIntervalSince1970
     }
 }
+
+/// Признаки того, что доступ к облаку истёк. Те же, что в
+/// rclone-bridge/.../AuthErrors.kt: rclone сам подсказывает «config reconnect»,
+/// а человеку с телефоном такую команду не выполнить.
+enum AuthErrors {
+
+    private static let markers = [
+        "invalid_grant",
+        "couldn't fetch token",
+        "token expired",
+        "config reconnect",
+        "empty token found",
+    ]
+
+    static func isExpired(_ message: String) -> Bool {
+        let lowered = message.lowercased()
+        return markers.contains { lowered.contains($0) }
+    }
+}
+
+/// Новый список «нужно войти заново» после фоновой проверки токенов.
+///
+/// Проверенные и отозвавшиеся из списка убираются, протухшие добавляются.
+/// Облака, до которых проверка не дошла (нет сети, долго не отвечали),
+/// остаются как были — по неудачной проверке о токене не судим. Удалённые
+/// облака пропадают вовсе. Зеркало `TokenRefreshWorker.merge` на Android.
+func mergeNeedsSignIn(before: Set<String>, existing: Set<String>, expired: Set<String>, unreachable: Set<String> = []) -> Set<String> {
+    Set(before.filter { existing.contains($0) && unreachable.contains($0) }).union(expired)
+}

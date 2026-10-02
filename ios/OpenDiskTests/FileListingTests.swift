@@ -131,6 +131,42 @@ final class FileListingTests: XCTestCase {
         XCTAssertEqual(itemsLabel(2, russian: false), "2 items")
     }
 
+    // MARK: - Повторный вход и токены
+    //
+    // Те же случаи, что в AuthErrorsTest.kt и TokenRefreshTest.kt на Android.
+
+    func testExpiredAccessIsRecognizedByRclonesOwnWords() {
+        XCTAssertTrue(AuthErrors.isExpired("oauth2: cannot fetch token: 400 Bad Request: invalid_grant"))
+        XCTAssertTrue(AuthErrors.isExpired("couldn't fetch token: maybe it has expired - refresh with \"rclone config reconnect gdrive:\""))
+        XCTAssertTrue(AuthErrors.isExpired("Token Expired"))
+        XCTAssertTrue(AuthErrors.isExpired("empty token found - please run rclone config again"))
+        XCTAssertFalse(AuthErrors.isExpired("no such host"))
+        XCTAssertFalse(AuthErrors.isExpired(""))
+    }
+
+    func testANewlyExpiredCloudIsAddedToTheList() {
+        XCTAssertEqual(mergeNeedsSignIn(before: [], existing: ["gdrive", "yandex"], expired: ["gdrive"]), ["gdrive"])
+    }
+
+    func testACloudThatAnsweredIsNoLongerMarked() {
+        // Вошли заново (или токен ожил) — ярлык снимается.
+        XCTAssertEqual(mergeNeedsSignIn(before: ["gdrive"], existing: ["gdrive"], expired: []), [])
+    }
+
+    func testACloudTheCheckCouldNotReachKeepsItsMark() {
+        // Нет сети: по неудачной проверке о токене не судим, ярлык остаётся как был.
+        XCTAssertEqual(mergeNeedsSignIn(before: ["gdrive"], existing: ["gdrive"], expired: [], unreachable: ["gdrive"]), ["gdrive"])
+        // И здоровому ярлык не вешается.
+        XCTAssertEqual(mergeNeedsSignIn(before: [], existing: ["yandex"], expired: [], unreachable: ["yandex"]), [])
+    }
+
+    func testADeletedCloudDisappearsFromTheList() {
+        XCTAssertEqual(
+            mergeNeedsSignIn(before: ["gdrive", "yandex"], existing: ["yandex"], expired: [], unreachable: ["yandex"]),
+            ["yandex"]
+        )
+    }
+
     // MARK: - Закладки и категории
 
     func testBookmarksSurviveBeingSavedAndLoadedInOrder() {

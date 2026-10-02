@@ -15,6 +15,8 @@ struct CloudListView: View {
     @State private var adding = false
     @State private var settings = false
     @State private var cloudToDelete: String?
+    /// Окно входа Apple при повторном входе в облако. При добавлении его открывает форма.
+    @StateObject private var webSignIn = WebSignIn()
 
     var body: some View {
         NavigationView {
@@ -34,7 +36,17 @@ struct CloudListView: View {
                 }
         }
         .navigationViewStyle(.stack)
-        .task { await model.reload() }
+        .task {
+            await model.reload()
+            // Экран папки просит повторный вход через это же окно.
+            files.signInAgain = { name in Task { await model.signInAgain(name) } }
+        }
+        .onChange(of: model.signIn?.link) { link in
+            if let link, model.signIn?.isReauth == true { webSignIn.start(link) { model.cancelSignIn() } }
+        }
+        .onChange(of: model.signIn == nil) { finished in
+            if finished { webSignIn.finish() }
+        }
         .sheet(isPresented: $adding) {
             AddCloudView(strings: strings, model: model)
         }
@@ -180,9 +192,10 @@ struct CloudListView: View {
         row(
             glyph: "☁",
             title: cloud.name,
-            subtitle: describe(cloud.about) ?? "",
+            subtitle: [cloud.needsSignIn ? strings.needsSignIn : nil, describe(cloud.about)].compactMap { $0 }.joined(separator: "  ·  "),
             destination: FileScreen(strings: strings, location: Location(disk: .cloud(cloud.name)))
         ) {
+            Button(strings.signInAgain) { Task { await model.signInAgain(cloud.name) } }
             Button(strings.delete, role: .destructive) { cloudToDelete = cloud.name }
         }
     }

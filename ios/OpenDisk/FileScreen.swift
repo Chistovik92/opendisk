@@ -292,7 +292,15 @@ struct FileScreen: View {
             ProgressView(strings.readingFolder)
             Spacer()
         } else if let error {
-            ScrollView { Text(error).foregroundColor(.red).padding() }
+            VStack(spacing: 12) {
+                ScrollView { Text(error).foregroundColor(.red).padding() }
+                // Доступ к облаку истёк — предлагаем вернуть его, а не оставляем с ошибкой.
+                if let name = cloudName, AuthErrors.isExpired(error) {
+                    Button(strings.signInAgain) { files.signInAgain(name) }
+                        .buttonStyle(.borderedProminent)
+                        .padding(.bottom, 16)
+                }
+            }
         } else if entries.isEmpty {
             Spacer()
             Text(strings.emptyFolder).foregroundColor(.secondary)

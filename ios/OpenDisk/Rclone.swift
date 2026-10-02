@@ -364,6 +364,42 @@ final class Rclone: @unchecked Sendable {
         _ = try await call("config/create", ["name": name, "type": type, "parameters": parameters])
     }
 
+    /// Настройки одного облака как есть: набор полей зависит от бэкенда.
+    func remoteConfig(_ name: String) async throws -> [String: Any] {
+        let data = try await call("config/get", ["name": name])
+        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
+    /// Меняются только переданные ключи — остальные остаются как были.
+    func updateRemote(_ name: String, parameters: [String: String]) async throws {
+        _ = try await call("config/update", ["name": name, "parameters": parameters])
+    }
+
+    /// Заново проходит вход у облака со входом через браузер — то же, что
+    /// `rclone config reconnect`, только через RC API (как `reauthorize` в
+    /// RcloneClient.kt).
+    ///
+    /// Протухший токен сначала стирается: пустое значение в `config/update`
+    /// удаляет ключ, иначе rclone увидел бы токен и не стал бы входить заново.
+    /// Дальше — `config/create` под тем же именем со всеми прежними настройками;
+    /// `noObscure`, потому что значения из конфига уже затемнены.
+    func reauthorize(_ name: String) async throws {
+        let existing = try await remoteConfig(name)
+        guard let type = existing["type"] as? String else {
+            throw RcloneError(message: "у облака '\(name)' не указан тип")
+        }
+        try await updateRemote(name, parameters: ["token": ""])
+        var parameters = existing
+        parameters["type"] = nil
+        parameters["token"] = nil
+        _ = try await call("config/create", [
+            "name": name,
+            "type": type,
+            "parameters": parameters,
+            "opt": ["noObscure": true],
+        ])
+    }
+
     func deleteRemote(_ name: String) async throws {
         _ = try await call("config/delete", ["name": name])
     }

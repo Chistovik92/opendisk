@@ -45,6 +45,9 @@ final class FilesModel: ObservableObject {
     @Published private(set) var revision = 0
 
     var strings: Strings
+    /// Повторный вход в облако. Выставляет главный экран: окно входа Apple
+    /// открывает он, а экран папки только просит об этом.
+    var signInAgain: (String) -> Void = { _ in }
 
     init(strings: Strings) {
         self.strings = strings

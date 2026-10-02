@@ -190,7 +190,7 @@ private struct ServiceForm: View {
         // Окно входа открывается, как только rclone напечатал ссылку, и
         // закрывается, как только вход закончился — удачно или нет.
         .onChange(of: model.signIn?.link) { link in
-            if let link { webSignIn.start(link) { model.cancelSignIn() } }
+            if let link, model.signIn?.isReauth != true { webSignIn.start(link) { model.cancelSignIn() } }
         }
         .onChange(of: model.signIn == nil) { finished in
             if finished { webSignIn.finish() }

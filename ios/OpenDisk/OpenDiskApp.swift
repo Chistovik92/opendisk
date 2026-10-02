@@ -8,12 +8,23 @@ struct OpenDiskApp: App {
     /// Общее состояние файлового менеджера: буфер, вид списка, закладки.
     @StateObject private var files = FilesModel(strings: Strings.of(.auto))
 
+    @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        // До конца запуска: после него система регистрацию уже не примет.
+        TokenRefresh.register()
+    }
+
     var body: some Scene {
         WindowGroup {
             CloudListView(strings: currentStrings)
                 .environmentObject(files)
                 .onAppear { files.strings = currentStrings }
                 .onChange(of: language) { _ in files.strings = currentStrings }
+                // Уходим в фон — просим систему проверить токены облаков позже.
+                .onChange(of: scenePhase) { phase in
+                    if phase == .background { TokenRefresh.schedule() }
+                }
                 // Тема — из системы, пока человек не попросил иначе: nil
                 // означает «как на телефоне», включая переключение по
                 // расписанию.
@@ -37,6 +48,8 @@ struct Cloud: Identifiable {
     let name: String
     var about: AboutInfo?
     var supportsLinks = false
+    /// Доступ к облаку истёк — токен протух или отозван: нужно войти заново.
+    var needsSignIn = false
 
     var id: String { name }
 }
@@ -54,7 +67,7 @@ final class CloudsModel: ObservableObject {
         do {
             let names = try await Rclone.shared.remotes()
             clouds = names.map { name in
-                clouds.first { $0.name == name } ?? Cloud(name: name)
+                clouds.first { $0.name == name } ?? Cloud(name: name, needsSignIn: TokenRefresh.needsSignIn.contains(name))
             }
             error = nil
             starting = false
@@ -64,8 +77,14 @@ final class CloudsModel: ObservableObject {
             // проглатываем отказы: часть бэкендов этого не умеет, и общий
             // список не должен из-за них оставаться пустым.
             for name in names {
-                if let about = try? await Rclone.shared.about(name) {
+                do {
+                    let about = try await Rclone.shared.about(name)
                     update(name) { $0.about = about }
+                    markSignedIn(name)
+                } catch {
+                    // Протухший токен виден по ответу: отказ «не умею about» у части
+                    // бэкендов — обычное дело, а «invalid_grant» — нет.
+                    if AuthErrors.isExpired(error.localizedDescription) { markNeedsSignIn(name) }
                 }
                 if let info = try? await Rclone.shared.fsInfo(name) {
                     update(name) { $0.supportsLinks = info.supportsPublicLink }
@@ -88,6 +107,53 @@ final class CloudsModel: ObservableObject {
         var link: String?
         /// Человек нажал «Отмена»: ошибку «access_denied» показывать не нужно.
         var cancelled = false
+        /// Повторный вход в уже подключённое облако, а не добавление нового.
+        /// Окно входа открывает тот экран, который начал вход: у добавления это
+        /// форма, у повторного входа — список облаков, и открывать его дважды нельзя.
+        var isReauth = false
+    }
+
+    // MARK: - Повторный вход
+
+    func markNeedsSignIn(_ name: String) {
+        TokenRefresh.needsSignIn.insert(name)
+        update(name) { $0.needsSignIn = true }
+    }
+
+    func markSignedIn(_ name: String) {
+        if TokenRefresh.needsSignIn.contains(name) { TokenRefresh.needsSignIn.remove(name) }
+        update(name) { $0.needsSignIn = false }
+    }
+
+    /// Повторный вход в облако, у которого истёк доступ, — вместо совета rclone
+    /// «rclone config reconnect», которого человеку с телефоном не выполнить.
+    /// Имя и настройки остаются прежними, меняется только токен; вход идёт тем
+    /// же путём, что и при добавлении, — окном входа Apple.
+    func signInAgain(_ name: String) async {
+        let stale = Set(RcloneLog.shared.recentLines().compactMap { OAuthLink.find(in: $0) })
+        signIn = SignIn(cloud: name, isReauth: true)
+        let listener = RcloneLog.shared.addListener { [weak self] line in
+            guard let link = OAuthLink.find(in: line), !stale.contains(link) else { return }
+            Task { @MainActor in
+                guard let self, var current = self.signIn, current.link == nil else { return }
+                current.link = link
+                self.signIn = current
+                if current.cancelled { OAuthLink.cancel(link) }
+            }
+        }
+        defer { RcloneLog.shared.removeListener(listener) }
+
+        do {
+            try await Rclone.shared.reauthorize(name)
+            markSignedIn(name)
+            signIn = nil
+            await reload()
+        } catch {
+            let cancelled = signIn?.cancelled == true
+            signIn = nil
+            // Отменённый вход — не ошибка, говорить о нём нечего.
+            if !cancelled { self.error = error.localizedDescription }
+        }
     }
 
     func loadAllServices() async {

@@ -54,6 +54,12 @@ targets:
         # Файлы приложения видны в «Файлах»: туда кладётся rclone.conf,
         # перенесённый с компьютера, и оттуда же его можно забрать.
         UIFileSharingEnabled: true
+        # Проверка токенов облаков в фоне (TokenRefresh.swift): без этих двух
+        # ключей система не даст зарегистрировать фоновую задачу.
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.opendisk.ios.token-refresh
         LSSupportsOpeningDocumentsInPlace: true
         # Отмена входа через браузер — запрос на http://127.0.0.1 к серверу
         # подтверждения, который rclone поднимает внутри приложения. Без этой

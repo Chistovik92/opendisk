@@ -116,7 +116,11 @@ struct Strings {
     // Названия те же, что в android-app/.../MobileStrings.kt: интерфейс на
     // телефонах один, см. docs/MOBILE-UI.md.
 
-    var sectionDevice: String { t("На этом телефоне", "On this phone") }
+    var needsSignIn: String { t("Нужно войти заново", "Sign-in needed") }
+    var signInAgain: String { t("Войти заново", "Sign in again") }
+
+    var sectionDevice: String
+ { t("На этом телефоне", "On this phone") }
     var phoneStorage: String { t("Папка OpenDisk", "OpenDisk folder") }
     var sectionCategories: String { t("Категории", "Categories") }
     var sectionBookmarks: String { t("Закладки", "Bookmarks") }
