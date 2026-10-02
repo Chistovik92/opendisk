@@ -62,33 +62,46 @@ class DocumentsStreamingTest {
 
     private fun document(id: String): Uri = DocumentsContract.buildDocumentUri(OpenDiskDocumentsProvider.AUTHORITY, id)
 
-    @Test
-    fun aLargeFileIsReadFromTheMiddleWithoutDownloadingIt() {
-        val uri = document("$CLOUD/кино с пробелом.mp4")
-
-        resolver.openFileDescriptor(uri, "r")!!.use { descriptor ->
-            FileInputStream(descriptor.fileDescriptor).channel.use { channel ->
-                assertEquals(content.size.toLong(), descriptor.statSize.takeIf { it >= 0 } ?: content.size.toLong())
-
-                // Три места: начало, середина и самый конец — как перемотка в плеере.
-                for (offset in listOf(0L, 5_000_000L, content.size - 4096L)) {
-                    val buffer = java.nio.ByteBuffer.allocate(4096)
-                    channel.position(offset)
-                    var read = 0
-                    while (buffer.hasRemaining()) {
-                        val count = channel.read(buffer)
-                        if (count < 0) break
-                        read += count
-                    }
-                    assertEquals(4096, read, "по смещению $offset прочитано $read")
-                    assertContentEquals(
-                        content.copyOfRange(offset.toInt(), offset.toInt() + 4096),
-                        buffer.array(),
-                        "байты по смещению $offset не совпали с файлом",
-                    )
+    /** Читает по четыре килобайта в трёх местах — как перемотка в плеере — и сверяет с файлом. */
+    private fun assertReadsPiecesFrom(descriptor: android.os.ParcelFileDescriptor) {
+        FileInputStream(descriptor.fileDescriptor).channel.use { channel ->
+            for (offset in listOf(0L, 5_000_000L, content.size - 4096L)) {
+                val buffer = java.nio.ByteBuffer.allocate(4096)
+                channel.position(offset)
+                var read = 0
+                while (buffer.hasRemaining()) {
+                    val count = channel.read(buffer)
+                    if (count < 0) break
+                    read += count
                 }
+                assertEquals(4096, read, "по смещению $offset прочитано $read")
+                assertContentEquals(
+                    content.copyOfRange(offset.toInt(), offset.toInt() + 4096),
+                    buffer.array(),
+                    "байты по смещению $offset не совпали с файлом",
+                )
             }
         }
+    }
+
+    /**
+     * Напрямую, без поставщика: если здесь что-то не работает на настоящем
+     * Android, отчёт покажет причину, а не молчаливый откат на скачивание.
+     */
+    @Test
+    fun theStreamServerStartsAndSystemReadsPiecesFromIt() {
+        val streams = CloudStreams { client }
+        val storage = context.getSystemService(android.os.storage.StorageManager::class.java)
+        try {
+            streams.open(storage, CLOUD, "кино с пробелом.mp4", content.size.toLong()).use { assertReadsPiecesFrom(it) }
+        } finally {
+            streams.stopAll()
+        }
+    }
+
+    @Test
+    fun aLargeFileIsReadFromTheMiddleWithoutDownloadingIt() {
+        resolver.openFileDescriptor(document("$CLOUD/кино с пробелом.mp4"), "r")!!.use { assertReadsPiecesFrom(it) }
 
         // Файл не скачивался: целой копии в кэше нет — читалось кусками.
         val cached = File(context.cacheDir, "documents").walkTopDown().filter { it.isFile && it.length() == content.size.toLong() }.toList()
