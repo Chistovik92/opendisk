@@ -48,8 +48,16 @@ data class Browsing(
     val selected: Set<String> = emptySet(),
     /** Строка поиска по имени в этой папке; null — поиск закрыт. */
     val query: String? = null,
+    /**
+     * Не папка, а категория («Изображения», «Загрузки»…): файлы из разных
+     * папок одним списком. Пути у них настоящие, поэтому операции те же, а
+     * вставлять и создавать здесь нельзя — «текущей папки» нет.
+     */
+    val category: FileCategory? = null,
 ) {
     val selecting: Boolean get() = selected.isNotEmpty()
+
+    val virtual: Boolean get() = category != null
 
     /** Путь на родительский уровень или null, если мы в корне. */
     val parent: String? get() = when {
@@ -301,7 +309,32 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshFolder() {
         val current = _state.value.browsing ?: return
+        current.category?.let { return openCategory(it) }
         open(current.disk, current.path)
+    }
+
+    /** Категория главного экрана: файлы одного рода со всей памяти телефона. */
+    fun openCategory(category: FileCategory) {
+        val disk = LocalVolumes.primary()
+        _state.update { it.copy(browsing = Browsing(disk = disk, category = category)) }
+        viewModelScope.launch {
+            try {
+                val entries = withContext(Dispatchers.IO) {
+                    Categories.load(getApplication(), category, disk.root)
+                }
+                _state.update { current ->
+                    val open = current.browsing
+                    if (open?.category != category) return@update current
+                    current.copy(browsing = open.copy(entries = entries, loading = false))
+                }
+            } catch (e: Exception) {
+                _state.update { current ->
+                    val open = current.browsing ?: return@update current
+                    if (open.category != category) return@update current
+                    current.copy(browsing = open.copy(loading = false, error = describe(e)))
+                }
+            }
+        }
     }
 
     fun closeBrowser() {
@@ -310,6 +343,7 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
     fun createFolder(name: String) {
         val open = _state.value.browsing ?: return
+        if (open.virtual) return
         val clean = name.trim().trim('/')
         if (clean.isEmpty()) return
         runOperation(strings.creatingFolder) {
@@ -321,14 +355,16 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         val open = _state.value.browsing ?: return
         val clean = newName.trim().trim('/')
         if (clean.isEmpty() || clean == entry.name) return
-        // Занятое имя — отказ, а не молчаливая замена соседа: переименование
-        // без возможности вернуть чужой файл хуже, чем сообщение «имя занято».
-        if (open.entries.any { it.name == clean }) {
-            _state.update { it.copy(notice = strings.nameTaken(clean)) }
-            return
-        }
         val parent = entry.path.substringBeforeLast('/', "")
         runOperation(strings.renaming) {
+            // Занятое имя — отказ, а не молчаливая замена соседа: переименование
+            // без возможности вернуть чужой файл хуже, чем сообщение «имя занято».
+            // В категории список — не одна папка, поэтому соседей читаем с диска.
+            val siblings = if (open.virtual) listDisk(open.disk, parent).map { it.name }.toSet() else open.entries.map { it.name }.toSet()
+            if (clean in siblings) {
+                _state.update { it.copy(notice = strings.nameTaken(clean)) }
+                return@runOperation
+            }
             transfer(open.disk, entry, open.disk, childPath(parent, clean), move = true)
         }
     }
@@ -353,6 +389,7 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
      */
     fun createFile(name: String) {
         val open = _state.value.browsing ?: return
+        if (open.virtual) return
         val clean = name.trim().trim('/')
         if (clean.isEmpty()) return
         if (open.entries.any { it.name == clean }) {
@@ -393,6 +430,23 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
 
     fun setListing(options: ListingOptions) = applyPreferences(_state.value.preferences.copy(listing = options))
 
+    // --- Закладки --------------------------------------------------------------
+
+    /** Папка уже в закладках? Категории в закладки не кладутся — у них нет пути. */
+    fun isBookmarked(open: Browsing): Boolean =
+        !open.virtual && Bookmark(open.disk, open.path).key in _state.value.preferences.bookmarks.map { it.key }
+
+    fun toggleBookmark(open: Browsing) {
+        if (open.virtual) return
+        val current = _state.value.preferences.bookmarks
+        val bookmark = Bookmark(open.disk, open.path)
+        val updated = if (bookmark.key in current.map { it.key }) current.filterNot { it.key == bookmark.key } else current + bookmark
+        applyPreferences(_state.value.preferences.copy(bookmarks = updated))
+    }
+
+    fun removeBookmark(bookmark: Bookmark) =
+        applyPreferences(_state.value.preferences.copy(bookmarks = _state.value.preferences.bookmarks.filterNot { it.key == bookmark.key }))
+
     /** «Копировать» или «Вырезать»: запоминаем, вставка — в любой папке любого диска. */
     fun clip(entry: RcloneClient.Entry, move: Boolean) = clip(listOf(entry), move)
 
@@ -408,6 +462,7 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
     fun paste() {
         val clip = _state.value.clip ?: return
         val open = _state.value.browsing ?: return
+        if (open.virtual) return
         // Занятые в папке имена: копии друг друга внутри одной вставки тоже
         // не должны совпасть, поэтому набор пополняется по ходу.
         val taken = open.entries.map { it.name }.toMutableSet()

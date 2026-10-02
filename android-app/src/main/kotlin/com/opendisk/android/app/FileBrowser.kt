@@ -108,7 +108,7 @@ fun FileBrowser(state: MobileState, open: Browsing, model: OpenDiskModel) {
                             overflow = TextOverflow.Ellipsis,
                         )
                         TextButton(onClick = model::cancelClip) { Text(strings.cancel) }
-                        Button(onClick = model::paste, enabled = state.operation == null) { Text(strings.pasteHere) }
+                        Button(onClick = model::paste, enabled = state.operation == null && !open.virtual) { Text(strings.pasteHere) }
                     }
                 }
             }
@@ -138,7 +138,7 @@ fun FileBrowser(state: MobileState, open: Browsing, model: OpenDiskModel) {
             }
         }
 
-        if (!open.selecting && open.query == null && !open.loading && open.error == null) {
+        if (!open.selecting && open.query == null && !open.loading && open.error == null && !open.virtual) {
             AddButton(
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 strings = strings,
@@ -219,7 +219,8 @@ private fun BrowserBar(open: Browsing, options: ListingOptions, model: OpenDiskM
             if (parent == null) model.closeBrowser() else model.open(open.disk, parent)
         }) { Text("←", style = MaterialTheme.typography.titleLarge) }
         Text(
-            if (open.path.isEmpty()) diskTitle(open.disk, strings) else open.path.substringAfterLast('/'),
+            open.category?.let { categoryTitle(it, strings) }
+                ?: if (open.path.isEmpty()) diskTitle(open.disk, strings) else open.path.substringAfterLast('/'),
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.titleMedium,
             maxLines = 1,
@@ -262,14 +263,23 @@ private fun BrowserBar(open: Browsing, options: ListingOptions, model: OpenDiskM
                     onClick = { model.setListing(options.copy(showHidden = !options.showHidden)) },
                 )
                 HorizontalDivider()
-                DropdownMenuItem(text = { Text(strings.newFolder) }, onClick = {
-                    menu = false
-                    onCreate(Creating.FOLDER)
-                })
-                DropdownMenuItem(text = { Text(strings.newFile) }, onClick = {
-                    menu = false
-                    onCreate(Creating.FILE)
-                })
+                if (!open.virtual) {
+                    DropdownMenuItem(
+                        text = { Text(if (model.isBookmarked(open)) strings.removeBookmark else strings.addBookmark) },
+                        onClick = {
+                            menu = false
+                            model.toggleBookmark(open)
+                        },
+                    )
+                    DropdownMenuItem(text = { Text(strings.newFolder) }, onClick = {
+                        menu = false
+                        onCreate(Creating.FOLDER)
+                    })
+                    DropdownMenuItem(text = { Text(strings.newFile) }, onClick = {
+                        menu = false
+                        onCreate(Creating.FILE)
+                    })
+                }
                 DropdownMenuItem(text = { Text(strings.refresh) }, onClick = {
                     menu = false
                     model.refreshFolder()
@@ -323,7 +333,11 @@ private fun SearchBar(query: String, model: OpenDiskModel) {
 @Composable
 private fun Crumbs(open: Browsing, model: OpenDiskModel) {
     val strings = model.strings
-    val crumbs = remember(open.disk, open.path) { breadcrumbs(diskTitle(open.disk, strings), open.path) }
+    val crumbs = remember(open.disk, open.path, open.category) {
+        // У категории нет пути — «Изображения» одной ступенью.
+        open.category?.let { listOf(Crumb(categoryTitle(it, strings), "")) }
+            ?: breadcrumbs(diskTitle(open.disk, strings), open.path)
+    }
     val list = rememberLazyListState()
     // Глубокий путь не помещается — показываем его конец, где человек и находится.
     LaunchedEffect(crumbs.size) { list.scrollToItem(crumbs.lastIndex) }

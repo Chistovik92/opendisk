@@ -30,6 +30,8 @@ data class MobilePreferences(
     val checkUpdates: Boolean = true,
     /** Как показывать папки: сортировка, скрытые файлы, строки или плитки. */
     val listing: ListingOptions = ListingOptions(),
+    /** Закладки главного экрана — папки, к которым возвращаются одним нажатием. */
+    val bookmarks: List<Bookmark> = emptyList(),
 )
 
 /**
@@ -50,6 +52,7 @@ class MobileSettings(context: Context) {
         connected = prefs.getStringSet(KEY_CONNECTED, emptySet()).orEmpty().toSet(),
         statusIcon = prefs.getBoolean(KEY_STATUS_ICON, false),
         checkUpdates = prefs.getBoolean(KEY_CHECK_UPDATES, true),
+        bookmarks = Bookmarks.decode(prefs.getString(KEY_BOOKMARKS, null)),
         listing = ListingOptions(
             sort = SortOrder.entries.firstOrNull { it.name == prefs.getString(KEY_SORT, null) } ?: SortOrder.NAME,
             descending = prefs.getBoolean(KEY_SORT_DESC, false),
@@ -67,6 +70,7 @@ class MobileSettings(context: Context) {
             .putStringSet(KEY_CONNECTED, preferences.connected.toSet())
             .putBoolean(KEY_STATUS_ICON, preferences.statusIcon)
             .putBoolean(KEY_CHECK_UPDATES, preferences.checkUpdates)
+            .putString(KEY_BOOKMARKS, Bookmarks.encode(preferences.bookmarks))
             .putString(KEY_SORT, preferences.listing.sort.name)
             .putBoolean(KEY_SORT_DESC, preferences.listing.descending)
             .putBoolean(KEY_SHOW_HIDDEN, preferences.listing.showHidden)
@@ -104,6 +108,7 @@ class MobileSettings(context: Context) {
         const val KEY_CONNECTED = "connected"
         const val KEY_STATUS_ICON = "status_icon"
         const val KEY_CHECK_UPDATES = "check_updates"
+        const val KEY_BOOKMARKS = "bookmarks"
         const val KEY_SORT = "sort"
         const val KEY_SORT_DESC = "sort_desc"
         const val KEY_SHOW_HIDDEN = "show_hidden"

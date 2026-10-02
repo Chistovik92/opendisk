@@ -102,3 +102,15 @@ data class FileClip(
     /** true — «Вырезать»: после вставки исходник удаляется. */
     val move: Boolean,
 )
+
+/** Сколько занято и сколько всего. */
+data class Space(val used: Long, val total: Long) {
+    /** Доля занятого, 0..1 — для полосы заполнения. */
+    val fraction: Float get() = if (total <= 0) 0f else (used.toFloat() / total).coerceIn(0f, 1f)
+}
+
+/** Место на памяти телефона или карте; null — система не ответила. */
+fun Disk.Local.space(): Space? = runCatching {
+    val stat = android.os.StatFs(root)
+    Space(used = stat.totalBytes - stat.availableBytes, total = stat.totalBytes)
+}.getOrNull()

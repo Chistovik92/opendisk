@@ -115,112 +115,8 @@ fun rememberStorageAccessRequest(onResult: (Boolean) -> Unit): () -> Unit {
 }
 
 // --- Вкладка «Диски» ----------------------------------------------------------
-
-/**
- * Все диски разом: память телефона, карты, root и облака.
- *
- * Облако здесь в первую очередь папка, которую открывают, — как в любом
- * файловом менеджере. Показать его в системных «Файлах» и удалить — в «⋮».
- */
 @Composable
-fun DisksScreen(
-    state: MobileState,
-    model: OpenDiskModel,
-    storageGranted: Boolean,
-    onRequestStorage: () -> Unit,
-    onDelete: (String) -> Unit,
-    onConnect: (String, Boolean) -> Unit,
-) {
-    val strings = model.strings
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item { SectionTitle(strings.sectionDevice) }
-        item {
-            DiskRow(
-                glyph = "📱",
-                title = strings.phoneStorage,
-                subtitle = if (storageGranted) LocalVolumes.primary().root else strings.storageAccessNeeded,
-                onClick = { if (storageGranted) model.open(LocalVolumes.primary()) else onRequestStorage() },
-            ) {
-                if (!storageGranted) {
-                    OutlinedButton(onClick = onRequestStorage) { Text(strings.grantStorageAccess) }
-                }
-            }
-            HorizontalDivider()
-        }
-        items(state.removableVolumes, key = { it.key }) { volume ->
-            DiskRow(
-                glyph = "💾",
-                title = strings.sdCard,
-                subtitle = volume.root,
-                onClick = { if (storageGranted) model.open(volume) else onRequestStorage() },
-            )
-            HorizontalDivider()
-        }
-        if (state.rootAvailable) {
-            item {
-                DiskRow(
-                    glyph = "#",
-                    title = strings.rootFs,
-                    subtitle = if (state.rootGranted == false) strings.rootDenied else strings.rootHint,
-                    onClick = { model.open(Disk.Root) },
-                )
-                HorizontalDivider()
-            }
-        }
-
-        item { SectionTitle(strings.sectionClouds) }
-        state.error?.let { error ->
-            item {
-                Text(error, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
-            }
-        }
-        // Пояснение про «Файлы» над списком убрано: теперь оно в самом пункте
-        // меню, там, где человек решает, включать или нет.
-        if (state.clouds.isEmpty()) item { ListHint(strings.noClouds) }
-        items(state.clouds, key = { "cloud:" + it.name }) { cloud ->
-            val connected = cloud.name in state.preferences.connected
-            var menu by remember { mutableStateOf(false) }
-            // Нажатие на строку — открыть диск, и больше ничего. В 0.5.6 рядом
-            // стояли переключатель и «Удалить»: переключатель с подписью
-            // «В «Файлах»» было непонятно зачем трогать, а промахнуться мимо
-            // строки и удалить облако — легко. Всё это теперь в «⋮».
-            DiskRow(
-                glyph = "☁",
-                title = cloud.name,
-                subtitle = listOfNotNull(
-                    cloud.about?.describe(strings)?.takeIf { it.isNotEmpty() },
-                    strings.visibleInFiles.takeIf { connected },
-                ).joinToString("  ·  "),
-                onClick = { model.open(Disk.Cloud(cloud.name)) },
-            ) {
-                Box {
-                    TextButton(onClick = { menu = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(
-                            text = { Text(strings.showInFilesAction) },
-                            trailingIcon = { Checkbox(checked = connected, onCheckedChange = null) },
-                            onClick = {
-                                menu = false
-                                onConnect(cloud.name, !connected)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(strings.delete, color = MaterialTheme.colorScheme.error) },
-                            onClick = {
-                                menu = false
-                                onDelete(cloud.name)
-                            },
-                        )
-                    }
-                }
-            }
-            HorizontalDivider()
-        }
-    }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.labelLarge,
@@ -230,7 +126,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun ListHint(text: String) {
+internal fun ListHint(text: String) {
     Text(
         text,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -240,7 +136,7 @@ private fun ListHint(text: String) {
 }
 
 @Composable
-private fun DiskRow(
+internal fun DiskRow(
     glyph: String,
     title: String,
     subtitle: String,
