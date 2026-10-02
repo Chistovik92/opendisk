@@ -65,7 +65,7 @@ fun DisksScreen(
                 Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(strings.noClouds)
-                        Button(onClick = { model.selectTab(MainTab.ADD) }) { Text(strings.tabAdd) }
+                        Button(onClick = { model.selectTab(MainTab.ADD) }) { Text(strings.addFirstCloud) }
                     }
                 }
             }

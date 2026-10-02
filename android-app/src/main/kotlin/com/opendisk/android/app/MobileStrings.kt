@@ -47,6 +47,7 @@ class MobileStrings(val russian: Boolean) {
     val catDocuments = t("Документы", "Documents")
     val catDownloads = t("Загрузки", "Downloads")
     val catNew = t("Новые", "New")
+    val addFirstCloud = t("Добавить облако", "Add a cloud")
     val needsSignIn = t("Нужно войти заново", "Sign-in needed")
     val signInAgain = t("Войти заново", "Sign in again")
     fun reauthNotificationTitle(cloud: String) = t("Нужно войти в «$cloud» заново", "Sign in to «$cloud» again")
