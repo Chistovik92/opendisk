@@ -162,6 +162,41 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
         )
     }
 
+    /** Запущенный rclone-сервер: его номер (чтобы остановить) и адрес `хост:порт`. */
+    @Serializable
+    data class ServeInfo(val id: String = "", val addr: String = "")
+
+    /**
+     * Поднимает HTTP-сервер rclone над облаком — ради чтения файла кусками.
+     *
+     * Сам RC API частичного чтения не умеет: файл можно только скопировать
+     * целиком. Но у HTTP-сервера rclone есть `Range`, и поставщик документов
+     * на Android отдаёт системе файл как виртуальный, читая из облака ровно
+     * то, что просят, — видео запускается сразу, а не после скачивания
+     * целиком.
+     *
+     * Сервер слушает порт на всём телефоне, а не только в приложении, поэтому
+     * без пароля читать облако мог бы любой другой установленный. Логин и
+     * пароль обязательны: без них и с неверными — 401, проверено на настоящем
+     * rclone (RcloneIntegrationTest).
+     */
+    suspend fun serveHttp(fs: String, user: String, password: String): ServeInfo =
+        call(
+            "serve/start",
+            buildJsonObject {
+                put("type", "http")
+                put("fs", fs)
+                // Порт ноль — свободный выбирает система; адрес приходит в ответе.
+                put("addr", "127.0.0.1:0")
+                put("user", user)
+                put("pass", password)
+            },
+        )
+
+    suspend fun serveStop(id: String) {
+        call<JsonObject>("serve/stop", buildJsonObject { put("id", id) })
+    }
+
     suspend fun deleteRemote(name: String) {
         call<JsonObject>("config/delete", buildJsonObject { put("name", name) })
     }

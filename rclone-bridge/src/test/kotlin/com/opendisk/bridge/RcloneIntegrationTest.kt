@@ -78,6 +78,55 @@ class RcloneIntegrationTest {
         }
     }
 
+    /** Один запрос к HTTP-серверу rclone: код ответа и тело. */
+    private fun httpGet(url: String, user: String? = null, password: String? = null, range: String? = null): Pair<Int, ByteArray> {
+        val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        if (user != null) {
+            connection.setRequestProperty("Authorization", RcCredentials(user, password.orEmpty()).basicAuthHeader())
+        }
+        range?.let { connection.setRequestProperty("Range", it) }
+        return try {
+            connection.responseCode to (connection.errorStream ?: connection.inputStream).readBytes()
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    @Test
+    fun `serves a cloud over http with a password and reads it in pieces`() {
+        assumeTrue(RcloneProcess.locate() != null, "rclone не найден")
+
+        val data = createTempDirectory("serve-data").toFile()
+        val content = ByteArray(300_000) { (it * 31 % 251).toByte() }
+        File(data, "видео с пробелом.bin").writeBytes(content)
+        val (_, client) = startRcd(plainConfig("[demo]\ntype = local\n"))
+
+        client.use {
+            runBlocking {
+                val server = client.serveHttp(fs = data.absolutePath, user = "reader", password = "секрет-для-чтения")
+                try {
+                    val url = "http://${server.addr}/" + java.net.URLEncoder.encode("видео с пробелом.bin", "UTF-8").replace("+", "%20")
+
+                    // Без пароля и с чужим — отказ: порт открыт всему телефону.
+                    assertEquals(401, httpGet(url).first)
+                    assertEquals(401, httpGet(url, "reader", "не тот").first)
+
+                    // С паролем читается ровно запрошенный кусок.
+                    val (code, part) = httpGet(url, "reader", "секрет-для-чтения", range = "bytes=1000-1999")
+                    assertEquals(206, code)
+                    assertTrue(content.copyOfRange(1000, 2000).contentEquals(part), "кусок не совпал с файлом")
+
+                    // Хвост файла: просим больше, чем осталось, — получаем остаток.
+                    val (tailCode, tail) = httpGet(url, "reader", "секрет-для-чтения", range = "bytes=299000-399999")
+                    assertEquals(206, tailCode)
+                    assertTrue(content.copyOfRange(299_000, 300_000).contentEquals(tail))
+                } finally {
+                    client.serveStop(server.id)
+                }
+            }
+        }
+    }
+
     @Test
     fun `talks to a real rclone rcd`() {
         assumeTrue(RcloneProcess.locate() != null, "rclone не найден")

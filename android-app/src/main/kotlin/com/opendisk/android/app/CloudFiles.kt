@@ -33,6 +33,10 @@ class CloudFiles(context: Context) {
      * считался готовым и отдавался как целый — фото открывалось наполовину,
      * документ не открывался вовсе.
      */
+    /** Есть ли уже целая копия этой версии файла. Большой файл без неё читается кусками. */
+    fun isCached(documentId: String, entry: RcloneClient.Entry): Boolean =
+        File(cacheDir, DocumentIds.localName(documentId) + VERSION_MARK + DocumentIds.version(entry.size, entry.modTime)).isFile
+
     fun cached(
         documentId: String,
         entry: RcloneClient.Entry,

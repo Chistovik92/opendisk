@@ -52,6 +52,9 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
     private val uploads = Executors.newSingleThreadExecutor()
     private val files by lazy { CloudFiles(requireNotNull(context)) }
 
+    /** Чтение больших файлов кусками (см. [CloudStreams]). */
+    private val streams by lazy { CloudStreams(::client) }
+
     override fun onCreate(): Boolean = true
 
     /**
@@ -166,6 +169,20 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
         }
 
         val entry = stat(cloud, path) ?: throw FileNotFoundException("в облаке «$cloud» нет «$path»")
+
+        // Большой файл, которого ещё нет на телефоне, читаем кусками: видео
+        // начинается сразу, а не после скачивания целиком. Не вышло — ни сервера,
+        // ни дескриптора (до Android 8 его нет), — идём прежним путём: скачиваем.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            entry.size >= CloudStreams.STREAM_THRESHOLD_BYTES &&
+            !files.isCached(documentId, entry)
+        ) {
+            runCatching {
+                val storage = requireNotNull(context).getSystemService(android.os.storage.StorageManager::class.java)
+                streams.open(storage, cloud, path, entry.size)
+            }.getOrNull()?.let { return it }
+        }
+
         val local = files.cached(documentId, entry) { dir, name -> download(cloud, path, dir, name, signal) }
         signal?.throwIfCanceled()
         return ParcelFileDescriptor.open(local, ParcelFileDescriptor.MODE_READ_ONLY)

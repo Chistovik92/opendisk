@@ -1,6 +1,7 @@
 package com.opendisk.android.app
 
 import android.app.Application
+import android.content.Intent
 import android.provider.DocumentsContract
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -840,6 +841,8 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                     }
                 api.createRemote(cloud, service.backend, prepared)
                 created = true
+                // Человек подтвердил доступ в браузере и остался в нём — возвращаем его сюда.
+                if (service.oauth) returnToApp()
                 // Добавили — показываем его среди дисков.
                 _state.update { it.copy(tab = MainTab.DISKS, browsing = null, signIn = null) }
                 reload()
@@ -861,6 +864,29 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
+        }
+    }
+
+    // --- Возврат из браузера ----------------------------------------------------
+
+    /**
+     * Выводит приложение на передний план после входа через браузер.
+     *
+     * Вход идёт во вкладке Chrome поверх приложения: rclone на странице пишет
+     * «Success», а человек оставался в браузере и сам искал дорогу назад.
+     * Вкладка Custom Tabs живёт в задаче нашего приложения, а запуск окна из
+     * фона Android запрещает только приложениям вне переднего плана — тем, у кого
+     * в этой задаче есть окно, можно. Если система всё-таки откажет (старые
+     * оболочки, жёсткий режим экономии), ничего не ломается: облако уже
+     * добавлено, человек вернётся сам, как и раньше.
+     */
+    private fun returnToApp() {
+        runCatching {
+            val app = getApplication<Application>()
+            app.startActivity(
+                Intent(app, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            )
         }
     }
 
@@ -909,6 +935,7 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 api.reauthorize(name)
+                returnToApp()
                 markSignedIn(name)
                 _state.update { it.copy(signIn = null) }
                 reload()
