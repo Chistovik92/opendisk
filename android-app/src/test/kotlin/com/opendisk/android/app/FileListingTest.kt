@@ -76,6 +76,25 @@ class FileListingTest {
     }
 
     @Test
+    fun `range selection covers everything between, in either direction`() {
+        val list = listOf("a", "b", "c", "d", "e").map { file(it) }
+        assertEquals(setOf("b", "c", "d"), rangeBetween(list, "b", "d"))
+        assertEquals(setOf("b", "c", "d"), rangeBetween(list, "d", "b"))
+        assertEquals(setOf("c"), rangeBetween(list, "c", "c"))
+        // Нет опорной точки, или она ушла из списка (поиск, фильтр) — только сам файл.
+        assertEquals(setOf("c"), rangeBetween(list, null, "c"))
+        assertEquals(setOf("c"), rangeBetween(list, "нет", "c"))
+        assertEquals(emptySet(), rangeBetween(list, "a", "нет"))
+    }
+
+    @Test
+    fun `view modes cycle through all three`() {
+        assertEquals(ViewMode.DETAILED, ViewMode.LIST.next())
+        assertEquals(ViewMode.GRID, ViewMode.DETAILED.next())
+        assertEquals(ViewMode.LIST, ViewMode.GRID.next())
+    }
+
+    @Test
     fun `breadcrumbs lead to every level`() {
         val crumbs = breadcrumbs("Телефон", "DCIM/Camera/2026")
         assertEquals(listOf("Телефон", "DCIM", "Camera", "2026"), crumbs.map { it.label })

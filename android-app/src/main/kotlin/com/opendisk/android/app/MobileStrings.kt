@@ -157,6 +157,11 @@ class MobileStrings(val russian: Boolean) {
     )
     val shareOneOnly = t("Отправить можно только один файл за раз.", "Only one file can be shared at a time.")
     val upOneLevel = t("Наверх", "Up")
+    fun extracting(name: String) = t("Распаковываю «$name»…", "Extracting «$name»…")
+    fun compressing(count: Int) = t("Сжимаю: ${items(count)}…", "Compressing ${items(count)}…")
+    val extractHere = t("Распаковать сюда", "Extract here")
+    val compressToZip = t("Сжать в zip", "Compress to zip")
+    val archiveName = t("Архив", "Archive")
 
 
     val creatingFolder = t("Создаю папку…", "Creating the folder…")

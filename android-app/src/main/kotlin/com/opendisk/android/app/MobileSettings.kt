@@ -57,7 +57,7 @@ class MobileSettings(context: Context) {
             sort = SortOrder.entries.firstOrNull { it.name == prefs.getString(KEY_SORT, null) } ?: SortOrder.NAME,
             descending = prefs.getBoolean(KEY_SORT_DESC, false),
             showHidden = prefs.getBoolean(KEY_SHOW_HIDDEN, false),
-            view = ViewMode.entries.firstOrNull { it.name == prefs.getString(KEY_VIEW, null) } ?: ViewMode.LIST,
+            view = ViewMode.entries.firstOrNull { it.name == prefs.getString(KEY_VIEW, null) } ?: ViewMode.DETAILED,
         ),
     )
 

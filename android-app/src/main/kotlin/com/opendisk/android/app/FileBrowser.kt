@@ -120,7 +120,7 @@ fun FileBrowser(state: MobileState, open: Browsing, model: OpenDiskModel) {
                     open.entries.isEmpty() -> CenteredNote(strings.emptyFolder)
                     shown.isEmpty() -> CenteredNote(strings.nothingFound)
                     options.view == ViewMode.GRID -> FileGrid(shown, open, strings, model)
-                    else -> FileList(shown, open, strings, model)
+                    else -> FileList(shown, open, strings, model, detailed = options.view == ViewMode.DETAILED)
                 }
             }
 
@@ -227,9 +227,17 @@ private fun BrowserBar(open: Browsing, options: ListingOptions, model: OpenDiskM
             overflow = TextOverflow.Ellipsis,
         )
         TextButton(onClick = { model.setQuery("") }) { Text("🔍") }
-        TextButton(onClick = {
-            model.setListing(options.copy(view = if (options.view == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST))
-        }) { Text(if (options.view == ViewMode.LIST) "▦" else "☰", style = MaterialTheme.typography.titleLarge) }
+        // Значок показывает, куда переключит нажатие: список → подробный → плитки.
+        TextButton(onClick = { model.setListing(options.copy(view = options.view.next())) }) {
+            Text(
+                when (options.view.next()) {
+                    ViewMode.LIST -> "≡"
+                    ViewMode.DETAILED -> "☰"
+                    ViewMode.GRID -> "▦"
+                },
+                style = MaterialTheme.typography.titleLarge,
+            )
+        }
         Box {
             TextButton(onClick = { menu = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -367,7 +375,7 @@ private fun Crumbs(open: Browsing, model: OpenDiskModel) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FileList(shown: List<RcloneClient.Entry>, open: Browsing, strings: MobileStrings, model: OpenDiskModel) {
+private fun FileList(shown: List<RcloneClient.Entry>, open: Browsing, strings: MobileStrings, model: OpenDiskModel, detailed: Boolean) {
     // Ключ с номером строки, а не один путь: Google Диск разрешает два файла
     // с одинаковым именем в одной папке, и на таком списке приложение падало
     // при прокрутке («Key … was already used»).
@@ -380,17 +388,20 @@ private fun FileList(shown: List<RcloneClient.Entry>, open: Browsing, strings: M
                     .background(if (checked) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                     .combinedClickable(
                         onClick = { activate(entry, open, model) },
-                        onLongClick = { model.toggleSelected(entry) },
+                        onLongClick = { if (open.selecting) model.selectRange(entry, shown) else model.toggleSelected(entry) },
                     )
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                KindIcon(entry, open.disk, size = 44)
+                KindIcon(entry, open.disk, size = if (detailed) 44 else 36)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    val details = listOf(
-                        if (entry.isDir) "" else formatBytes(entry.size, strings),
+                    // У папки на телефоне считаем, что в ней лежит, — как ES; в облаке
+                    // для этого пришлось бы читать каждую папку отдельным запросом.
+                    val count = if (detailed && entry.isDir) folderCount(open.disk, entry) else null
+                    val details = if (!detailed) "" else listOf(
+                        if (entry.isDir) (count?.let { strings.items(it) } ?: "") else formatBytes(entry.size, strings),
                         formatModTime(entry.modTime),
                     ).filter { it.isNotEmpty() }.joinToString("  ·  ")
                     if (details.isNotEmpty()) {
@@ -425,7 +436,7 @@ private fun FileGrid(shown: List<RcloneClient.Entry>, open: Browsing, strings: M
                     .background(if (checked) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                     .combinedClickable(
                         onClick = { activate(entry, open, model) },
-                        onLongClick = { model.toggleSelected(entry) },
+                        onLongClick = { if (open.selecting) model.selectRange(entry, shown) else model.toggleSelected(entry) },
                     )
                     .padding(8.dp),
             ) {
@@ -446,6 +457,16 @@ private fun FileGrid(shown: List<RcloneClient.Entry>, open: Browsing, strings: M
             }
         }
     }
+}
+
+/** Число элементов в папке на самом телефоне; null — не телефон или ещё считается. */
+@Composable
+private fun folderCount(disk: Disk, entry: RcloneClient.Entry): Int? {
+    if (disk !is Disk.Local) return null
+    val path = disk.absolutePath(entry.path) ?: return null
+    return produceState<Int?>(null, path) {
+        value = withContext(Dispatchers.IO) { java.io.File(path).list()?.size }
+    }.value
 }
 
 /** Нажатие: в режиме выбора — отметить, иначе открыть папку или файл. */
@@ -586,6 +607,19 @@ private fun ActionBar(
                                 (open.disk as? Disk.Cloud)?.let { model.requestLink(it.name, single) }
                             })
                         }
+                    }
+                    // Архивы — только на самом телефоне: через облако zip по частям не прочесть.
+                    if (open.disk is Disk.Local) {
+                        if (single != null && !single.isDir && Archives.isZip(single.name)) {
+                            DropdownMenuItem(text = { Text(strings.extractHere) }, onClick = {
+                                more = false
+                                model.extractHere(single)
+                            })
+                        }
+                        DropdownMenuItem(text = { Text(strings.compressToZip) }, onClick = {
+                            more = false
+                            model.compress(selected)
+                        })
                     }
                     // Из памяти телефона скачивать некуда — файл уже там.
                     if (open.disk !is Disk.Local || open.disk.removable) {

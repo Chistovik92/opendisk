@@ -48,6 +48,8 @@ data class Browsing(
     val selected: Set<String> = emptySet(),
     /** Строка поиска по имени в этой папке; null — поиск закрыт. */
     val query: String? = null,
+    /** Последний отмеченный файл — от него отсчитывается выбор диапазона. */
+    val anchor: String? = null,
     /**
      * Не папка, а категория («Изображения», «Загрузки»…): файлы из разных
      * папок одним списком. Пути у них настоящие, поэтому операции те же, а
@@ -404,11 +406,59 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Архивы (только файлы на телефоне) -------------------------------------
+
+    /** Распаковывает zip в соседнюю папку с именем архива; занятое имя — «(2)». */
+    fun extractHere(entry: RcloneClient.Entry) {
+        val open = _state.value.browsing ?: return
+        val disk = open.disk as? Disk.Local ?: return
+        val zip = File(disk.absolutePath(entry.path) ?: return)
+        runOperation(strings.extracting(entry.name)) {
+            withContext(Dispatchers.IO) {
+                val taken = zip.parentFile?.list()?.toSet().orEmpty()
+                val folder = Archives.folderNameFor(entry.name).let { if (it in taken) copyName(it, taken) else it }
+                Archives.extractZip(zip, File(zip.parentFile, folder))
+            }
+            clearSelection()
+        }
+    }
+
+    /** Сжимает отмеченное в «Архив.zip» (или «<имя>.zip», если файл один) рядом с ним. */
+    fun compress(entries: List<RcloneClient.Entry>) {
+        val open = _state.value.browsing ?: return
+        val disk = open.disk as? Disk.Local ?: return
+        if (entries.isEmpty()) return
+        val sources = entries.mapNotNull { disk.absolutePath(it.path)?.let(::File) }
+        runOperation(strings.compressing(entries.size)) {
+            withContext(Dispatchers.IO) {
+                val parent = sources.first().parentFile ?: return@withContext
+                val base = if (entries.size == 1) Archives.folderNameFor(entries.first().name) else strings.archiveName
+                val taken = parent.list()?.toSet().orEmpty()
+                val name = "$base.zip".let { if (it in taken) copyName(it, taken) else it }
+                Archives.createZip(sources, File(parent, name))
+            }
+            clearSelection()
+        }
+    }
+
     // --- Выбор нескольких файлов ------------------------------------------------
 
     /** Долгое нажатие или галочка: отметить или снять отметку с файла. */
     fun toggleSelected(entry: RcloneClient.Entry) = updateBrowsing { open ->
-        open.copy(selected = if (entry.path in open.selected) open.selected - entry.path else open.selected + entry.path)
+        open.copy(
+            selected = if (entry.path in open.selected) open.selected - entry.path else open.selected + entry.path,
+            anchor = entry.path,
+        )
+    }
+
+    /**
+     * Долгое нажатие в режиме выбора: отметить всё от прошлого отмеченного
+     * до этого файла включительно, как в ES File Explorer. Нет прошлого —
+     * просто отметить один.
+     */
+    fun selectRange(entry: RcloneClient.Entry, visible: List<RcloneClient.Entry>) = updateBrowsing { open ->
+        val range = rangeBetween(visible, open.anchor, entry.path)
+        open.copy(selected = open.selected + range, anchor = entry.path)
     }
 
     fun selectAll(visible: List<RcloneClient.Entry>) = updateBrowsing { it.copy(selected = visible.map { e -> e.path }.toSet()) }
@@ -509,11 +559,17 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         val label = if (entries.size == 1) strings.downloading(entries.first().name) else strings.downloadingMany(entries.size)
         runOperation(label, refresh = false) {
             mkdirOn(phone, DOWNLOAD_DIR)
+            // Уже скачанное раньше не перезаписываем: «фото.jpg» → «фото (2).jpg».
+            val taken = listDisk(phone, DOWNLOAD_DIR).map { it.name }.toMutableSet()
+            var lastName = ""
             entries.forEach { entry ->
-                transfer(open.disk, entry, phone, childPath(DOWNLOAD_DIR, entry.name), move = false)
+                val name = if (entry.name in taken) copyName(entry.name, taken) else entry.name
+                taken += name
+                lastName = name
+                transfer(open.disk, entry, phone, childPath(DOWNLOAD_DIR, name), move = false)
             }
             clearSelection()
-            val where = if (entries.size == 1) "$DOWNLOAD_DIR/${entries.first().name}" else DOWNLOAD_DIR
+            val where = if (entries.size == 1) "$DOWNLOAD_DIR/$lastName" else DOWNLOAD_DIR
             _state.update { it.copy(notice = strings.downloaded(where)) }
         }
     }
