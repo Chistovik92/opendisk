@@ -27,8 +27,10 @@ val librcloneVersion = "1.75.1"
 // r2 — с 32-битной ARM (armeabi-v7a) для приставок Android TV и часов Wear OS:
 // у большинства из них 32-битная система. Исходная сборка без ревизии была
 // только под arm64 и x86_64.
-val librcloneRevision = "r2"
-val librcloneSha256 = "b44399708669e929eb3b5b6e28e0fec9806fcdb5f67eed18849736d09e864b7e"
+// r3 — с HTTP-сервером rclone (serve/start): через него большие файлы из облака
+// читаются кусками, а не скачиваются целиком (CloudStreams).
+val librcloneRevision = "r3"
+val librcloneSha256 = "10035c901201a7f84976d41ccfb306d1db90d829d6d142d57b3d8e0d7399bdc0"
 
 // Библиотека кладётся в локальный репозиторий и подключается как обычная
 // зависимость `org.rclone:librclone`, а не файлом.
