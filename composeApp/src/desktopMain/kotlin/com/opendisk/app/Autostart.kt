@@ -186,12 +186,16 @@ object Autostart {
             "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded,
         ).start()
 
-        val output = process.inputStream.bufferedReader().readText()
+        // Вывод читаем в стороне: чтение до ожидания не давало сработать
+        // таймауту — зависший PowerShell подвешивал бы и сам вызов навсегда.
+        val output = java.util.concurrent.CompletableFuture.supplyAsync {
+            runCatching { process.inputStream.bufferedReader().readText() }.getOrDefault("")
+        }
         if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
             process.destroyForcibly()
             return@runCatching ""
         }
-        output
+        output.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
     }.getOrDefault("")
 
     // --- Linux --------------------------------------------------------------
@@ -216,6 +220,25 @@ object Autostart {
     }
 
     /**
+     * Путь для строки `Exec` файла .desktop. Спецификация требует кавычек вокруг
+     * аргумента с пробелом и экранирования в нём двойной кавычки, обратной
+     * кавычки, доллара и обратной косой черты: без этого AppImage в папке
+     * «Мои программы» после входа в систему не запускался бы — оболочка
+     * разрезала бы путь по пробелу.
+     */
+    internal fun execQuote(path: String): String {
+        val special = " \t\n\"'\\<>~|&;$*?#()`"
+        if (path.none { it in special }) return path
+        val escaped = buildString {
+            for (c in path) {
+                if (c == '"' || c == '`' || c == '$' || c == '\\') append('\\')
+                append(c)
+            }
+        }
+        return "\"$escaped\""
+    }
+
+    /**
      * `X-GNOME-Autostart-enabled` понимают GNOME и производные; остальные
      * среды просто игнорируют неизвестный ключ.
      */
@@ -224,7 +247,7 @@ object Autostart {
         Type=Application
         Name=OpenDisk
         Comment=Открытый клиент облачных дисков
-        Exec=${target.command} $HIDDEN_FLAG
+        Exec=${execQuote(target.command)} $HIDDEN_FLAG
         Terminal=false
         X-GNOME-Autostart-enabled=true
     """.trimIndent() + "\n"

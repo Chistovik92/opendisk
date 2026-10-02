@@ -309,6 +309,10 @@ class RcloneController(
             rcd.start()
             rcd.awaitReady()
         } catch (e: IllegalStateException) {
+            // Процесс мог запуститься и не ответить за срок — тогда он жив и
+            // занимает порт и подключения. Без остановки следующий круг сторожа
+            // поднимал бы ещё один, и rclone-ов становилось бы всё больше.
+            runCatching { rcd.stop() }
             // Следующий круг сторожа попробует ещё раз, пока не кончится лимит.
             return
         }
@@ -882,6 +886,15 @@ class RcloneController(
                     message = e.rcloneError,
                 ),
             )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Не только ответ rclone: оборвавшаяся связь с ним, папка, которую не
+            // создать, сбой разбора. Раньше такое уходило мимо и оставляло облако
+            // с вечной крутилкой «подключаю».
+            val reason = e.message ?: e.toString()
+            updateCloud(name) { it.copy(busy = false, error = reason) }
+            _notifications.tryEmit(AppNotification(title = strings.mountFailed(name), message = reason))
         }
     }
 
@@ -936,6 +949,10 @@ class RcloneController(
                 reloadClouds()
             } catch (e: RcloneRcException) {
                 updateCloud(name) { it.copy(busy = false, error = e.rcloneError) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateCloud(name) { it.copy(busy = false, error = e.message ?: e.toString()) }
             }
         }
     }

@@ -92,6 +92,24 @@ class DesktopRobustnessTest {
         assertFalse(settings.global().trayStats)
     }
 
+    // --- Автозапуск на Linux --------------------------------------------------
+
+    @Test
+    fun `an autostart path with spaces is quoted for the desktop entry`() {
+        // Без кавычек оболочка режет «/home/u/Мои программы/OpenDisk.AppImage» по
+        // пробелу, и приложение после входа в систему не запускалось.
+        assertEquals("/opt/opendisk/bin/OpenDisk", Autostart.execQuote("/opt/opendisk/bin/OpenDisk"))
+        assertEquals("\"/home/u/Мои программы/OpenDisk.AppImage\"", Autostart.execQuote("/home/u/Мои программы/OpenDisk.AppImage"))
+        // Служебные знаки внутри кавычек экранируются по спецификации.
+        assertEquals("\"/tmp/a \\\$b \\\"c\\\" \\`d\\` \\\\e\"", Autostart.execQuote("/tmp/a \$b \"c\" `d` \\e"))
+    }
+
+    @Test
+    fun `the desktop entry uses the quoted path`() {
+        val entry = Autostart.desktopEntry(Autostart.Target("/home/u/My Apps/OpenDisk.AppImage"))
+        assertTrue(entry.contains("Exec=\"/home/u/My Apps/OpenDisk.AppImage\" "), entry)
+    }
+
     // --- Единственный экземпляр ---------------------------------------------
 
     @Test
