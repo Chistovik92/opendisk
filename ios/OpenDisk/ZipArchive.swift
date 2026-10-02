@@ -417,9 +417,16 @@ enum ZipArchive {
 
     private static func dosFields(_ date: Date) -> (time: UInt16, date: UInt16) {
         let c = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
-        let year = max(1980, c.year ?? 1980)
-        let dosDate = UInt16((year - 1980) << 9 | (c.month ?? 1) << 5 | (c.day ?? 1))
-        let dosTime = UInt16((c.hour ?? 0) << 11 | (c.minute ?? 0) << 5 | ((c.second ?? 0) / 2))
+        // По одному слагаемому на строку: длинное выражение из сдвигов и «или»
+        // с необязательными значениями компилятор не берётся разобрать.
+        let year = UInt16(max(1980, c.year ?? 1980) - 1980)
+        let month = UInt16(c.month ?? 1)
+        let day = UInt16(c.day ?? 1)
+        let hour = UInt16(c.hour ?? 0)
+        let minute = UInt16(c.minute ?? 0)
+        let second = UInt16((c.second ?? 0) / 2)
+        let dosDate: UInt16 = (year << 9) | (month << 5) | day
+        let dosTime: UInt16 = (hour << 11) | (minute << 5) | second
         return (dosTime, dosDate)
     }
 }
