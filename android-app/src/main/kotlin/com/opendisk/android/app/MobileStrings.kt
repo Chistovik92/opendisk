@@ -84,11 +84,68 @@ class MobileStrings(val russian: Boolean) {
     val more = t("Ещё", "More")
     val ok = t("Готово", "OK")
 
-    fun inClipboard(name: String, move: Boolean) = if (move) {
-        t("Вырезано: $name", "Cut: $name")
-    } else {
-        t("Скопировано: $name", "Copied: $name")
+    /** «1 файл», «3 файла», «5 файлов» — русские числа склоняются по трём формам. */
+    fun items(count: Int): String {
+        if (!russian) return if (count == 1) "1 item" else "$count items"
+        val form = when {
+            count % 100 in 11..14 -> "элементов"
+            count % 10 == 1 -> "элемент"
+            count % 10 in 2..4 -> "элемента"
+            else -> "элементов"
+        }
+        return "$count $form"
     }
+
+    fun inClipboard(entries: List<com.opendisk.bridge.RcloneClient.Entry>, move: Boolean): String {
+        val what = if (entries.size == 1) entries.first().name else items(entries.size)
+        return if (move) t("Вырезано: $what", "Cut: $what") else t("Скопировано: $what", "Copied: $what")
+    }
+
+    // --- Файловый менеджер 0.6.0 ---------------------------------------------
+
+    fun nameTaken(name: String) = t("Имя «$name» уже занято в этой папке.", "The name «$name» is already taken in this folder.")
+    val newFile = t("Новый файл", "New file")
+    val creatingFile = t("Создаю файл…", "Creating the file…")
+    fun deletingMany(count: Int) = t("Удаляю: ${items(count)}…", "Deleting ${items(count)}…")
+    fun copyingMany(count: Int) = t("Копирую: ${items(count)}…", "Copying ${items(count)}…")
+    fun movingMany(count: Int) = t("Переношу: ${items(count)}…", "Moving ${items(count)}…")
+    fun downloadingMany(count: Int) = t("Скачиваю: ${items(count)}…", "Downloading ${items(count)}…")
+    fun selectedCount(count: Int) = t("Выбрано: $count", "Selected: $count")
+    val selectAll = t("Выбрать всё", "Select all")
+    val clearSelection = t("Снять выбор", "Clear selection")
+    val search = t("Поиск", "Search")
+    val searchHint = t("Имя файла или его часть", "File name or part of it")
+    val sortBy = t("Сортировка", "Sort by")
+    val sortName = t("По имени", "Name")
+    val sortSize = t("По размеру", "Size")
+    val sortDate = t("По дате", "Date")
+    val sortType = t("По типу", "Type")
+    val sortReverse = t("В обратном порядке", "Reverse order")
+    val showHidden = t("Скрытые файлы", "Hidden files")
+    val viewList = t("Список", "List")
+    val viewGrid = t("Плитки", "Grid")
+    val properties = t("Свойства", "Properties")
+    val propertyName = t("Имя", "Name")
+    val propertyLocation = t("Где лежит", "Location")
+    val propertyType = t("Тип", "Type")
+    val propertySize = t("Размер", "Size")
+    val propertyModified = t("Изменён", "Modified")
+    val kindFolder = t("Папка", "Folder")
+    val kindImage = t("Изображение", "Image")
+    val kindVideo = t("Видео", "Video")
+    val kindAudio = t("Звук", "Audio")
+    val kindDocument = t("Документ", "Document")
+    val kindArchive = t("Архив", "Archive")
+    val kindApk = t("Приложение Android", "Android app")
+    val kindOther = t("Файл", "File")
+    val deleteManyTitle = { count: Int -> t("Удалить: ${items(count)}?", "Delete ${items(count)}?") }
+    val deleteManyExplanation = t(
+        "Отмеченное будет удалено без возможности вернуть.",
+        "The selected items will be deleted and cannot be restored.",
+    )
+    val shareOneOnly = t("Отправить можно только один файл за раз.", "Only one file can be shared at a time.")
+    val upOneLevel = t("Наверх", "Up")
+
 
     val creatingFolder = t("Создаю папку…", "Creating the folder…")
     val renaming = t("Переименовываю…", "Renaming…")

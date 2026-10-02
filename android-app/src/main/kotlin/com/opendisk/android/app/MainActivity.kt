@@ -107,7 +107,6 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     val strings = model.strings
     val context = LocalContext.current
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
-    var creatingFolder by remember { mutableStateOf(false) }
     val askForNotifications = rememberNotificationPermission()
     var storageGranted by remember { mutableStateOf(StorageAccess.granted(context)) }
     val requestStorage = rememberStorageAccessRequest { granted ->
@@ -147,7 +146,8 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
 
     Scaffold(
         modifier = Modifier.padding(device.safePadding(roundScreen)),
-        topBar = { AppBar(state, model, onNewFolder = { creatingFolder = true }) },
+        // Файловый менеджер рисует свою верхнюю панель сам (путь, поиск, выбор).
+        topBar = { if (state.browsing == null || state.tab != MainTab.DISKS || state.settings) AppBar(state, model) },
         bottomBar = {
             Column {
                 state.operation?.let { OperationBar(it) }
@@ -165,7 +165,7 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
                         }) { Text(strings.tabDisks) }
                         TextButton(onClick = { model.selectTab(MainTab.ADD) }) { Text(strings.tabAdd) }
                     }
-                } else if (!state.starting && !state.settings) {
+                } else if (!state.starting && !state.settings && state.browsing?.selecting != true) {
                     NavigationBar {
                         NavigationBarItem(
                             selected = state.tab == MainTab.DISKS,
@@ -225,27 +225,20 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     when {
         state.settings -> BackHandler { model.closeSettings() }
         state.tab == MainTab.ADD -> BackHandler { model.selectTab(MainTab.DISKS) }
+        // Сначала закрываем то, что открыто поверх папки: выбор, потом поиск.
         browsing != null -> BackHandler {
             val parent = browsing.parent
-            if (parent == null) model.closeBrowser() else model.open(browsing.disk, parent)
+            when {
+                browsing.selecting -> model.clearSelection()
+                browsing.query != null -> model.setQuery(null)
+                parent == null -> model.closeBrowser()
+                else -> model.open(browsing.disk, parent)
+            }
         }
     }
 
     state.link?.let { LinkDialog(it, model) }
     state.signIn?.let { SignInDialog(it, model) }
-
-    if (creatingFolder) {
-        NameDialog(
-            title = strings.newFolder,
-            initial = "",
-            strings = strings,
-            onDismiss = { creatingFolder = false },
-            onConfirm = { name ->
-                model.createFolder(name)
-                creatingFolder = false
-            },
-        )
-    }
 
     cloudToDelete?.let { name ->
         ConfirmDeleteDialog(
@@ -262,8 +255,7 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppBar(state: MobileState, model: OpenDiskModel, onNewFolder: () -> Unit) {
-    val open = state.browsing.takeIf { state.tab == MainTab.DISKS && !state.settings }
+private fun AppBar(state: MobileState, model: OpenDiskModel) {
     val strings = model.strings
     TopAppBar(
         title = {
@@ -271,9 +263,7 @@ private fun AppBar(state: MobileState, model: OpenDiskModel, onNewFolder: () -> 
                 text = when {
                     state.settings -> strings.settings
                     state.tab == MainTab.ADD -> strings.chooseService
-                    open == null -> "OpenDisk"
-                    open.path.isEmpty() -> diskTitle(open.disk, strings)
-                    else -> open.path.substringAfterLast('/')
+                    else -> "OpenDisk"
                 },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -282,29 +272,10 @@ private fun AppBar(state: MobileState, model: OpenDiskModel, onNewFolder: () -> 
         navigationIcon = {
             when {
                 state.settings -> TextButton(onClick = model::closeSettings) { Text(strings.back) }
-                open != null -> TextButton(onClick = {
-                    val parent = open.parent
-                    if (parent == null) model.closeBrowser() else model.open(open.disk, parent)
-                }) { Text(strings.back) }
             }
         },
         actions = {
-            if (open != null) {
-                var menu by remember { mutableStateOf(false) }
-                Box {
-                    TextButton(onClick = { menu = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text(strings.newFolder) }, onClick = {
-                            menu = false
-                            onNewFolder()
-                        })
-                        DropdownMenuItem(text = { Text(strings.refresh) }, onClick = {
-                            menu = false
-                            model.refreshFolder()
-                        })
-                    }
-                }
-            } else if (!state.settings && !state.starting) {
+            if (!state.settings && !state.starting) {
                 // Настройки — на всех экранах, кроме них самих: искать их
                 // приходится редко, а найти нужно сразу.
                 TextButton(onClick = model::openSettings) { Text(strings.settings) }

@@ -44,7 +44,13 @@ data class Browsing(
     val entries: List<RcloneClient.Entry> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null,
+    /** Отмеченные файлы (по пути). Пусто — обычный режим, не пусто — режим выбора. */
+    val selected: Set<String> = emptySet(),
+    /** Строка поиска по имени в этой папке; null — поиск закрыт. */
+    val query: String? = null,
 ) {
+    val selecting: Boolean get() = selected.isNotEmpty()
+
     /** Путь на родительский уровень или null, если мы в корне. */
     val parent: String? get() = when {
         path.isEmpty() -> null
@@ -315,21 +321,86 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         val open = _state.value.browsing ?: return
         val clean = newName.trim().trim('/')
         if (clean.isEmpty() || clean == entry.name) return
+        // Занятое имя — отказ, а не молчаливая замена соседа: переименование
+        // без возможности вернуть чужой файл хуже, чем сообщение «имя занято».
+        if (open.entries.any { it.name == clean }) {
+            _state.update { it.copy(notice = strings.nameTaken(clean)) }
+            return
+        }
         val parent = entry.path.substringBeforeLast('/', "")
         runOperation(strings.renaming) {
             transfer(open.disk, entry, open.disk, childPath(parent, clean), move = true)
         }
     }
 
-    fun delete(entry: RcloneClient.Entry) {
+    fun delete(entry: RcloneClient.Entry) = delete(listOf(entry))
+
+    /** Удаляет всё отмеченное. Подтверждение спрашивает экран — здесь только действие. */
+    fun delete(entries: List<RcloneClient.Entry>) {
         val open = _state.value.browsing ?: return
-        runOperation(strings.deleting(entry.name)) { deleteOn(open.disk, entry) }
+        if (entries.isEmpty()) return
+        val label = if (entries.size == 1) strings.deleting(entries.first().name) else strings.deletingMany(entries.size)
+        runOperation(label) {
+            entries.forEach { deleteOn(open.disk, it) }
+            clearSelection()
+        }
     }
 
-    /** «Копировать» или «Вырезать»: запоминаем, вставка — в любой папке любого диска. */
-    fun clip(entry: RcloneClient.Entry, move: Boolean) {
+    /**
+     * Создаёт пустой файл. У rclone нет «создать файл», поэтому пустой файл
+     * кладётся во временную папку и уходит на диск обычной копией — так
+     * работает и в облаке, и в памяти телефона.
+     */
+    fun createFile(name: String) {
         val open = _state.value.browsing ?: return
-        _state.update { it.copy(clip = FileClip(open.disk, entry, move)) }
+        val clean = name.trim().trim('/')
+        if (clean.isEmpty()) return
+        if (open.entries.any { it.name == clean }) {
+            _state.update { it.copy(notice = strings.nameTaken(clean)) }
+            return
+        }
+        runOperation(strings.creatingFile) {
+            withStage { stage ->
+                withContext(Dispatchers.IO) { File(stage.root, clean).createNewFile() }
+                transfer(stage, RcloneClient.Entry(path = clean, name = clean, size = 0), open.disk, childPath(open.path, clean), move = false)
+            }
+        }
+    }
+
+    // --- Выбор нескольких файлов ------------------------------------------------
+
+    /** Долгое нажатие или галочка: отметить или снять отметку с файла. */
+    fun toggleSelected(entry: RcloneClient.Entry) = updateBrowsing { open ->
+        open.copy(selected = if (entry.path in open.selected) open.selected - entry.path else open.selected + entry.path)
+    }
+
+    fun selectAll(visible: List<RcloneClient.Entry>) = updateBrowsing { it.copy(selected = visible.map { e -> e.path }.toSet()) }
+
+    fun clearSelection() = updateBrowsing { it.copy(selected = emptySet()) }
+
+    /** Отмеченные записи в том порядке, в каком они в папке. */
+    fun selectedEntries(): List<RcloneClient.Entry> {
+        val open = _state.value.browsing ?: return emptyList()
+        return open.entries.filter { it.path in open.selected }
+    }
+
+    fun setQuery(query: String?) = updateBrowsing { it.copy(query = query) }
+
+    private fun updateBrowsing(change: (Browsing) -> Browsing) =
+        _state.update { current -> current.copy(browsing = current.browsing?.let(change)) }
+
+    // --- Вид списка ---------------------------------------------------------------
+
+    fun setListing(options: ListingOptions) = applyPreferences(_state.value.preferences.copy(listing = options))
+
+    /** «Копировать» или «Вырезать»: запоминаем, вставка — в любой папке любого диска. */
+    fun clip(entry: RcloneClient.Entry, move: Boolean) = clip(listOf(entry), move)
+
+    fun clip(entries: List<RcloneClient.Entry>, move: Boolean) {
+        val open = _state.value.browsing ?: return
+        if (entries.isEmpty()) return
+        _state.update { it.copy(clip = FileClip(open.disk, entries, move)) }
+        clearSelection()
     }
 
     fun cancelClip() = _state.update { it.copy(clip = null) }
@@ -337,36 +408,58 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
     fun paste() {
         val clip = _state.value.clip ?: return
         val open = _state.value.browsing ?: return
-        var target = childPath(open.path, clip.entry.name)
-        if (clip.disk == open.disk && target == clip.entry.path) {
-            // Вырезать и вставить туда же — делать нечего.
-            if (clip.move) {
-                _state.update { it.copy(clip = null) }
+        // Занятые в папке имена: копии друг друга внутри одной вставки тоже
+        // не должны совпасть, поэтому набор пополняется по ходу.
+        val taken = open.entries.map { it.name }.toMutableSet()
+        val jobs = mutableListOf<Pair<RcloneClient.Entry, String>>()
+        for (entry in clip.entries) {
+            var target = childPath(open.path, entry.name)
+            if (clip.disk == open.disk && target == entry.path) {
+                // Вырезать и вставить туда же — делать нечего.
+                if (clip.move) continue
+                // Копия рядом с оригиналом — под другим именем, а не поверх него.
+                target = childPath(open.path, copyName(entry.name, taken))
+            }
+            // Папку в саму себя не положить: rclone ушёл бы в бесконечное копирование.
+            if (clip.disk == open.disk && entry.isDir && (open.path + "/").startsWith(entry.path + "/")) {
+                _state.update { it.copy(notice = strings.cannotPasteIntoItself) }
                 return
             }
-            // Копия рядом с оригиналом — под другим именем, а не поверх него.
-            target = childPath(open.path, copyName(clip.entry.name, open.entries.map { it.name }.toSet()))
+            taken += target.substringAfterLast('/')
+            jobs += entry to target
         }
-        // Папку в саму себя не положить: rclone ушёл бы в бесконечное копирование.
-        if (clip.disk == open.disk && clip.entry.isDir && (open.path + "/").startsWith(clip.entry.path + "/")) {
-            _state.update { it.copy(notice = strings.cannotPasteIntoItself) }
+        if (jobs.isEmpty()) {
+            _state.update { it.copy(clip = null) }
             return
         }
-        val label = if (clip.move) strings.moving(clip.entry.name) else strings.copying(clip.entry.name)
+        val label = when {
+            jobs.size > 1 && clip.move -> strings.movingMany(jobs.size)
+            jobs.size > 1 -> strings.copyingMany(jobs.size)
+            clip.move -> strings.moving(jobs.first().first.name)
+            else -> strings.copying(jobs.first().first.name)
+        }
         runOperation(label) {
-            transfer(clip.disk, clip.entry, open.disk, target, clip.move)
+            jobs.forEach { (entry, target) -> transfer(clip.disk, entry, open.disk, target, clip.move) }
             _state.update { it.copy(clip = null) }
         }
     }
 
+    fun download(entry: RcloneClient.Entry) = download(listOf(entry))
+
     /** Скачать в память телефона — в «Download/OpenDisk», где его найдёт любое приложение. */
-    fun download(entry: RcloneClient.Entry) {
+    fun download(entries: List<RcloneClient.Entry>) {
         val open = _state.value.browsing ?: return
+        if (entries.isEmpty()) return
         val phone = LocalVolumes.primary()
-        runOperation(strings.downloading(entry.name), refresh = false) {
+        val label = if (entries.size == 1) strings.downloading(entries.first().name) else strings.downloadingMany(entries.size)
+        runOperation(label, refresh = false) {
             mkdirOn(phone, DOWNLOAD_DIR)
-            transfer(open.disk, entry, phone, childPath(DOWNLOAD_DIR, entry.name), move = false)
-            _state.update { it.copy(notice = strings.downloaded("$DOWNLOAD_DIR/${entry.name}")) }
+            entries.forEach { entry ->
+                transfer(open.disk, entry, phone, childPath(DOWNLOAD_DIR, entry.name), move = false)
+            }
+            clearSelection()
+            val where = if (entries.size == 1) "$DOWNLOAD_DIR/${entries.first().name}" else DOWNLOAD_DIR
+            _state.update { it.copy(notice = strings.downloaded(where)) }
         }
     }
 

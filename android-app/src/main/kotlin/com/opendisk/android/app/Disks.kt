@@ -98,7 +98,7 @@ object LocalVolumes {
 /** Что лежит в буфере файлового менеджера после «Копировать» или «Вырезать». */
 data class FileClip(
     val disk: Disk,
-    val entry: RcloneClient.Entry,
+    val entries: List<RcloneClient.Entry>,
     /** true — «Вырезать»: после вставки исходник удаляется. */
     val move: Boolean,
 )

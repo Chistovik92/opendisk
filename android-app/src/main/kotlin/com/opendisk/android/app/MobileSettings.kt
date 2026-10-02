@@ -28,6 +28,8 @@ data class MobilePreferences(
      * самих облаков.
      */
     val checkUpdates: Boolean = true,
+    /** Как показывать папки: сортировка, скрытые файлы, строки или плитки. */
+    val listing: ListingOptions = ListingOptions(),
 )
 
 /**
@@ -48,6 +50,12 @@ class MobileSettings(context: Context) {
         connected = prefs.getStringSet(KEY_CONNECTED, emptySet()).orEmpty().toSet(),
         statusIcon = prefs.getBoolean(KEY_STATUS_ICON, false),
         checkUpdates = prefs.getBoolean(KEY_CHECK_UPDATES, true),
+        listing = ListingOptions(
+            sort = SortOrder.entries.firstOrNull { it.name == prefs.getString(KEY_SORT, null) } ?: SortOrder.NAME,
+            descending = prefs.getBoolean(KEY_SORT_DESC, false),
+            showHidden = prefs.getBoolean(KEY_SHOW_HIDDEN, false),
+            view = ViewMode.entries.firstOrNull { it.name == prefs.getString(KEY_VIEW, null) } ?: ViewMode.LIST,
+        ),
     )
 
     fun write(preferences: MobilePreferences) {
@@ -59,6 +67,10 @@ class MobileSettings(context: Context) {
             .putStringSet(KEY_CONNECTED, preferences.connected.toSet())
             .putBoolean(KEY_STATUS_ICON, preferences.statusIcon)
             .putBoolean(KEY_CHECK_UPDATES, preferences.checkUpdates)
+            .putString(KEY_SORT, preferences.listing.sort.name)
+            .putBoolean(KEY_SORT_DESC, preferences.listing.descending)
+            .putBoolean(KEY_SHOW_HIDDEN, preferences.listing.showHidden)
+            .putString(KEY_VIEW, preferences.listing.view.name)
             .apply()
     }
 
@@ -92,6 +104,10 @@ class MobileSettings(context: Context) {
         const val KEY_CONNECTED = "connected"
         const val KEY_STATUS_ICON = "status_icon"
         const val KEY_CHECK_UPDATES = "check_updates"
+        const val KEY_SORT = "sort"
+        const val KEY_SORT_DESC = "sort_desc"
+        const val KEY_SHOW_HIDDEN = "show_hidden"
+        const val KEY_VIEW = "view"
         const val KEY_STORAGE_ASKED = "storage_asked"
         const val KEY_BACKGROUND_ASKED = "background_asked"
     }
