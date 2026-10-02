@@ -414,12 +414,12 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
         val jobs = mutableListOf<Pair<RcloneClient.Entry, String>>()
         for (entry in clip.entries) {
             var target = childPath(open.path, entry.name)
-            if (clip.disk == open.disk && target == entry.path) {
-                // Вырезать и вставить туда же — делать нечего.
-                if (clip.move) continue
-                // Копия рядом с оригиналом — под другим именем, а не поверх него.
-                target = childPath(open.path, copyName(entry.name, taken))
-            }
+            // Вырезать и вставить туда же — делать нечего.
+            if (clip.move && clip.disk == open.disk && target == entry.path) continue
+            // Имя занято — копия получает другое, как в проводниках: «отчёт (2).pdf».
+            // Раньше так делалось только при вставке в ту же папку, а в другой
+            // rclone молча перезаписывал одноимённый файл — без возврата.
+            if (entry.name in taken) target = childPath(open.path, copyName(entry.name, taken))
             // Папку в саму себя не положить: rclone ушёл бы в бесконечное копирование.
             if (clip.disk == open.disk && entry.isDir && (open.path + "/").startsWith(entry.path + "/")) {
                 _state.update { it.copy(notice = strings.cannotPasteIntoItself) }
