@@ -76,6 +76,7 @@ private fun runApplication(startHidden: Boolean) = application {
     val state by controller.state.collectAsState()
     val traySupported = remember { runCatching { SystemTray.isSupported() }.getOrDefault(false) }
     val trayState = rememberTrayState()
+    val tray by controller.tray.collectAsState()
     val strings = Strings.of(Language.fromCode(state.globalSettings.language))
     // Свёрнутым можно стартовать только с треем: иначе окно не вернуть.
     var windowVisible by remember { mutableStateOf(!(startHidden && traySupported)) }
@@ -136,10 +137,36 @@ private fun runApplication(startHidden: Boolean) = application {
         Tray(
             state = trayState,
             icon = OpenDiskIcon,
-            tooltip = "OpenDisk",
+            // Скорость — в подсказке значка: её видно, не открывая меню.
+            tooltip = if (state.globalSettings.trayStats && tray.active) {
+                "OpenDisk — " + formatSpeed(tray.bytesPerSecond, strings.speedUnits)
+            } else {
+                "OpenDisk"
+            },
             onAction = { windowVisible = true },
             menu = {
                 Item(strings.showWindow, onClick = { windowVisible = true })
+                if (state.globalSettings.trayStats) {
+                    Separator()
+                    Item(
+                        if (tray.active) strings.traySpeedLine(formatSpeed(tray.bytesPerSecond, strings.speedUnits)) else strings.trayIdleLine,
+                        enabled = false,
+                        onClick = {},
+                    )
+                    // Недавние файлы: нажатие открывает папку облака, если оно подключено.
+                    Menu(strings.trayRecentTitle) {
+                        if (tray.recent.isEmpty()) {
+                            Item(strings.trayNoRecent, enabled = false, onClick = {})
+                        }
+                        tray.recent.forEach { file ->
+                            Item(
+                                strings.trayFileLabel(file.name, file.upload, formatBytes(file.size, strings)),
+                                onClick = { controller.revealInFolder(file) },
+                            )
+                        }
+                    }
+                    Separator()
+                }
                 // Настройки прямо отсюда: приложение живёт свёрнутым, и путь
                 // «показать окно → найти кнопку» — лишний шаг ради галочки.
                 Item(

@@ -235,6 +235,18 @@ class Strings(val russian: Boolean) {
 
     // --- Обновления -----------------------------------------------------------
 
+    val trayStatsSection = t("Трей", "Tray")
+    val trayStatsSetting = t("Скорость сети и недавние файлы в трее", "Network speed and recent files in the tray")
+    val trayStatsHint = t(
+        "Показывает, с какой скоростью приложение передаёт данные сейчас, и какие файлы недавно ушли в облако или пришли из него. Для этого раз в пару секунд опрашивается rclone.",
+        "Shows how fast the app is transferring data right now and which files were recently uploaded or downloaded. rclone is polled every couple of seconds for this.",
+    )
+    val speedUnits = if (russian) listOf("Б/с", "КБ/с", "МБ/с", "ГБ/с") else listOf("B/s", "KB/s", "MB/s", "GB/s")
+    fun traySpeedLine(speed: String) = t("Скорость: $speed", "Speed: $speed")
+    val trayIdleLine = t("Сеть не используется", "Network idle")
+    val trayRecentTitle = t("Недавно синхронизировано", "Recently synced")
+    val trayNoRecent = t("Пока ничего", "Nothing yet")
+    fun trayFileLabel(name: String, upload: Boolean, size: String) = "${if (upload) "↑" else "↓"} $name" + if (size.isEmpty()) "" else " ($size)"
     val checkUpdates = t("Проверять обновления", "Check for updates")
     val checkUpdatesHint = t(
         "При запуске приложение спросит у GitHub, не вышла ли новая версия. " +

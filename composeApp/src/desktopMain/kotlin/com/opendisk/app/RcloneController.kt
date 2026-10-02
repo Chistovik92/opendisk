@@ -94,7 +94,71 @@ class RcloneController(
      */
     private val ourMounts = ConcurrentHashMap<String, String>()
 
+    // --- Трей: скорость сети и недавние файлы ------------------------------
+
+    private val _tray = MutableStateFlow(TrayStatus())
+    val tray: StateFlow<TrayStatus> = _tray.asStateFlow()
+    private val meter = NetworkMeter()
+
+    /**
+     * Раз в пару секунд спрашивает rclone, сколько байт он передал и что
+     * недавно завершил. Живёт всё время работы приложения, в том числе пока
+     * окно свёрнуто в трей — ради этого трей и показывает скорость.
+     *
+     * Реже, пока сеть простаивает: заметить начало передачи через три секунды
+     * не хуже, чем через полторы, а будить процесс каждые полторы секунды на
+     * пустом месте незачем.
+     */
+    private fun startTrayPolling() {
+        scope.launch {
+            while (isActive) {
+                val api = client
+                if (api == null || stopping) {
+                    delay(TRAY_IDLE_POLL_MILLIS)
+                    continue
+                }
+                if (!_state.value.globalSettings.trayStats) {
+                    meter.reset()
+                    if (_tray.value != TrayStatus()) _tray.value = TrayStatus()
+                    delay(TRAY_IDLE_POLL_MILLIS)
+                    continue
+                }
+                val stats = runCatching { api.coreStats() }.getOrNull()
+                if (stats != null) {
+                    val speed = meter.sample(stats.bytes, System.currentTimeMillis())
+                    val names = _state.value.clouds.map { it.name }.toSet()
+                    // Недавние берём, только когда что-то менялось или список ещё пуст:
+                    // иначе каждый опрос тянул бы весь журнал переносов впустую.
+                    val recent = if (speed >= TrayStatus.ACTIVE_THRESHOLD || _tray.value.recent.isEmpty() || _tray.value.active) {
+                        runCatching { recentFiles(api.transferred(), names) }.getOrNull() ?: _tray.value.recent
+                    } else {
+                        _tray.value.recent
+                    }
+                    _tray.value = TrayStatus(speed, recent)
+                }
+                delay(if (_tray.value.active) TRAY_ACTIVE_POLL_MILLIS else TRAY_IDLE_POLL_MILLIS)
+            }
+        }
+    }
+
+    /**
+     * Открывает в проводнике папку, где лежит недавний файл, — по точке
+     * подключения облака. Облако не подключено или папки нет — открывается
+     * корень диска, а если и его нет, ничего не происходит.
+     */
+    fun revealInFolder(file: RecentFile) {
+        val mount = _state.value.clouds.firstOrNull { it.name == file.cloud }?.mountPoint ?: return
+        scope.launch(Dispatchers.IO) {
+            // «F:» без слэша у Windows — текущая папка на диске F, а не его корень.
+            val root = if (mount.length == 2 && mount[1] == ':') "$mount\\" else mount
+            val folder = File(root, file.name.substringBeforeLast('/', ""))
+            val target = if (folder.isDirectory) folder else File(root)
+            runCatching { java.awt.Desktop.getDesktop().open(target) }
+        }
+    }
+
     fun start() {
+        startTrayPolling()
         scope.launch {
             // Запись автозапуска живёт отдельно от настроек и может пропасть,
             // когда галка в них стоит: до 0.5.9 её стирало каждое обновление
@@ -1110,6 +1174,8 @@ class RcloneController(
 
         /** Сколько ждать сведений об одном облаке, прежде чем махнуть на него рукой. */
         private const val CLOUD_INFO_TIMEOUT_MILLIS = 45_000L
+        private const val TRAY_ACTIVE_POLL_MILLIS = 1_500L
+        private const val TRAY_IDLE_POLL_MILLIS = 3_000L
         private const val RCD_WATCH_MILLIS = 3_000L
         private const val RESTART_WINDOW_MILLIS = 10 * 60_000L
         private const val MAX_RESTARTS = 3

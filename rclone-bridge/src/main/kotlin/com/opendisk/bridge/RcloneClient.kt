@@ -3,6 +3,8 @@ package com.opendisk.bridge
 import io.ktor.client.HttpClient
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.buildJsonObject
@@ -733,6 +735,38 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
             "core/stats",
             buildJsonObject { group?.let { put("group", it) } },
         )
+
+    /**
+     * Завершённый перенос из `core/transferred`.
+     *
+     * `error` в ответе rclone — пустой объект или строка при ошибке, а `null`
+     * при успехе, поэтому читается как JsonElement: тип у него не постоянный.
+     */
+    @Serializable
+    data class CompletedTransfer(
+        val name: String = "",
+        val size: Long = 0,
+        val bytes: Long = 0,
+        val checked: Boolean = false,
+        @SerialName("completed_at") val completedAt: String = "",
+        val error: JsonElement? = null,
+        val srcFs: String = "",
+        val dstFs: String = "",
+    ) {
+        val failed: Boolean get() = error != null && error !is JsonNull && error.toString() != "\"\""
+    }
+
+    @Serializable
+    private data class TransferredResponse(val transferred: List<CompletedTransfer> = emptyList())
+
+    /**
+     * Недавно завершённые переносы: что и когда ушло в облако или пришло из
+     * него. rclone держит их в памяти до перезапуска, самые поздние — в конце.
+     */
+    suspend fun transferred(): List<CompletedTransfer> {
+        val response: TransferredResponse = call("core/transferred")
+        return response.transferred
+    }
 
     @Serializable
     data class JobStatus(

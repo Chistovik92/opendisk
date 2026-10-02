@@ -74,6 +74,13 @@ data class GlobalSettings(
      * должно быть можно.
      */
     val checkUpdates: Boolean = true,
+    /**
+     * Показывать в трее скорость сети и недавние файлы.
+     *
+     * Ради этого раз в пару секунд спрашивается rclone, пока приложение
+     * живёт свёрнутым, — кому-то это лишнее, и выключить можно.
+     */
+    val trayStats: Boolean = true,
 ) {
     companion object {
         const val BANDWIDTH_UNLIMITED = "off"

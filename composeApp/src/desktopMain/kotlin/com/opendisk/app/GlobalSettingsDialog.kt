@@ -55,6 +55,7 @@ fun GlobalSettingsDialog(
     var theme by remember { mutableStateOf(ThemeChoice.fromCode(current.theme)) }
     var autostart by remember { mutableStateOf(current.autostart) }
     var checkUpdates by remember { mutableStateOf(current.checkUpdates) }
+    var trayStats by remember { mutableStateOf(current.trayStats) }
     var unlimited by remember {
         mutableStateOf(current.bandwidthLimit == GlobalSettings.BANDWIDTH_UNLIMITED)
     }
@@ -122,6 +123,15 @@ fun GlobalSettingsDialog(
                     }
                 }
 
+                SettingsSection(strings.trayStatsSection) {
+                    Switch(
+                        checked = trayStats,
+                        onCheckedChange = { trayStats = it },
+                        label = strings.trayStatsSetting,
+                        hint = strings.trayStatsHint,
+                    )
+                }
+
                 SettingsSection(strings.settingsUpdatesSection) {
                     Switch(
                         checked = checkUpdates,
@@ -180,6 +190,7 @@ fun GlobalSettingsDialog(
                             autostart = autostart,
                             bandwidthLimit = rate,
                             checkUpdates = checkUpdates,
+                            trayStats = trayStats,
                             language = language.code,
                             theme = theme.code,
                         ),

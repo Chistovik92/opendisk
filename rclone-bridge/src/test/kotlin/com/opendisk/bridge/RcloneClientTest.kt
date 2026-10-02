@@ -66,6 +66,31 @@ class RcloneClientTest {
     }
 
     @Test
+    fun `transferred reads completed transfers and tells failures from successes`() = runBlocking {
+        // Живой ответ rclone: у удачного переноса error — null, у неудачного — строка
+        // или объект, а у ещё идущего completed_at — нулевое время.
+        val client = clientRespondingWith(
+            """{"transferred":[
+              {"name":"a.txt","size":10,"bytes":10,"checked":false,"started_at":"2026-10-01T10:00:00Z","completed_at":"2026-10-01T10:00:01Z","error":null,"group":"job/1","srcFs":"/tmp/c","dstFs":"gdrive:"},
+              {"name":"b.txt","size":20,"bytes":5,"checked":false,"completed_at":"2026-10-01T10:00:02Z","error":"couldn't copy: boom","srcFs":"/tmp/c","dstFs":"gdrive:"},
+              {"name":"c.txt","completed_at":"0001-01-01T00:00:00Z","error":{}}
+            ]}""",
+        )
+
+        val transfers = client.transferred()
+
+        assertEquals("$BASE_URL/core/transferred", requests.single().url.toString())
+        assertEquals(listOf("a.txt", "b.txt", "c.txt"), transfers.map { it.name })
+        assertEquals(listOf(false, true, true), transfers.map { it.failed })
+        assertEquals("gdrive:", transfers.first().dstFs)
+    }
+
+    @Test
+    fun `transferred tolerates an empty answer`() = runBlocking {
+        assertEquals(emptyList(), clientRespondingWith("{}").transferred())
+    }
+
+    @Test
     fun `listRemotes tolerates response without remotes field`() = runBlocking {
         val client = clientRespondingWith("{}")
 
