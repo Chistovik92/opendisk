@@ -38,6 +38,17 @@ class CloudStreams(private val client: () -> RcloneClient) {
     private val endpoints = ConcurrentHashMap<String, Endpoint>()
     private val lock = Any()
 
+    /**
+     * Библиотека rclone, собранная для Android, не знает метода `serve/start`
+     * (ответ 404): серверные команды в неё не вошли. Узнав это один раз, больше
+     * не спрашиваем — каждое открытие файла иначе начиналось бы с заведомо
+     * неудачного запроса. Как только в приложение приедет библиотека с `serve`,
+     * чтение кусками заработает само.
+     */
+    @Volatile
+    var unsupported = false
+        private set
+
     private val thread by lazy { HandlerThread("opendisk-stream").apply { start() } }
 
     /**
@@ -46,8 +57,14 @@ class CloudStreams(private val client: () -> RcloneClient) {
      */
     private fun endpoint(cloud: String): Endpoint = synchronized(lock) {
         endpoints[cloud]?.let { return it }
+        if (unsupported) throw UnsupportedOperationException("в библиотеке rclone нет serve/start")
         val credentials = com.opendisk.bridge.RcCredentials.random()
-        val info = runBlocking { client().serveHttp(RcloneClient.cloudFs(cloud), credentials.user, credentials.password) }
+        val info = try {
+            runBlocking { client().serveHttp(RcloneClient.cloudFs(cloud), credentials.user, credentials.password) }
+        } catch (e: com.opendisk.bridge.RcloneRcException) {
+            if (e.statusCode == 404) unsupported = true
+            throw e
+        }
         Endpoint(info.id, "http://${info.addr}", credentials.basicAuthHeader()).also { endpoints[cloud] = it }
     }
 
