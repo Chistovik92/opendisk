@@ -78,6 +78,28 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # HTTP-сервер rclone внутри библиотеки: через него файл читается кусками.
+      #
+      # RC API сам частичного чтения не умеет — файл можно только скопировать
+      # целиком, и «Файлы» на телефоне ждали конца скачивания, прежде чем
+      # показать первый кадр видео. У `serve http` есть Range. Метод
+      # `serve/start` в библиотеку не входит: он регистрируется пакетом
+      # cmd/serve/http, а librclone/gomobile его не подключает. Подключаем
+      # отдельным файлом в том же пакете — исходники rclone не правятся.
+      - name: Подключить serve/start
+        working-directory: rclone-src
+        run: |
+          cat > librclone/gomobile/serve.go <<'EOF'
+          package gomobile
+
+          import (
+          	_ "github.com/rclone/rclone/cmd/serve/http" // serve/start для чтения файла кусками
+          )
+          EOF
+          # YAML убирает отступ блока, но не табуляцию: проверяем, что файл верный.
+          cat librclone/gomobile/serve.go
+          go build ./librclone/gomobile
+
       - name: Собрать .aar
         working-directory: rclone-src
         run: |
