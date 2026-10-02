@@ -180,6 +180,10 @@ class OpenDiskDocumentsProvider : DocumentsProvider() {
             runCatching {
                 val storage = requireNotNull(context).getSystemService(android.os.storage.StorageManager::class.java)
                 streams.open(storage, cloud, path, entry.size)
+            }.onFailure { error ->
+                // Не молча: иначе большой файл тихо качался бы целиком, и узнать,
+                // что чтение кусками не работает, было бы не по чему.
+                android.util.Log.w("OpenDisk", "чтение кусками не вышло, скачиваю целиком", error)
             }.getOrNull()?.let { return it }
         }
 

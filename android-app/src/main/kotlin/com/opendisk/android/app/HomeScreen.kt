@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -56,6 +57,19 @@ fun DisksScreen(
 ) {
     val strings = model.strings
     LazyColumn(modifier = Modifier.fillMaxSize()) {
+        // Первый запуск: приглашение добавить облако — самым верхом, а не после
+        // хранилищ и категорий. С него начинается любой новый человек, и под
+        // экраном оно оставалось незамеченным.
+        if (state.clouds.isEmpty() && state.error == null) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(strings.noClouds)
+                        Button(onClick = { model.selectTab(MainTab.ADD) }) { Text(strings.tabAdd) }
+                    }
+                }
+            }
+        }
         item { SectionTitle(strings.sectionDevice) }
         item {
             val phone = remember { LocalVolumes.primary() }
@@ -144,7 +158,6 @@ fun DisksScreen(
                 Text(error, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
             }
         }
-        if (state.clouds.isEmpty()) item { ListHint(strings.noClouds) }
         items(state.clouds, key = { "cloud:" + it.name }) { cloud ->
             val connected = cloud.name in state.preferences.connected
             var menu by remember { mutableStateOf(false) }
