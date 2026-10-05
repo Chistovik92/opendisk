@@ -271,15 +271,16 @@ fun launchOpen(context: Context, request: OpenRequest, strings: MobileStrings): 
 // --- Синяя верхняя панель -------------------------------------------------------
 
 /**
- * Верхняя панель файлового менеджера: синяя, с белым текстом — как у ES File
- * Explorer. Кнопки внутри берут цвет у панели (`BarButton`): обычная
- * текстовая кнопка красится в основной цвет темы, то есть в синий по синему.
+ * Верхняя панель файлового менеджера: расположение как у ES File Explorer,
+ * цвет — тональный контейнер палитры Material You. Кнопки внутри берут цвет
+ * у панели (`BarButton`): обычная текстовая кнопка красится в основной цвет
+ * темы, то есть в тот же оттенок, что и фон.
  */
 @Composable
 internal fun BlueBar(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
     androidx.compose.material3.Surface(
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -293,7 +294,7 @@ internal fun BlueBar(content: @Composable androidx.compose.foundation.layout.Row
 internal fun BarButton(onClick: () -> Unit, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
     TextButton(
         onClick = onClick,
-        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
         content = content,
     )
 }

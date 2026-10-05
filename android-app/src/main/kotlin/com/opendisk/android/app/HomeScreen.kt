@@ -448,10 +448,12 @@ private fun AddDiskOption(glyph: String, title: String, hint: String, onClick: (
 @Composable
 private fun RoundIcon(glyph: String, color: Color, size: Int = 52) {
     Box(
-        modifier = Modifier.size(size.dp).clip(CircleShape).background(color),
+        modifier = Modifier.size(size.dp).clip(CircleShape).background(color.copy(alpha = 0.22f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, style = MaterialTheme.typography.titleLarge, color = Color.White)
+        // Тональный круг, а не сплошная заливка: так значки держатся в палитре
+        // Material You и не спорят с цветом обоев.
+        Text(glyph, style = MaterialTheme.typography.titleLarge, color = color)
     }
 }
 

@@ -1,16 +1,22 @@
 package com.opendisk.android.app
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
-private val EsBlue = Color(0xFF2273E5)
-
-private val EsLight = lightColorScheme(
-    primary = EsBlue,
+/** Запасная палитра для Android до 12: синяя, как у ES File Explorer. */
+private val FallbackLight = lightColorScheme(
+    primary = Color(0xFF2273E5),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFD8E6FD),
     onPrimaryContainer = Color(0xFF0B2E63),
@@ -20,18 +26,32 @@ private val EsLight = lightColorScheme(
     surfaceVariant = Color(0xFFE8ECF2),
 )
 
-private val EsDark = darkColorScheme(
-    primary = Color(0xFF1B5FC4),
-    onPrimary = Color.White,
+private val FallbackDark = darkColorScheme(
+    primary = Color(0xFF9ABFFF),
+    onPrimary = Color(0xFF0B2E63),
     primaryContainer = Color(0xFF1F3A66),
+    onPrimaryContainer = Color(0xFFD8E6FD),
     secondaryContainer = Color(0xFF26364F),
 )
 
+/** Крупные скругления Material You: карточки, окна и меню мягче, чем в Material 2. */
+private val SoftShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(32.dp),
+)
+
 /**
- * Тема приложения на телефоне.
+ * Тема приложения на телефоне: раскладка как у ES File Explorer, дух —
+ * Material You.
  *
- * Светлая или тёмная — по системе или по выбору человека, но палитра одна:
- * синяя, как у ES File Explorer (см. docs/MOBILE-UI.md).
+ * С Android 12 цвета берутся из обоев, как у системных приложений, и
+ * верхние панели красятся в тональный контейнер этой палитры, а не в
+ * жёсткий синий. Раскладка (круглые значки, кольцо заполнения, панель
+ * инструментов) от ES, а оттенки — свои у каждого телефона. До Android 12
+ * динамических цветов нет, там запасная синяя палитра.
  */
 @Composable
 fun OpenDiskTheme(theme: MobileTheme, content: @Composable () -> Unit) {
@@ -40,10 +60,12 @@ fun OpenDiskTheme(theme: MobileTheme, content: @Composable () -> Unit) {
         MobileTheme.LIGHT -> false
         MobileTheme.DARK -> true
     }
-    // Палитра ES File Explorer: синий вместо цветов обоев. Системная палитра
-    // Android 12 красила верхнюю панель во что угодно, и экран переставал
-    // быть узнаваемым; в `docs/MOBILE-UI.md` синий — часть договора.
-    val colors = if (dark) EsDark else EsLight
-
-    MaterialTheme(colorScheme = colors, content = content)
+    val context = LocalContext.current
+    val colors = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        dark -> FallbackDark
+        else -> FallbackLight
+    }
+    MaterialTheme(colorScheme = colors, shapes = SoftShapes, content = content)
 }
