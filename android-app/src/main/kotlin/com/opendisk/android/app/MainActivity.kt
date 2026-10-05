@@ -46,6 +46,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -160,6 +163,13 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
 
     Scaffold(
         modifier = Modifier.padding(device.safePadding(roundScreen)),
+        // Панель папки рисует статус-бар сама (BlueBar): иначе над ней оставалась
+        // светлая полоса, и значки статуса на ней не читались.
+        contentWindowInsets = if (state.browsing != null && state.tab == MainTab.DISKS && !state.settings) {
+            ScaffoldDefaults.contentWindowInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+        } else {
+            ScaffoldDefaults.contentWindowInsets
+        },
         // Файловый менеджер рисует свою верхнюю панель сам (путь, поиск, выбор).
         topBar = { if (state.browsing == null || state.tab != MainTab.DISKS || state.settings) AppBar(state, model) },
         bottomBar = {

@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -338,7 +340,7 @@ private fun SearchBar(query: String, model: OpenDiskModel) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TextButton(onClick = { model.setQuery(null) }) { Text("←", style = MaterialTheme.typography.titleLarge) }
@@ -400,7 +402,7 @@ private fun FileList(shown: List<RcloneClient.Entry>, open: Browsing, strings: M
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(if (checked) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                    .background(if (checked) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                     .combinedClickable(
                         onClick = { activate(entry, open, model) },
                         onLongClick = { if (open.selecting) model.selectRange(entry, shown) else model.toggleSelected(entry) },
@@ -448,7 +450,7 @@ private fun FileGrid(shown: List<RcloneClient.Entry>, open: Browsing, strings: M
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (checked) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                    .background(if (checked) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                     .combinedClickable(
                         onClick = { activate(entry, open, model) },
                         onLongClick = { if (open.selecting) model.selectRange(entry, shown) else model.toggleSelected(entry) },
@@ -597,7 +599,10 @@ private fun ActionBar(
     var more by remember { mutableStateOf(false) }
     val single = selected.singleOrNull()
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+        Row(
+            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
             ActionButton("⧉", strings.copyAction) { model.clip(selected, move = false) }
             ActionButton("✂", strings.cutAction) { model.clip(selected, move = true) }
             ActionButton("🗑", strings.delete) { onDelete() }

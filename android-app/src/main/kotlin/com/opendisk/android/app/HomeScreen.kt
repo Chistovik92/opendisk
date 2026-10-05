@@ -165,12 +165,6 @@ fun DisksScreen(
                 }
             }
         }
-        item {
-            OutlinedButton(
-                onClick = { adding = true },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            ) { Text("＋  " + strings.addDisk) }
-        }
 
         item { SectionTitle(strings.sectionCategories) }
         item {
@@ -465,7 +459,7 @@ private fun UsageRing(space: Space) {
             progress = { space.fraction },
             modifier = Modifier.size(52.dp),
             strokeWidth = 5.dp,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            trackColor = MaterialTheme.colorScheme.outlineVariant,
         )
         Text("${(space.fraction * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
     }
