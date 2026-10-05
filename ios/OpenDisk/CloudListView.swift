@@ -83,6 +83,9 @@ struct CloudListView: View {
                     sectionTitle(strings.sectionCategories)
                     categories
 
+                    sectionTitle(strings.sectionTools)
+                    tools
+
                     sectionTitle(strings.sectionBookmarks)
                     if files.bookmarks.isEmpty { hint(strings.noBookmarks) }
                     ForEach(files.bookmarks) { bookmark in bookmarkRow(bookmark) }
@@ -129,7 +132,11 @@ struct CloudListView: View {
         } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 12) {
-                    Text("📱").font(.title)
+                    if let space, space.total > 0 {
+                        usageRing(Double(space.used) / Double(space.total))
+                    } else {
+                        Text("📱").font(.title)
+                    }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(strings.phoneStorage).font(.headline).foregroundColor(.primary)
                         if let space {
@@ -139,9 +146,6 @@ struct CloudListView: View {
                         }
                     }
                     Spacer()
-                }
-                if let space, space.total > 0 {
-                    ProgressView(value: Double(space.used), total: Double(space.total))
                 }
             }
             .padding(14)
@@ -153,6 +157,52 @@ struct CloudListView: View {
         .buttonStyle(.plain)
     }
 
+    /// Круглый цветной значок — как у категорий и инструментов на Android.
+    private func roundIcon(_ glyph: String, _ color: Color, size: CGFloat) -> some View {
+        ZStack {
+            Circle().fill(color)
+            Text(glyph).font(.title3)
+        }
+        .frame(width: size, height: size)
+    }
+
+    /// Кольцо заполнения с процентом внутри.
+    private func usageRing(_ fraction: Double) -> some View {
+        let clamped = min(max(fraction, 0), 1)
+        return ZStack {
+            Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 5)
+            Circle()
+                .trim(from: 0, to: CGFloat(clamped))
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("(Int(clamped * 100))%").font(.caption2)
+        }
+        .frame(width: 52, height: 52)
+    }
+
+    /// Инструменты: облако, добавить диск, настройки. Корня и произвольных папок
+    /// на iPhone нет — песочница не пускает за пределы папки OpenDisk.
+    private var tools: some View {
+        HStack(spacing: 8) {
+            toolTile("☁", Color(red: 0.12, green: 0.53, blue: 0.90), strings.toolClouds) { adding = true }
+            toolTile("＋", Color(red: 0.0, green: 0.54, blue: 0.48), strings.addDisk) { adding = true }
+            toolTile("⚙", Color(red: 0.46, green: 0.46, blue: 0.46), strings.settings) { settings = true }
+        }
+        .padding(.horizontal, 12)
+    }
+
+    private func toolTile(_ glyph: String, _ color: Color, _ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                roundIcon(glyph, color, size: 44)
+                Text(title).font(.caption2).foregroundColor(.primary).lineLimit(2).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var categories: some View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
         return LazyVGrid(columns: columns, spacing: 8) {
@@ -160,14 +210,12 @@ struct CloudListView: View {
                 NavigationLink {
                     FileScreen(strings: strings, location: Location(disk: .local, path: "", category: category))
                 } label: {
-                    VStack(spacing: 4) {
-                        Text(categoryGlyph(category)).font(.largeTitle)
+                    VStack(spacing: 6) {
+                        roundIcon(categoryGlyph(category), categoryColor(category), size: 52)
                         Text(categoryTitle(category, strings)).font(.caption).foregroundColor(.primary).lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(categoryColor(category).opacity(0.16))
-                    .cornerRadius(12)
+                    .padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
             }

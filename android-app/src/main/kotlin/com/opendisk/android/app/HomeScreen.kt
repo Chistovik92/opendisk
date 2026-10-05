@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,7 +21,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -58,6 +60,7 @@ fun DisksScreen(
     onConnect: (String, Boolean) -> Unit,
 ) {
     val strings = model.strings
+    var adding by remember { mutableStateOf(false) }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         // Первый запуск: приглашение добавить облако — самым верхом, а не после
         // хранилищ и категорий. С него начинается любой новый человек, и под
@@ -149,28 +152,24 @@ fun DisksScreen(
                 }
             }
         }
+        item { SectionTitle(strings.sectionTools) }
         item {
-            var adding by remember { mutableStateOf(false) }
+            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                Row(modifier = Modifier.padding(8.dp)) {
+                    ToolTile("☁", Color(0xFF1E88E5), strings.toolClouds, Modifier.weight(1f)) { model.selectTab(MainTab.ADD) }
+                    ToolTile("＋", Color(0xFF00897B), strings.addDisk, Modifier.weight(1f)) { adding = true }
+                    ToolTile("#", Color(0xFF6D4C41), strings.rootFs.substringBefore(" ("), Modifier.weight(1f)) {
+                        if (state.rootGranted == true) model.open(Disk.Root) else model.requestRoot(openAfter = true)
+                    }
+                    ToolTile("⚙", Color(0xFF757575), strings.settings, Modifier.weight(1f)) { model.openSettings() }
+                }
+            }
+        }
+        item {
             OutlinedButton(
                 onClick = { adding = true },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             ) { Text("＋  " + strings.addDisk) }
-            if (adding) {
-                AddDiskDialog(
-                    strings = strings,
-                    rootGranted = state.rootGranted == true,
-                    onDismiss = { adding = false },
-                    onCloud = {
-                        adding = false
-                        model.selectTab(MainTab.ADD)
-                    },
-                    onRoot = {
-                        adding = false
-                        model.requestRoot()
-                    },
-                    onFolder = model::addCustomDisk,
-                )
-            }
         }
 
         item { SectionTitle(strings.sectionCategories) }
@@ -276,6 +275,23 @@ fun DisksScreen(
             HorizontalDivider()
         }
     }
+
+    if (adding) {
+        AddDiskDialog(
+            strings = strings,
+            rootGranted = state.rootGranted == true,
+            onDismiss = { adding = false },
+            onCloud = {
+                adding = false
+                model.selectTab(MainTab.ADD)
+            },
+            onRoot = {
+                adding = false
+                model.requestRoot()
+            },
+            onFolder = model::addCustomDisk,
+        )
+    }
 }
 
 /** Карточка хранилища с полосой заполнения — как у ES File Explorer. */
@@ -293,7 +309,11 @@ private fun StorageCard(
     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clickable(onClick = onClick)) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(glyph, style = MaterialTheme.typography.headlineSmall)
+                if (space != null && space.total > 0) {
+                    UsageRing(space)
+                } else {
+                    Text(glyph, style = MaterialTheme.typography.headlineSmall)
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.titleMedium)
                     val line = subtitle ?: space?.let { strings.used(formatBytes(it.used, strings), formatBytes(it.total, strings)) }
@@ -302,9 +322,6 @@ private fun StorageCard(
                     }
                 }
                 menu()
-            }
-            space?.let {
-                LinearProgressIndicator(progress = { it.fraction }, modifier = Modifier.fillMaxWidth())
             }
             extra()
         }
@@ -343,13 +360,12 @@ private fun CategoryTile(category: FileCategory, strings: MobileStrings, modifie
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(categoryColor(category).copy(alpha = 0.16f))
             .clickable(onClick = onClick)
-            .padding(vertical = 14.dp, horizontal = 4.dp),
+            .padding(vertical = 6.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(categoryGlyph(category), style = MaterialTheme.typography.headlineMedium)
+        RoundIcon(categoryGlyph(category), categoryColor(category))
         Text(
             categoryTitle(category, strings),
             style = MaterialTheme.typography.labelMedium,
@@ -426,4 +442,42 @@ private fun AddDiskDialog(
 @Composable
 private fun AddDiskOption(glyph: String, title: String, hint: String, onClick: () -> Unit) {
     DiskRow(glyph = glyph, title = title, subtitle = hint, onClick = onClick)
+}
+
+/** Круглый цветной значок с глифом — как у категорий и инструментов ES. */
+@Composable
+private fun RoundIcon(glyph: String, color: Color, size: Int = 52) {
+    Box(
+        modifier = Modifier.size(size.dp).clip(CircleShape).background(color),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(glyph, style = MaterialTheme.typography.titleLarge, color = Color.White)
+    }
+}
+
+/** Кольцо заполнения с процентом внутри: «42%», как у Internal Storage в ES. */
+@Composable
+private fun UsageRing(space: Space) {
+    Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            progress = { space.fraction },
+            modifier = Modifier.size(52.dp),
+            strokeWidth = 5.dp,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+        )
+        Text("${(space.fraction * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+/** Плитка инструмента: круглый значок и подпись. */
+@Composable
+private fun ToolTile(glyph: String, color: Color, title: String, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier = modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        RoundIcon(glyph, color, size = 44)
+        Text(title, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
 }

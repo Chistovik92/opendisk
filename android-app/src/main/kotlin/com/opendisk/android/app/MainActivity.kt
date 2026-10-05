@@ -272,6 +272,12 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
 private fun AppBar(state: MobileState, model: OpenDiskModel) {
     val strings = model.strings
     TopAppBar(
+        colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            titleContentColor = MaterialTheme.colorScheme.onPrimary,
+            navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+            actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
         title = {
             Text(
                 text = when {
@@ -285,14 +291,14 @@ private fun AppBar(state: MobileState, model: OpenDiskModel) {
         },
         navigationIcon = {
             when {
-                state.settings -> TextButton(onClick = model::closeSettings) { Text(strings.back) }
+                state.settings -> BarButton(onClick = model::closeSettings) { Text(strings.back) }
             }
         },
         actions = {
             if (!state.settings && !state.starting) {
                 // Настройки — на всех экранах, кроме них самих: искать их
                 // приходится редко, а найти нужно сразу.
-                TextButton(onClick = model::openSettings) { Text(strings.settings) }
+                BarButton(onClick = model::openSettings) { Text(strings.settings) }
             }
         },
     )

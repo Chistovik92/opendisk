@@ -80,6 +80,8 @@ class MobileStrings(val russian: Boolean) {
         "На телефоне нет root: команда su не нашлась или менеджер root отказал.",
         "This phone has no root: su was not found or the root manager refused.",
     )
+    val sectionTools = t("Инструменты", "Tools")
+    val toolClouds = t("Облачный накопитель", "Cloud storage")
     val addDisk = t("Добавить диск", "Add a disk")
     val addDiskCloud = t("Облако", "Cloud")
     val addDiskCloudHint = t("Яндекс Диск, Google Диск, WebDAV, S3 и другие", "Yandex Disk, Google Drive, WebDAV, S3 and more")

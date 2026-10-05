@@ -18,6 +18,7 @@ struct OpenDiskApp: App {
     var body: some Scene {
         WindowGroup {
             CloudListView(strings: currentStrings)
+                .accentColor(Color(red: 0.13, green: 0.45, blue: 0.90))
                 .environmentObject(files)
                 .onAppear { files.strings = currentStrings }
                 .onChange(of: language) { _ in files.strings = currentStrings }

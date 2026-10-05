@@ -123,6 +123,9 @@ struct Strings {
  { t("На этом телефоне", "On this phone") }
     var phoneStorage: String { t("Папка OpenDisk", "OpenDisk folder") }
     var sectionCategories: String { t("Категории", "Categories") }
+    var sectionTools: String { t("Инструменты", "Tools") }
+    var toolClouds: String { t("Облачный накопитель", "Cloud storage") }
+    var addDisk: String { t("Добавить диск", "Add a disk") }
     var sectionBookmarks: String { t("Закладки", "Bookmarks") }
     var catImages: String { t("Изображения", "Images") }
     var catVideo: String { t("Видео", "Video") }

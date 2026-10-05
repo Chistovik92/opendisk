@@ -267,3 +267,33 @@ fun launchOpen(context: Context, request: OpenRequest, strings: MobileStrings): 
         strings.noAppToOpen
     }
 }
+
+// --- Синяя верхняя панель -------------------------------------------------------
+
+/**
+ * Верхняя панель файлового менеджера: синяя, с белым текстом — как у ES File
+ * Explorer. Кнопки внутри берут цвет у панели (`BarButton`): обычная
+ * текстовая кнопка красится в основной цвет темы, то есть в синий по синему.
+ */
+@Composable
+internal fun BlueBar(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    androidx.compose.material3.Surface(
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content,
+        )
+    }
+}
+
+@Composable
+internal fun BarButton(onClick: () -> Unit, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    TextButton(
+        onClick = onClick,
+        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+        content = content,
+    )
+}

@@ -231,11 +231,8 @@ private val fabClearance = androidx.compose.foundation.layout.PaddingValues(bott
 private fun BrowserBar(open: Browsing, options: ListingOptions, model: OpenDiskModel, onCreate: (Creating) -> Unit) {
     val strings = model.strings
     var menu by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(onClick = {
+    BlueBar {
+        BarButton(onClick = {
             val parent = open.parent
             if (parent == null) model.closeBrowser() else model.open(open.disk, parent)
         }) { Text("←", style = MaterialTheme.typography.titleLarge) }
@@ -247,9 +244,9 @@ private fun BrowserBar(open: Browsing, options: ListingOptions, model: OpenDiskM
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        TextButton(onClick = { model.setQuery("") }) { Text("🔍") }
+        BarButton(onClick = { model.setQuery("") }) { Text("🔍") }
         // Значок показывает, куда переключит нажатие: список → подробный → плитки.
-        TextButton(onClick = { model.setListing(options.copy(view = options.view.next())) }) {
+        BarButton(onClick = { model.setListing(options.copy(view = options.view.next())) }) {
             Text(
                 when (options.view.next()) {
                     ViewMode.LIST -> "≡"
@@ -260,7 +257,7 @@ private fun BrowserBar(open: Browsing, options: ListingOptions, model: OpenDiskM
             )
         }
         Box {
-            TextButton(onClick = { menu = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
+            BarButton(onClick = { menu = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 Text(
                     strings.sortBy,
@@ -322,17 +319,14 @@ private fun BrowserBar(open: Browsing, options: ListingOptions, model: OpenDiskM
 private fun SelectionBar(open: Browsing, shown: List<RcloneClient.Entry>, model: OpenDiskModel) {
     val strings = model.strings
     val all = shown.isNotEmpty() && shown.all { it.path in open.selected }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(onClick = model::clearSelection) { Text("✕", style = MaterialTheme.typography.titleLarge) }
+    BlueBar {
+        BarButton(onClick = model::clearSelection) { Text("✕", style = MaterialTheme.typography.titleLarge) }
         Text(
             strings.selectedCount(open.selected.size),
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.titleMedium,
         )
-        TextButton(onClick = { if (all) model.clearSelection() else model.selectAll(shown) }) {
+        BarButton(onClick = { if (all) model.clearSelection() else model.selectAll(shown) }) {
             Text(if (all) strings.clearSelection else strings.selectAll)
         }
     }
