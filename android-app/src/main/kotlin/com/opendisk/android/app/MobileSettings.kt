@@ -32,6 +32,12 @@ data class MobilePreferences(
     val listing: ListingOptions = ListingOptions(),
     /** Закладки главного экрана — папки, к которым возвращаются одним нажатием. */
     val bookmarks: List<Bookmark> = emptyList(),
+    /**
+     * Папки, добавленные человеком как диски: флешка по OTG, которую система
+     * не показала как том, или любой каталог, который нужен под рукой.
+     * Хранятся путями — на экране это такие же диски, как память телефона.
+     */
+    val customDisks: List<String> = emptyList(),
 )
 
 /**
@@ -53,6 +59,7 @@ class MobileSettings(context: Context) {
         statusIcon = prefs.getBoolean(KEY_STATUS_ICON, false),
         checkUpdates = prefs.getBoolean(KEY_CHECK_UPDATES, true),
         bookmarks = Bookmarks.decode(prefs.getString(KEY_BOOKMARKS, null)),
+        customDisks = prefs.getString(KEY_CUSTOM_DISKS, null).orEmpty().split('\n').filter { it.isNotBlank() },
         listing = ListingOptions(
             sort = SortOrder.entries.firstOrNull { it.name == prefs.getString(KEY_SORT, null) } ?: SortOrder.NAME,
             descending = prefs.getBoolean(KEY_SORT_DESC, false),
@@ -71,6 +78,7 @@ class MobileSettings(context: Context) {
             .putBoolean(KEY_STATUS_ICON, preferences.statusIcon)
             .putBoolean(KEY_CHECK_UPDATES, preferences.checkUpdates)
             .putString(KEY_BOOKMARKS, Bookmarks.encode(preferences.bookmarks))
+            .putString(KEY_CUSTOM_DISKS, preferences.customDisks.joinToString("\n"))
             .putString(KEY_SORT, preferences.listing.sort.name)
             .putBoolean(KEY_SORT_DESC, preferences.listing.descending)
             .putBoolean(KEY_SHOW_HIDDEN, preferences.listing.showHidden)
@@ -85,6 +93,14 @@ class MobileSettings(context: Context) {
     var storageAccessAsked: Boolean
         get() = prefs.getBoolean(KEY_STORAGE_ASKED, false)
         set(value) = prefs.edit().putBoolean(KEY_STORAGE_ASKED, value).apply()
+
+    /**
+     * Спрашивали ли уже root при запуске. Окно менеджера root появляется
+     * один раз; дальше человек просит сам — кнопкой на вкладке «Диски».
+     */
+    var rootAsked: Boolean
+        get() = prefs.getBoolean(KEY_ROOT_ASKED, false)
+        set(value) = prefs.edit().putBoolean(KEY_ROOT_ASKED, value).apply()
 
     /**
      * Облака, у которых истёк доступ. Помнится между запусками: проверка идёт в
@@ -124,6 +140,8 @@ class MobileSettings(context: Context) {
         const val KEY_SORT_DESC = "sort_desc"
         const val KEY_SHOW_HIDDEN = "show_hidden"
         const val KEY_VIEW = "view"
+        const val KEY_CUSTOM_DISKS = "custom_disks"
+        const val KEY_ROOT_ASKED = "root_asked"
         const val KEY_STORAGE_ASKED = "storage_asked"
         const val KEY_BACKGROUND_ASKED = "background_asked"
     }

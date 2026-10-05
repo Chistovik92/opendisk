@@ -278,7 +278,10 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
     // --- Файловый менеджер ---------------------------------------------------
 
     fun selectTab(tab: MainTab) {
-        _state.update { it.copy(tab = tab, browsing = if (tab == MainTab.DISKS) it.browsing else null) }
+        // Открытая папка не сбрасывается при уходе на «Добавить»: иначе после
+        // добавления облака человек оказывался на списке дисков, а вставка
+        // скопированного (буфер жив) требовала искать папку заново.
+        _state.update { it.copy(tab = tab) }
         if (tab == MainTab.ADD) loadAllServices()
         if (tab == MainTab.DISKS) refreshVolumes()
     }
@@ -290,8 +293,77 @@ class OpenDiskModel(application: Application) : AndroidViewModel(application) {
             val (volumes, root) = withContext(Dispatchers.IO) {
                 LocalVolumes.removable(context) to RootShell.available()
             }
-            _state.update { it.copy(removableVolumes = volumes, rootAvailable = root) }
+            // Проверка по файлам `su` не всеведуща: Magisk прячет его от
+            // приложений вне списка, и файла в известных местах нет. Уже
+            // выданный root важнее — строка root остаётся на экране.
+            _state.update { it.copy(removableVolumes = volumes, rootAvailable = root || it.rootGranted == true) }
         }
+    }
+
+    /**
+     * Просит root у менеджера (Magisk, KernelSU…) — по нажатию человека.
+     * Ответ запоминается: строка root появляется на экране, только если
+     * доступ действительно есть или `su` найден.
+     */
+    fun requestRoot(openAfter: Boolean = false) {
+        viewModelScope.launch {
+            val granted = withContext(Dispatchers.IO) { RootShell.requestAccess() }
+            _state.update { it.copy(rootGranted = granted, rootAvailable = it.rootAvailable || granted) }
+            if (granted) {
+                if (openAfter) open(Disk.Root)
+            } else {
+                showNotice(strings.rootMissing)
+            }
+        }
+    }
+
+    /**
+     * То же при первом запуске, сразу после доступа ко всем файлам: тогда
+     * «полное редактирование системы» работает без поисков нужной кнопки.
+     * Окно менеджера root покажется один раз; без su ничего не происходит.
+     */
+    fun requestRootOnce() {
+        if (settings.rootAsked) return
+        settings.rootAsked = true
+        viewModelScope.launch {
+            // Спрашиваем и тогда, когда файла su не нашли: Magisk прячет его от
+            // приложений. Без root запрос тихо проваливается, и ничего не видно.
+            val (present, granted) = withContext(Dispatchers.IO) {
+                RootShell.available() to RootShell.requestAccess()
+            }
+            _state.update {
+                it.copy(
+                    rootGranted = if (granted || present) granted else null,
+                    rootAvailable = granted || present,
+                )
+            }
+        }
+    }
+
+    /** Папка как отдельный диск на вкладке «Диски». Возвращает сообщение об ошибке или null. */
+    fun addCustomDisk(path: String): String? {
+        val clean = path.trim().let { if (it.length > 1) it.trimEnd('/') else it }
+        val dir = File(clean)
+        if (!clean.startsWith("/") || !dir.isDirectory || !dir.canRead()) return strings.folderNotFound
+        val current = _state.value.preferences.customDisks
+        if (clean in current || clean == LocalVolumes.primary().root || _state.value.removableVolumes.any { it.root == clean }) {
+            return strings.folderAlready
+        }
+        applyPreferences(_state.value.preferences.copy(customDisks = current + clean))
+        return null
+    }
+
+    fun removeCustomDisk(root: String) {
+        val preferences = _state.value.preferences
+        // Закладки на этот диск уходят вместе с ним: иначе строка в «Закладках»
+        // вела бы на диск, которого на экране больше нет.
+        val gone = Disk.Local(root, removable = false).key
+        applyPreferences(
+            preferences.copy(
+                customDisks = preferences.customDisks - root,
+                bookmarks = preferences.bookmarks.filterNot { it.disk.key == gone },
+            ),
+        )
     }
 
     fun open(disk: Disk, path: String = "") {

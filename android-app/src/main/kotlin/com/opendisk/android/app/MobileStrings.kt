@@ -73,6 +73,26 @@ class MobileStrings(val russian: Boolean) {
         "root не выдан. Разрешите OpenDisk в Magisk, KernelSU или другом менеджере root.",
         "Root was not granted. Allow OpenDisk in Magisk, KernelSU or another root manager.",
     )
+    val rootGrantedHint = t("Доступ root выдан — вся файловая система открыта.", "Root granted — the whole file system is open.")
+    val rootRequest = t("Запросить root", "Request root")
+    val rootRetry = t("Повторить запрос root", "Ask for root again")
+    val rootMissing = t(
+        "На телефоне нет root: команда su не нашлась или менеджер root отказал.",
+        "This phone has no root: su was not found or the root manager refused.",
+    )
+    val addDisk = t("Добавить диск", "Add a disk")
+    val addDiskCloud = t("Облако", "Cloud")
+    val addDiskCloudHint = t("Яндекс Диск, Google Диск, WebDAV, S3 и другие", "Yandex Disk, Google Drive, WebDAV, S3 and more")
+    val addDiskFolder = t("Папка на телефоне или флешка", "Folder or flash drive")
+    val addDiskFolderHint = t("Любой каталог станет отдельным диском на этой вкладке", "Any directory becomes a separate disk on this tab")
+    val addDiskRoot = t("Root-доступ к системе", "Root access to the system")
+    val addDiskRootHint = t("Вся файловая система, для полного редактирования", "The whole file system, for full editing")
+    val folderPath = t("Путь к папке", "Folder path")
+    val folderNotFound = t("Такой папки нет или приложение не может её прочитать.", "No such folder, or the app cannot read it.")
+    val folderAlready = t("Этот диск уже добавлен.", "This disk is already added.")
+    val removeDisk = t("Убрать диск", "Remove disk")
+    val customDiskHint = t("Добавленная папка", "Added folder")
+    val add = t("Добавить", "Add")
     val storageAccessNeeded = t(
         "Нужен доступ ко всем файлам — без него OpenDisk не видит память телефона " +
             "и не может скачивать в неё файлы из облаков.",
@@ -231,7 +251,6 @@ class MobileStrings(val russian: Boolean) {
     )
     val nothingFound = t("Ничего не найдено", "Nothing found")
     val adding = t("Добавляю…", "Adding…")
-    val add = t("Добавить", "Add")
 
     val signInWithBrowser = t("Войти через браузер", "Sign in with a browser")
 

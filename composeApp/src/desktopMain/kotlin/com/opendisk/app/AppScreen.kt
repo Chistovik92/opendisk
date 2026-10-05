@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -232,6 +233,7 @@ private fun Header(state: UiState) {
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun ReadyContent(
     state: UiState,
     controller: RcloneController,
@@ -245,10 +247,12 @@ private fun ReadyContent(
 ) {
     val strings = LocalStrings.current
 
-    Row(
+    // FlowRow, а не Row: в узком окне четыре кнопки не помещались в строку
+    // и обрезались справа — «О программе» оказывалась недостижимой.
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Button(onClick = onAddCloud) { Text(strings.addCloud) }
         OutlinedButton(onClick = controller::refresh) { Text(strings.refresh) }
@@ -367,7 +371,7 @@ private fun CloudRow(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (cloud.busy) {
-                    CircularProgressIndicator(modifier = Modifier.width(24.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
                 } else if (cloud.isMounted) {
                     OutlinedButton(onClick = onUnmount) { Text(strings.disconnect) }
                 } else {
@@ -481,7 +485,7 @@ private fun MountDriverBanner(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.width(20.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     Text(
                         strings.installingDriver(missing.what),
                         style = MaterialTheme.typography.bodySmall,
@@ -542,13 +546,13 @@ private fun UpdateBanner(
             }
             if (downloading) {
                 if (progress != null) {
-                    CircularProgressIndicator(progress = { progress }, modifier = Modifier.width(24.dp))
+                    CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(24.dp))
                     Text(
                         strings.updateDownloadingPercent((progress * 100).toInt()),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 } else {
-                    CircularProgressIndicator(modifier = Modifier.width(24.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
                     Text(strings.updateDownloading, style = MaterialTheme.typography.bodySmall)
                 }
             } else if (update.assetUrl != null) {

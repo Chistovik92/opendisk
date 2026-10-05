@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -21,6 +22,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -96,15 +98,78 @@ fun DisksScreen(
                 onClick = { if (storageGranted) model.open(volume) else onRequestStorage() },
             )
         }
+        items(state.preferences.customDisks, key = { "folder:$it" }) { root ->
+            val disk = remember(root) { Disk.Local(root, removable = false) }
+            var menu by remember { mutableStateOf(false) }
+            StorageCard(
+                glyph = "📁",
+                title = diskTitle(disk, strings),
+                subtitle = root,
+                space = disk.space(),
+                strings = strings,
+                onClick = { model.open(disk) },
+                menu = {
+                    Box {
+                        TextButton(onClick = { menu = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(strings.removeDisk, color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    menu = false
+                                    model.removeCustomDisk(root)
+                                },
+                            )
+                        }
+                    }
+                },
+            )
+        }
         if (state.rootAvailable) {
             item {
-                DiskRow(
+                // Root — такой же диск, как память: карточка, а не строка списка.
+                // Пока доступ не выдан, на ней кнопка запроса: окно менеджера
+                // root должно появиться в ответ на нажатие, а не само.
+                StorageCard(
                     glyph = "#",
                     title = strings.rootFs,
-                    subtitle = if (state.rootGranted == false) strings.rootDenied else strings.rootHint,
-                    onClick = { model.open(Disk.Root) },
+                    subtitle = when (state.rootGranted) {
+                        true -> strings.rootGrantedHint
+                        false -> strings.rootDenied
+                        null -> strings.rootHint
+                    },
+                    space = null,
+                    strings = strings,
+                    onClick = { if (state.rootGranted == true) model.open(Disk.Root) else model.requestRoot(openAfter = true) },
+                ) {
+                    if (state.rootGranted != true) {
+                        OutlinedButton(onClick = { model.requestRoot(openAfter = true) }) {
+                            Text(if (state.rootGranted == false) strings.rootRetry else strings.rootRequest)
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            var adding by remember { mutableStateOf(false) }
+            OutlinedButton(
+                onClick = { adding = true },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            ) { Text("＋  " + strings.addDisk) }
+            if (adding) {
+                AddDiskDialog(
+                    strings = strings,
+                    rootGranted = state.rootGranted == true,
+                    onDismiss = { adding = false },
+                    onCloud = {
+                        adding = false
+                        model.selectTab(MainTab.ADD)
+                    },
+                    onRoot = {
+                        adding = false
+                        model.requestRoot()
+                    },
+                    onFolder = model::addCustomDisk,
                 )
-                HorizontalDivider()
             }
         }
 
@@ -222,6 +287,7 @@ private fun StorageCard(
     space: Space?,
     strings: MobileStrings,
     onClick: () -> Unit,
+    menu: @Composable () -> Unit = {},
     extra: @Composable () -> Unit = {},
 ) {
     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clickable(onClick = onClick)) {
@@ -235,6 +301,7 @@ private fun StorageCard(
                         Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+                menu()
             }
             space?.let {
                 LinearProgressIndicator(progress = { it.fraction }, modifier = Modifier.fillMaxWidth())
@@ -291,4 +358,72 @@ private fun CategoryTile(category: FileCategory, strings: MobileStrings, modifie
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/**
+ * Что можно добавить на вкладку «Диски»: облако, папку или флешку, root.
+ *
+ * Три пути в одном окне, а не три кнопки на экране: добавление — редкое
+ * действие, и держать его постоянно на виду значило бы отнимать место у
+ * самих дисков. Папка вводится путём — системный выбор папки отдаёт
+ * `content://`, а файловому менеджеру нужен настоящий путь.
+ */
+@Composable
+private fun AddDiskDialog(
+    strings: MobileStrings,
+    rootGranted: Boolean,
+    onDismiss: () -> Unit,
+    onCloud: () -> Unit,
+    onRoot: () -> Unit,
+    onFolder: (String) -> String?,
+) {
+    var folderMode by remember { mutableStateOf(false) }
+    var path by remember { mutableStateOf("/storage/") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.addDisk) },
+        text = {
+            if (folderMode) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = path,
+                        onValueChange = {
+                            path = it
+                            error = null
+                        },
+                        label = { Text(strings.folderPath) },
+                        singleLine = true,
+                        isError = error != null,
+                        supportingText = error?.let { message -> { Text(message) } },
+                    )
+                }
+            } else {
+                Column {
+                    AddDiskOption("☁", strings.addDiskCloud, strings.addDiskCloudHint, onCloud)
+                    AddDiskOption("📁", strings.addDiskFolder, strings.addDiskFolderHint) { folderMode = true }
+                    if (!rootGranted) AddDiskOption("#", strings.addDiskRoot, strings.addDiskRootHint, onRoot)
+                }
+            }
+        },
+        confirmButton = {
+            if (folderMode) {
+                Button(onClick = {
+                    val problem = onFolder(path)
+                    if (problem == null) onDismiss() else error = problem
+                }) { Text(strings.add) }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { if (folderMode) folderMode = false else onDismiss() }) {
+                Text(if (folderMode) strings.back else strings.cancel)
+            }
+        },
+    )
+}
+
+@Composable
+private fun AddDiskOption(glyph: String, title: String, hint: String, onClick: () -> Unit) {
+    DiskRow(glyph = glyph, title = title, subtitle = hint, onClick = onClick)
 }

@@ -123,6 +123,10 @@ fun FileBrowser(state: MobileState, open: Browsing, model: OpenDiskModel) {
                         verticalArrangement = Arrangement.Center,
                     ) {
                         Text(open.error, modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // Root не выдан — тупик «ошибка и назад» не нужен: повторить можно здесь.
+                        if (open.disk == Disk.Root) {
+                            Button(onClick = { model.open(Disk.Root) }) { Text(strings.rootRetry) }
+                        }
                         // Доступ к облаку истёк — предлагаем вернуть его, а не оставляем с ошибкой.
                         (open.disk as? Disk.Cloud)?.takeIf { AuthErrors.isExpired(open.error) }?.let { cloud ->
                             Button(onClick = { model.signInAgain(cloud.name) }) { Text(strings.signInAgain) }
@@ -214,6 +218,12 @@ fun FileBrowser(state: MobileState, open: Browsing, model: OpenDiskModel) {
 }
 
 private enum class Creating { FOLDER, FILE }
+
+/**
+ * Запас под кнопкой «+»: без него она закрывала последние строки списка, и
+ * до них нельзя было дотронуться — прокручивать больше некуда.
+ */
+private val fabClearance = androidx.compose.foundation.layout.PaddingValues(bottom = 88.dp)
 
 // --- Верхние панели ------------------------------------------------------------
 
@@ -390,7 +400,7 @@ private fun FileList(shown: List<RcloneClient.Entry>, open: Browsing, strings: M
     // Ключ с номером строки, а не один путь: Google Диск разрешает два файла
     // с одинаковым именем в одной папке, и на таком списке приложение падало
     // при прокрутке («Key … was already used»).
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = fabClearance) {
         itemsIndexed(shown, key = { index, entry -> "$index:" + entry.path }) { _, entry ->
             val checked = entry.path in open.selected
             Row(
@@ -435,7 +445,7 @@ private fun FileGrid(shown: List<RcloneClient.Entry>, open: Browsing, strings: M
     LazyVerticalGrid(
         columns = GridCells.Adaptive(104.dp),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 88.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {

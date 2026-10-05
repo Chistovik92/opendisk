@@ -111,8 +111,12 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
     var cloudToDelete by remember { mutableStateOf<String?>(null) }
     val askForNotifications = rememberNotificationPermission()
     var storageGranted by remember { mutableStateOf(StorageAccess.granted(context)) }
+    // Ответ по файлам получен (дан, отклонён или уже спрашивали): после него
+    // просим root, чтобы два системных окна не наслаивались друг на друга.
+    var storageDecided by remember { mutableStateOf(storageGranted) }
     val requestStorage = rememberStorageAccessRequest { granted ->
         storageGranted = granted
+        storageDecided = true
         model.refreshVolumes()
     }
     val snackbar = remember { SnackbarHostState() }
@@ -130,7 +134,15 @@ fun OpenDiskApp(model: OpenDiskModel = viewModel()) {
         if (!storageGranted && !model.storageAccessAsked()) {
             model.markStorageAccessAsked()
             requestStorage()
+        } else {
+            storageDecided = true
         }
+    }
+
+    // Root — следом за доступом ко всем файлам: «Диски» открывают всю систему
+    // для полного редактирования. Окно менеджера root — один раз за установку.
+    LaunchedEffect(state.starting, storageDecided) {
+        if (!state.starting && storageDecided) model.requestRootOnce()
     }
 
     // Файл готов — отдаём его выбранному приложению.

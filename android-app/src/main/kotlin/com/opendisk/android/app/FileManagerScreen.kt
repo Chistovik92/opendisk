@@ -168,10 +168,19 @@ internal fun DiskRow(
     }
 }
 
+/** Локальный диск, который не основная память и не том: добавленная папка. */
+private fun isCustomFolder(disk: Disk.Local): Boolean =
+    !disk.removable && runCatching { disk.root != LocalVolumes.primary().root }.getOrDefault(false)
+
 /** Как диск называется на экране. */
 fun diskTitle(disk: Disk, strings: MobileStrings): String = when (disk) {
     is Disk.Cloud -> disk.name
-    is Disk.Local -> if (disk.removable) "${strings.sdCard} (${disk.root.substringAfterLast('/')})" else strings.phoneStorage
+    is Disk.Local -> when {
+        disk.removable -> "${strings.sdCard} (${disk.root.substringAfterLast('/')})"
+        // Добавленная человеком папка зовётся по имени, а не «Памятью телефона».
+        isCustomFolder(disk) -> disk.root.substringAfterLast('/').ifEmpty { disk.root }
+        else -> strings.phoneStorage
+    }
     Disk.Root -> strings.rootFs
 }
 
