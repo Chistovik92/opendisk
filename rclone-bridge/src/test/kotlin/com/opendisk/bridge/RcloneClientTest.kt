@@ -9,7 +9,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -151,6 +153,22 @@ class RcloneClientTest {
         assertContains(body, "\"fs\":\"gdrive:\"")
         assertContains(body, "\"mountPoint\":\"/mnt/gdrive\"")
         assertContains(body, "\"CacheMode\":\"full\"")
+    }
+
+    @Test
+    fun `mount that never answers fails with a hint instead of hanging`() = runBlocking {
+        val hanging = object : RcloneTransport {
+            override suspend fun rpc(endpoint: String, body: JsonObject): JsonObject = awaitCancellation()
+            override fun close() = Unit
+        }
+
+        val failure = assertFailsWith<RcloneRcException> {
+            RcloneClient(hanging).mount("gdrive", "F:", timeoutMillis = 50)
+        }
+
+        assertEquals("mount/mount", failure.endpoint)
+        assertContains(failure.rcloneError, "VPN")
+        assertContains(failure.rcloneError, "client_id")
     }
 
     @Test

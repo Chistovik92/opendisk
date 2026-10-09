@@ -1,6 +1,7 @@
 package com.opendisk.bridge
 
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -274,6 +275,32 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
         remoteName: String,
         mountPoint: String,
         options: MountOptions = MountOptions(),
+        timeoutMillis: Long = MOUNT_TIMEOUT_MILLIS,
+    ) {
+        // Ответа на mount/mount rclone не даёт, пока не сходит в облако. Если облако
+        // не отвечает (смена сети из-за VPN, исчерпанная квота общего ключа Google),
+        // запрос висит до общего предела в 10 минут, и человек видит голое
+        // «Request timeout». Нормальное подключение укладывается в секунды, поэтому
+        // ждём недолго и говорим, что проверить. Сам rclone может доделать
+        // монтирование позже — список дисков перечитывается и покажет его.
+        withTimeoutOrNull(timeoutMillis) {
+            sendMount(remoteName, mountPoint, options)
+            true
+        } ?: throw RcloneRcException(
+            endpoint = "mount/mount",
+            statusCode = 0,
+            rcloneError = "облако не ответило за ${timeoutMillis / 1000} с. " +
+                "Проверьте сеть и VPN: после их включения или смены перезапустите OpenDisk. " +
+                "Для Google Диска причиной бывает и исчерпанная квота встроенного ключа rclone — " +
+                "в «Изменить подключение» впишите собственные client_id и client_secret " +
+                "(см. docs/USAGE.md).",
+        )
+    }
+
+    private suspend fun sendMount(
+        remoteName: String,
+        mountPoint: String,
+        options: MountOptions,
     ) {
         call<JsonObject>(
             "mount/mount",
@@ -898,6 +925,9 @@ class RcloneClient(private val transport: RcloneTransport) : Closeable {
     ): T = rcloneJson.decodeFromJsonElement(transport.rpc(endpoint, body))
 
     companion object {
+        /** Сколько ждём mount/mount; обычное подключение занимает секунды. */
+        const val MOUNT_TIMEOUT_MILLIS = 2 * 60 * 1000L
+
         /** Файловая система облака: rclone ждёт имя с двоеточием, иначе это путь. */
         fun cloudFs(remoteName: String): String = "$remoteName:"
 
