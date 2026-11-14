@@ -193,6 +193,12 @@ class Strings(val russian: Boolean) {
         "The rclone helper process exited unexpectedly. OpenDisk started it again " +
             "and is reconnecting your drives.",
     )
+    val rcdRestartedForSettings = t(
+        "Настройки соединения изменились, и rclone перезапущен, чтобы их применить. " +
+            "Подключённые диски возвращаются.",
+        "Connection settings changed, and rclone was restarted to apply them. " +
+            "The connected drives are being restored.",
+    )
     val rcdKeepsCrashing = t(
         "rclone завершается снова и снова — перезапускать его дальше бессмысленно. " +
             "Ниже его последние сообщения; перезапустите OpenDisk.",
@@ -355,6 +361,22 @@ class Strings(val russian: Boolean) {
 
     fun mountFailed(name: String) =
         t("Не удалось подключить «$name»", "Could not connect «$name»")
+
+    val connectionBlocked = t(
+        "Не удалось соединиться с сервисом — похоже, путь к нему перекрыт VPN или " +
+            "брандмауэром. Если доступ в сеть идёт через прокси, задайте его в " +
+            "«Настройки» → «Прокси».",
+        "Could not reach the service — its path looks blocked by a VPN or firewall. " +
+            "If your network uses a proxy, set it under «Settings» → «Proxy».",
+    )
+    val serviceThrottled = t(
+        "Сервис ограничил запросы — обычно так отвечает общий идентификатор rclone, " +
+            "которым пользуются все сразу. Задайте свой в «Настройки» → " +
+            "«Изменить подключение».",
+        "The service throttled the requests — usually that is rclone's shared client " +
+            "ID being used by everyone at once. Set your own under «Settings» → " +
+            "«Edit connection».",
+    )
 
     fun bandwidthFailed(reason: String) = t(
         "Не удалось применить ограничение скорости: $reason",
@@ -606,6 +628,7 @@ class Strings(val russian: Boolean) {
     val settingsAppearance = t("Внешний вид", "Appearance")
     val settingsUpdatesSection = t("Обновления и установка", "Updates and installation")
     val settingsTransfer = t("Передача данных", "Data transfer")
+    val settingsNetwork = t("Сеть", "Network")
 
     val runAtLogin = t("Запускать при входе в систему", "Start when I sign in")
     val runAtLoginHint = t(
@@ -659,6 +682,24 @@ class Strings(val russian: Boolean) {
     val speedIsGlobal = t(
         "Ограничение действует сразу на все облака — rclone умеет ограничивать только так.",
         "The limit applies to all clouds at once — that is the only way rclone can limit speed.",
+    )
+
+    val proxy = t("Прокси", "Proxy")
+    val proxyHint = t(
+        "Адрес, через который rclone ходит в облака, — например, " +
+            "http://127.0.0.1:2080. Пусто — без прокси. Нужен, когда прямой доступ " +
+            "к сервисам перекрыт VPN или брандмауэром.",
+        "The address rclone uses to reach clouds — for example, http://127.0.0.1:2080. " +
+            "Empty means no proxy. Needed when a VPN or firewall blocks direct access " +
+            "to services.",
+    )
+    val noProxy = t("Без прокси для", "No proxy for")
+    val noProxyHint = t(
+        "Какие адреса не пускать через прокси, через запятую. Пусто — по умолчанию " +
+            "localhost,127.0.0.1,::1. Допишите сюда, например, .yandex.ru, чтобы " +
+            "Яндекс.Диск ходил напрямую.",
+        "Addresses to keep off the proxy, comma-separated. Empty defaults to " +
+            "localhost,127.0.0.1,::1. Add e.g. .yandex.ru to keep Yandex Disk direct.",
     )
 
     // --- Переименование и удаление ------------------------------------------

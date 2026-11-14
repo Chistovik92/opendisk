@@ -56,6 +56,8 @@ fun GlobalSettingsDialog(
     var autostart by remember { mutableStateOf(current.autostart) }
     var checkUpdates by remember { mutableStateOf(current.checkUpdates) }
     var trayStats by remember { mutableStateOf(current.trayStats) }
+    var proxy by remember { mutableStateOf(current.proxy) }
+    var noProxy by remember { mutableStateOf(current.noProxy) }
     var unlimited by remember {
         mutableStateOf(current.bandwidthLimit == GlobalSettings.BANDWIDTH_UNLIMITED)
     }
@@ -174,6 +176,27 @@ fun GlobalSettingsDialog(
                         Hint(strings.speedIsGlobal)
                     }
                 }
+
+                SettingsSection(strings.settingsNetwork) {
+                    OutlinedTextField(
+                        value = proxy,
+                        onValueChange = { proxy = it },
+                        label = { Text(strings.proxy) },
+                        singleLine = true,
+                        placeholder = { Text("http://127.0.0.1:2080") },
+                        supportingText = { Text(strings.proxyHint) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = noProxy,
+                        onValueChange = { noProxy = it },
+                        label = { Text(strings.noProxy) },
+                        singleLine = true,
+                        placeholder = { Text("localhost,127.0.0.1,::1") },
+                        supportingText = { Text(strings.noProxyHint) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         },
         confirmButton = {
@@ -193,6 +216,8 @@ fun GlobalSettingsDialog(
                             trayStats = trayStats,
                             language = language.code,
                             theme = theme.code,
+                            proxy = proxy.trim(),
+                            noProxy = noProxy.trim(),
                         ),
                     )
                 },

@@ -32,6 +32,21 @@ class RcloneProcess(
      * ведётся отсюда: иначе она рано или поздно разошлась бы с реальностью.
      */
     private val cleanup: StaleRcloneCleanup? = null,
+    /**
+     * Прокси, через который rclone ходит в облака; пусто — без прокси.
+     *
+     * rclone сам умеет читать `HTTP_PROXY`/`HTTPS_PROXY`, поэтому здесь
+     * только кладём значение в окружение дочернего процесса. Своих ключей
+     * для прокси в rclone нет, а GUI запускает rclone без окружения
+     * пользователя — то, что задано в системе для браузера, до него не
+     * доходит, и на машинах с VPN/прокси обмен токена обрывается.
+     */
+    private val proxy: String? = null,
+    /**
+     * Адреса, на которые прокси не действует (см. [NO_PROXY]). Пусто — только
+     * петля. Задаётся тем же полем настроек, что и сам прокси.
+     */
+    private val noProxy: String? = null,
 ) : AutoCloseable {
 
     private var process: Process? = null
@@ -78,6 +93,17 @@ class RcloneProcess(
                     // флаги --rc-user и --rc-pass из этих переменных.
                     environment()["RCLONE_RC_USER"] = credentials.user
                     environment()["RCLONE_RC_PASS"] = credentials.password
+                    // Прокси задаётся через окружение: rclone берёт его сам, а
+                    // свои флаги для прокси у него отсутствуют.
+                    proxy?.takeIf { it.isNotBlank() }?.let { url ->
+                        environment()["HTTP_PROXY"] = url
+                        environment()["HTTPS_PROXY"] = url
+                        // Самого себя (RC API на 127.0.0.1) через прокси не гоним:
+                        // прокси обязан слушать соединения наружу, а не ловить петлю.
+                        // Остальное, что идёт напрямую (например, Яндекс.Диск),
+                        // пользователь дописывает в настройках.
+                        environment()["NO_PROXY"] = noProxy?.takeIf { it.isNotBlank() } ?: NO_PROXY
+                    }
                 }
                 .start()
         } catch (e: IOException) {
@@ -208,6 +234,13 @@ class RcloneProcess(
 
     companion object {
         const val DEFAULT_RC_ADDR = "127.0.0.1:5572"
+
+        /**
+         * Адреса, на которые прокси не действует: петля и её псевдонимы.
+         * RC API слушает на 127.0.0.1, и гнать эти запросы через прокси
+         * было бы бессмысленно и ломало бы связь с собственным rcd.
+         */
+        const val NO_PROXY = "localhost,127.0.0.1,::1"
 
         /**
          * Адрес со свободным портом вместо штатного 5572.

@@ -1,6 +1,7 @@
 package com.opendisk.app
 
 import com.opendisk.bridge.AuthErrors
+import com.opendisk.bridge.AuthProblem
 import com.opendisk.bridge.FuseMounts
 import com.opendisk.bridge.MountSupport
 import com.opendisk.bridge.MountedPaths
@@ -212,6 +213,8 @@ class RcloneController(
                 rcAddr = RcloneProcess.freeRcAddr(),
                 config = config,
                 cleanup = staleCleanup,
+                proxy = settings.global().proxy,
+                noProxy = settings.global().noProxy,
             )
             process = rcd
 
@@ -268,14 +271,16 @@ class RcloneController(
         }
     }
 
-    private suspend fun restartRcd(dead: RcloneProcess) {
+    private suspend fun restartRcd(dead: RcloneProcess, unexpected: Boolean = true) {
         val now = System.currentTimeMillis()
         while (recentRestarts.isNotEmpty() && now - recentRestarts.first() > RESTART_WINDOW_MILLIS) {
             recentRestarts.removeFirst()
         }
         // Падает снова и снова — значит, дело не в случайности, и крутить
-        // перезапуски бесконечно значит прятать настоящую ошибку.
-        if (recentRestarts.size >= MAX_RESTARTS) {
+        // перезапуски бесконечно значит прятать настоящую ошибку. Это лимит
+        // на самовольные падения rcd; перезапуск из-за смены настроек идёт
+        // по явной просьбе пользователя и в этот счётчик не попадает.
+        if (unexpected && recentRestarts.size >= MAX_RESTARTS) {
             stopping = true
             _state.update {
                 it.copy(session = SessionState.Failed(strings.rcdKeepsCrashing, dead.recentOutput()))
@@ -291,7 +296,12 @@ class RcloneController(
         _state.update { current ->
             current.copy(clouds = current.clouds.map { it.copy(mountPoint = null, busy = false) })
         }
-        _notifications.tryEmit(AppNotification(title = strings.rcdRestarted, message = strings.rcdRestartedDetails))
+        _notifications.tryEmit(
+            AppNotification(
+                title = strings.rcdRestarted,
+                message = if (unexpected) strings.rcdRestartedDetails else strings.rcdRestartedForSettings,
+            ),
+        )
 
         // Точки FUSE, которые держал умерший rcd, на Linux остались висеть:
         // без уборки новый rcd в них не смонтирует.
@@ -303,6 +313,8 @@ class RcloneController(
             rcAddr = RcloneProcess.freeRcAddr(),
             config = resolveConfig(),
             cleanup = staleCleanup,
+            proxy = settings.global().proxy,
+            noProxy = settings.global().noProxy,
         )
         process = rcd
         try {
@@ -508,6 +520,25 @@ class RcloneController(
         if (updated.bandwidthLimit != previous.bandwidthLimit) {
             applyBandwidthLimit(updated.bandwidthLimit)
         }
+        if (updated.proxy != previous.proxy || updated.noProxy != previous.noProxy) {
+            restartForSettingsChange()
+        }
+    }
+
+    /**
+     * Перезапускает rcd, чтобы применить настройку, которую rclone читает
+     * только при запуске, — прокси из окружения. Диски на время отключаются
+     * и возвращаются сами, тем же путём, что после сбоя rcd.
+     */
+    private fun restartForSettingsChange() {
+        val current = process ?: return
+        // Снимаем ссылку до остановки: сторож (watchRcd) не должен принять нашу
+        // остановку за собственное падение rcd и поднять второй процесс.
+        process = null
+        scope.launch {
+            runCatching { current.stop() }
+            restartRcd(current, unexpected = false)
+        }
     }
 
     /** Сохраняет настройки облака и обновляет экран. */
@@ -689,7 +720,7 @@ class RcloneController(
         onDone: (String?) -> Unit,
     ) {
         val api = client ?: return
-        scope.launch {
+        addCloudJob = scope.launch {
             try {
                 // Обрезка та же и по той же причине, что и при добавлении.
                 //
@@ -706,11 +737,17 @@ class RcloneController(
                     .mapValues { (key, value) ->
                         if (key in secretKeys && value.isNotEmpty()) api.obscure(value) else value
                     }
+                // Смена учётных данных Google обесценивает прежний токен: он
+                // выдан на старый идентификатор. После сохранения входим заново,
+                // иначе облако не подключится до ручного «Войти заново».
+                val changedGoogleCredentials =
+                    prepared.keys.any { it == "client_id" || it == "client_secret" }
                 if (prepared.isNotEmpty()) {
                     api.updateRemote(name, prepared)
                 }
                 reloadClouds()
                 onDone(null)
+                if (changedGoogleCredentials) reauthorizeCloud(name)
             } catch (e: Exception) {
                 onDone((e as? RcloneRcException)?.rcloneError ?: e.message ?: strings.saveFailed)
             }
@@ -724,25 +761,37 @@ class RcloneController(
      * токен. Отмена — той же кнопкой, что и при добавлении ([cancelAddCloud]).
      */
     fun signInAgain(name: String) {
-        val api = client ?: return
         addCloudJob = scope.launch {
-            _state.update { it.copy(reauthorizing = name) }
-            updateCloud(name) { it.copy(busy = true, error = null) }
-            val linkWatcher = launch { watchForOauthLink() }
-            try {
-                api.reauthorize(name)
-                updateCloud(name) { it.copy(busy = false, error = null) }
-                reloadClouds()
-            } catch (e: CancellationException) {
-                updateCloud(name) { it.copy(busy = false) }
-                throw e
-            } catch (e: Exception) {
-                val message = (e as? RcloneRcException)?.rcloneError ?: e.message ?: strings.saveFailed
-                updateCloud(name) { it.copy(busy = false, error = message) }
-            } finally {
-                linkWatcher.cancel()
-                _state.update { it.copy(oauthUrl = null, reauthorizing = null) }
-            }
+            reauthorizeCloud(name)
+            reloadClouds()
+        }
+    }
+
+    /**
+     * Сам повторный вход: стирает протухший токен и проходит подтверждение
+     * в браузере заново, оставляя имя, настройки и букву прежними.
+     *
+     * Вынесено отдельно от [signInAgain], потому что тот же вход нужен и при
+     * смене учётных данных Google в [editCloud]: новый идентификатор
+     * обесценивает прежний токен, и без повторного входа облако не заработает.
+     */
+    private suspend fun reauthorizeCloud(name: String) {
+        val api = client ?: return
+        _state.update { it.copy(reauthorizing = name) }
+        updateCloud(name) { it.copy(busy = true, error = null) }
+        val linkWatcher = scope.launch { watchForOauthLink() }
+        try {
+            api.reauthorize(name)
+            updateCloud(name) { it.copy(busy = false, error = null) }
+        } catch (e: CancellationException) {
+            updateCloud(name) { it.copy(busy = false) }
+            throw e
+        } catch (e: Exception) {
+            val message = (e as? RcloneRcException)?.rcloneError ?: e.message ?: strings.saveFailed
+            updateCloud(name) { it.copy(busy = false, error = message) }
+        } finally {
+            linkWatcher.cancel()
+            _state.update { it.copy(oauthUrl = null, reauthorizing = null) }
         }
     }
 
@@ -879,11 +928,12 @@ class RcloneController(
             ourMounts[name] = mountPoint
             reloadClouds()
         } catch (e: RcloneRcException) {
-            updateCloud(name) { it.copy(busy = false, error = e.rcloneError) }
+            val friendly = explainAuthError(e.rcloneError)
+            updateCloud(name) { it.copy(busy = false, error = friendly ?: e.rcloneError) }
             _notifications.tryEmit(
                 AppNotification(
                     title = strings.mountFailed(name),
-                    message = e.rcloneError,
+                    message = friendly ?: e.rcloneError,
                 ),
             )
         } catch (e: CancellationException) {
@@ -896,6 +946,19 @@ class RcloneController(
             updateCloud(name) { it.copy(busy = false, error = reason) }
             _notifications.tryEmit(AppNotification(title = strings.mountFailed(name), message = reason))
         }
+    }
+
+    /**
+     * Человеческое объяснение ошибки доступа, если её удалось опознать;
+     * null — оставить сырой текст rclone.
+     *
+     * «Доступ истёк» намеренно не подменяется: его опознаёт [CloudUi.needsSignIn]
+     * по сырому тексту, и кнопка «Войти заново» должна остаться видимой.
+     */
+    private fun explainAuthError(message: String): String? = when (AuthErrors.explain(message)) {
+        AuthProblem.NETWORK -> strings.connectionBlocked
+        AuthProblem.QUOTA -> strings.serviceThrottled
+        AuthProblem.EXPIRED, AuthProblem.OTHER -> null
     }
 
     /**
