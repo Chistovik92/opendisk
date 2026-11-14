@@ -374,7 +374,7 @@ jobs:
           # опубликовал релиз с одним лишь MSI. Скрипт установки на Linux берёт
           # последний релиз — и для него это выглядело как «пакета нет».
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "OpenDisk $tag" --prerelease --draft \
+            gh release create "$tag" --title "OpenDisk $tag" --draft \
               --notes "Сборка $tag" ||
               gh release view "$tag" >/dev/null 2>&1 ||
               { echo "релиз $tag не создан и не найден" >&2; exit 1; }
@@ -514,7 +514,7 @@ jobs:
           # Тот же довод, что и у десктопных сборок: релиз создаёт тот, кто
           # успел первым, и чужое создание считаем удачей.
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "OpenDisk $tag" --prerelease --draft \
+            gh release create "$tag" --title "OpenDisk $tag" --draft \
               --notes "Сборка $tag" ||
               gh release view "$tag" >/dev/null 2>&1 ||
               { echo "релиз $tag не создан и не найден" >&2; exit 1; }
@@ -615,7 +615,7 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "OpenDisk $tag" --prerelease --draft \
+            gh release create "$tag" --title "OpenDisk $tag" --draft \
               --notes "Сборка $tag" ||
               gh release view "$tag" >/dev/null 2>&1 ||
               { echo "релиз $tag не создан и не найден" >&2; exit 1; }
@@ -936,8 +936,8 @@ jobs:
             exit 1
           fi
 
-          # Только теперь релиз становится видимым.
-          gh release edit "$tag" --draft=false
+          # Только теперь релиз становится видимым и полным — не prerelease.
+          gh release edit "$tag" --draft=false --prerelease=false
           echo "Релиз $tag опубликован: установщики есть под все платформы."
 
           # Веб-установщик качает MSI по ссылке, зашитой при сборке
